@@ -1,0 +1,91 @@
+/* 1. Atelier — graphite, muted teal, cool grey.
+   The default workspace skin: restrained colour, clear panels, compact controls.
+   Best for general productivity, projects and chat. */
+
+[data-theme="atelier"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --background: #101820;
+  --background-elevated: #16222c;
+  --surface: #192630;
+  --surface-2: #1e2d38;
+  --surface-hover: #22323e;
+  --border: #263743;
+  --border-strong: #33474f;
+
+  --text: #e6eef2;
+  --text-secondary: #b3c2cb;
+  --text-muted: #8296a1;
+  --text-faint: #647780;
+
+  --accent-primary: #66d9b5;
+  --accent-primary-strong: #4cc39c;
+  --accent-primary-contrast: #06231c;
+  --accent-primary-soft: rgba(102, 217, 181, 0.14);
+
+  --accent-research: #53bfe8;
+  --accent-research-soft: rgba(83, 191, 232, 0.14);
+
+  --accent-ai: #b9a0ff;
+  --accent-ai-soft: rgba(185, 160, 255, 0.14);
+
+  --accent-attention: #f2bc69;
+  --accent-attention-soft: rgba(242, 188, 105, 0.14);
+
+  --accent-success: #75d69c;
+  --accent-success-soft: rgba(117, 214, 156, 0.14);
+
+  --accent-danger: #e8847c;
+  --accent-danger-soft: rgba(232, 132, 124, 0.14);
+
+  --focus: rgba(102, 217, 181, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --scrollbar: #2c3d49;
+
+  --reading-surface: #1c2620;
+}
+
+[data-theme="atelier"][data-mode="light"] {
+  color-scheme: light;
+
+  --background: #f5f7f6;
+  --background-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f0f4f2;
+  --surface-hover: #e9efec;
+  --border: #dfe6e2;
+  --border-strong: #c7d3cd;
+
+  --text: #16222a;
+  --text-secondary: #3d4f59;
+  --text-muted: #64757e;
+  --text-faint: #8898a0;
+
+  --accent-primary: #087f68;
+  --accent-primary-strong: #076a57;
+  --accent-primary-contrast: #ffffff;
+  --accent-primary-soft: rgba(8, 127, 104, 0.1);
+
+  --accent-research: #1679ad;
+  --accent-research-soft: rgba(22, 121, 173, 0.1);
+
+  --accent-ai: #7655c5;
+  --accent-ai-soft: rgba(118, 85, 197, 0.1);
+
+  --accent-attention: #a96913;
+  --accent-attention-soft: rgba(169, 105, 19, 0.12);
+
+  --accent-success: #21844c;
+  --accent-success-soft: rgba(33, 132, 76, 0.12);
+
+  --accent-danger: #b3423a;
+  --accent-danger-soft: rgba(179, 66, 58, 0.1);
+
+  --focus: rgba(8, 127, 104, 0.45);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 32, 0.06);
+  --shadow-md: 0 10px 28px rgba(16, 24, 32, 0.12);
+  --scrollbar: #cfdad5;
+
+  --reading-surface: #fbf8f1;
+}

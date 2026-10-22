@@ -1,0 +1,91 @@
+/* 4. Amethyst — dark plum, lavender, soft violet.
+   A distinctive, creative skin with restrained purple accents and calm dark
+   surfaces. Best for ideation, content writing and personal organization. */
+
+[data-theme="amethyst"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --background: #150f1d;
+  --background-elevated: #1d1527;
+  --surface: #23192f;
+  --surface-2: #2b2039;
+  --surface-hover: #352845;
+  --border: #382b48;
+  --border-strong: #4d3d62;
+
+  --text: #ece4f6;
+  --text-secondary: #c2b3d6;
+  --text-muted: #9b8bb0;
+  --text-faint: #7b6b8f;
+
+  --accent-primary: #c9a6ff;
+  --accent-primary-strong: #b68bf7;
+  --accent-primary-contrast: #1b0f2b;
+  --accent-primary-soft: rgba(201, 166, 255, 0.15);
+
+  --accent-research: #7fc6f5;
+  --accent-research-soft: rgba(127, 198, 245, 0.15);
+
+  --accent-ai: #f2a3e0;
+  --accent-ai-soft: rgba(242, 163, 224, 0.15);
+
+  --accent-attention: #f3c273;
+  --accent-attention-soft: rgba(243, 194, 115, 0.15);
+
+  --accent-success: #85d6a6;
+  --accent-success-soft: rgba(133, 214, 166, 0.15);
+
+  --accent-danger: #f08a99;
+  --accent-danger-soft: rgba(240, 138, 153, 0.15);
+
+  --focus: rgba(201, 166, 255, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.42);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --scrollbar: #362946;
+
+  --reading-surface: #221829;
+}
+
+[data-theme="amethyst"][data-mode="light"] {
+  color-scheme: light;
+
+  --background: #f8f6fd;
+  --background-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f2ecfa;
+  --surface-hover: #eae1f6;
+  --border: #e3d9f1;
+  --border-strong: #cbbce4;
+
+  --text: #241a33;
+  --text-secondary: #4b3e62;
+  --text-muted: #6e6183;
+  --text-faint: #938aa5;
+
+  --accent-primary: #6a3fbe;
+  --accent-primary-strong: #58339f;
+  --accent-primary-contrast: #ffffff;
+  --accent-primary-soft: rgba(106, 63, 190, 0.1);
+
+  --accent-research: #1c6cb0;
+  --accent-research-soft: rgba(28, 108, 176, 0.1);
+
+  --accent-ai: #a03bb8;
+  --accent-ai-soft: rgba(160, 59, 184, 0.1);
+
+  --accent-attention: #8f5c12;
+  --accent-attention-soft: rgba(143, 92, 18, 0.12);
+
+  --accent-success: #2c7a44;
+  --accent-success-soft: rgba(44, 122, 68, 0.12);
+
+  --accent-danger: #b03a52;
+  --accent-danger-soft: rgba(176, 58, 82, 0.1);
+
+  --focus: rgba(106, 63, 190, 0.45);
+  --shadow-sm: 0 1px 2px rgba(40, 24, 64, 0.07);
+  --shadow-md: 0 10px 28px rgba(40, 24, 64, 0.13);
+  --scrollbar: #ded1ef;
+
+  --reading-surface: #fbf9ff;
+}

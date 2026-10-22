@@ -1,0 +1,185 @@
+//! Project and source commands. These back the work-directory list, the sources
+//! panel, and the two buttons that add a folder to the app.
+
+use std::path::PathBuf;
+
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
+
+use crate::config::app_config::Registry;
+use crate::error::{AppError, AppResult};
+use crate::projects::chats::{self, ChatSession, ChatSummary};
+use crate::projects::layout::{ProjectPaths, ProjectTemplate};
+use crate::projects::manager::{self, Context};
+use crate::projects::{Project, SourceFile};
+use crate::AppState;
+
+#[tauri::command]
+pub fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
+    let registry = state.registry()?;
+    Ok(manager::list(&Context {
+        registry: &registry,
+        dirs: &state.dirs,
+    }))
+}
+
+#[tauri::command]
+pub fn open_project(state: State<'_, AppState>, project_id: String) -> AppResult<Project> {
+    let mut registry = state.registry()?;
+    manager::open(&mut registry, &state.dirs, &project_id)
+}
+
+#[tauri::command]
+pub fn list_sources(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<SourceFile>> {
+    let registry = state.registry()?;
+    manager::sources(&registry, &project_id)
+}
+
+#[tauri::command]
+pub fn reindex_sources(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<SourceFile>> {
+    let registry = state.registry()?;
+    let record = registry
+        .find(&project_id)
+        .ok_or_else(|| AppError::UnknownProject(project_id.clone()))?;
+
+    let root = PathBuf::from(&record.path);
+    let sources = manager::scan_sources(&record.id, &root)?;
+    let index_db = crate::index::db::IndexDb::new(&root);
+
+    for source in &sources {
+        let rel_path = std::path::Path::new(&source.name);
+        if let Ok(chunks) = crate::ingest::pipeline::ingest_file(&root, rel_path) {
+            let _ = index_db.insert_chunks(&source.name, &source.modified_at, chunks);
+        }
+    }
+
+    manager::scan_sources(&record.id, &root)
+}
+
+#[tauri::command]
+pub fn set_project_internet(
+    state: State<'_, AppState>,
+    project_id: String,
+    enabled: bool,
+) -> AppResult<Project> {
+    let mut registry = state.registry()?;
+    manager::set_internet(&mut registry, &state.dirs, &project_id, enabled)
+}
+
+#[tauri::command]
+pub fn set_project_system_prompt(
+    state: State<'_, AppState>,
+    project_id: String,
+    prompt: Option<String>,
+) -> AppResult<Project> {
+    let mut registry = state.registry()?;
+    manager::set_system_prompt(&mut registry, &state.dirs, &project_id, prompt)
+}
+
+/// Turns the project's own `diary/` folder on or off. Turning it off never
+/// deletes a page.
+#[tauri::command]
+pub fn set_project_diary(
+    state: State<'_, AppState>,
+    project_id: String,
+    enabled: bool,
+) -> AppResult<Project> {
+    let registry = state.registry()?;
+    manager::set_diary(&registry, &state.dirs, &project_id, enabled)
+}
+
+/// Creates a user folder inside the project and records it in `project.json`.
+#[tauri::command]
+pub fn create_project_folder(
+    state: State<'_, AppState>,
+    project_id: String,
+    name: String,
+) -> AppResult<Project> {
+    let registry = state.registry()?;
+    manager::add_subfolder(&registry, &state.dirs, &project_id, &name)
+}
+
+/// Saved chat sessions for a project, newest first.
+#[tauri::command]
+pub fn list_project_chats(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> AppResult<Vec<ChatSummary>> {
+    let registry = state.registry()?;
+    let dir = chat_dir(&registry, &project_id)?;
+    Ok(chats::list(&dir))
+}
+
+/// Reopens one saved conversation.
+#[tauri::command]
+pub fn read_project_chat(
+    state: State<'_, AppState>,
+    project_id: String,
+    chat_id: String,
+) -> AppResult<ChatSession> {
+    let registry = state.registry()?;
+    let dir = chat_dir(&registry, &project_id)?;
+    chats::load(&dir, &chat_id)
+}
+
+#[tauri::command]
+pub fn delete_project_chat(
+    state: State<'_, AppState>,
+    project_id: String,
+    chat_id: String,
+) -> AppResult<()> {
+    let registry = state.registry()?;
+    let dir = chat_dir(&registry, &project_id)?;
+    chats::delete(&dir, &chat_id)
+}
+
+/// `<project>/chats`, resolved from the registry entry.
+fn chat_dir(registry: &Registry, project_id: &str) -> AppResult<PathBuf> {
+    let record = registry
+        .find(project_id)
+        .ok_or_else(|| AppError::UnknownProject(project_id.to_string()))?;
+    Ok(ProjectPaths::new(&record.path).chats_dir())
+}
+
+/// Registers a folder the user already has. Returns `None` when they cancel.
+#[tauri::command]
+pub async fn add_project_folder(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<Option<Project>> {
+    let Some(folder) = pick_folder(&app, "Choose a folder to work in")? else {
+        return Ok(None);
+    };
+
+    let mut registry = state.registry()?;
+    manager::add_folder(&mut registry, &state.dirs, &folder).map(Some)
+}
+
+/// Creates a new folder for the chosen template. Returns `None` when the user
+/// cancels the picker that chooses where it lives.
+#[tauri::command]
+pub async fn create_project(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    template: ProjectTemplate,
+) -> AppResult<Option<Project>> {
+    let Some(parent) = pick_folder(&app, "Where should the new project live?")? else {
+        return Ok(None);
+    };
+
+    let mut registry = state.registry()?;
+    manager::create_folder(&mut registry, &state.dirs, &parent, template).map(Some)
+}
+
+/// Opens the native folder picker. Only ever called from a worker thread, which
+/// is why these two commands are `async`: the dialog must not block the window.
+fn pick_folder(app: &AppHandle, title: &str) -> AppResult<Option<PathBuf>> {
+    let Some(picked) = app.dialog().file().set_title(title).blocking_pick_folder() else {
+        return Ok(None);
+    };
+
+    picked
+        .into_path()
+        .map(Some)
+        .map_err(|error| AppError::msg(format!("that location cannot be read: {error}")))
+}

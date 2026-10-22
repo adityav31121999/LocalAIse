@@ -1,0 +1,91 @@
+/* 3. Cyber Lab — deep navy, electric cyan, blue.
+   A technical, high-contrast skin with precise data highlights and distinct
+   execution states. Best for model inference and research agents. */
+
+[data-theme="cyber-lab"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --background: #070d19;
+  --background-elevated: #0c1524;
+  --surface: #0f1a2c;
+  --surface-2: #142238;
+  --surface-hover: #192a43;
+  --border: #1d2f4a;
+  --border-strong: #2b4266;
+
+  --text: #dae7f8;
+  --text-secondary: #a2b8d6;
+  --text-muted: #7891b2;
+  --text-faint: #597091;
+
+  --accent-primary: #34d7ff;
+  --accent-primary-strong: #12bfef;
+  --accent-primary-contrast: #03141f;
+  --accent-primary-soft: rgba(52, 215, 255, 0.14);
+
+  --accent-research: #5b9dff;
+  --accent-research-soft: rgba(91, 157, 255, 0.14);
+
+  --accent-ai: #9b8cff;
+  --accent-ai-soft: rgba(155, 140, 255, 0.15);
+
+  --accent-attention: #ffc451;
+  --accent-attention-soft: rgba(255, 196, 81, 0.15);
+
+  --accent-success: #3fe0a0;
+  --accent-success-soft: rgba(63, 224, 160, 0.15);
+
+  --accent-danger: #ff7a86;
+  --accent-danger-soft: rgba(255, 122, 134, 0.15);
+
+  --focus: rgba(52, 215, 255, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.55);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.6);
+  --scrollbar: #23364f;
+
+  --reading-surface: #0d1827;
+}
+
+[data-theme="cyber-lab"][data-mode="light"] {
+  color-scheme: light;
+
+  --background: #f1f6fc;
+  --background-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #e8f0f9;
+  --surface-hover: #dde8f5;
+  --border: #d2e0ef;
+  --border-strong: #b0c6dc;
+
+  --text: #0c1a2b;
+  --text-secondary: #33465f;
+  --text-muted: #5a6f8b;
+  --text-faint: #8497ae;
+
+  --accent-primary: #0a7296;
+  --accent-primary-strong: #085c7c;
+  --accent-primary-contrast: #ffffff;
+  --accent-primary-soft: rgba(10, 114, 150, 0.1);
+
+  --accent-research: #1a5fd0;
+  --accent-research-soft: rgba(26, 95, 208, 0.1);
+
+  --accent-ai: #6244c9;
+  --accent-ai-soft: rgba(98, 68, 201, 0.1);
+
+  --accent-attention: #8f6208;
+  --accent-attention-soft: rgba(143, 98, 8, 0.12);
+
+  --accent-success: #10734a;
+  --accent-success-soft: rgba(16, 115, 74, 0.12);
+
+  --accent-danger: #c02f43;
+  --accent-danger-soft: rgba(192, 47, 67, 0.1);
+
+  --focus: rgba(10, 114, 150, 0.45);
+  --shadow-sm: 0 1px 2px rgba(12, 30, 54, 0.07);
+  --shadow-md: 0 10px 28px rgba(12, 30, 54, 0.13);
+  --scrollbar: #c4d6e8;
+
+  --reading-surface: #f8fbff;
+}

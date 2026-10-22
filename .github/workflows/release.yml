@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    name: ${{ matrix.os }} · installers
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: nsis
+          - os: ubuntu-latest
+            target: "appimage,deb"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: verify llama-server checksums (if bundled)
+        run: npx tsx scripts/verify-binaries.ts
+
+      - name: build installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing is strongly recommended before public release
+          # (Windows SmartScreen). Configure TAURI_SIGNING_PRIVATE_KEY and,
+          # for Windows, the EV certificate secrets in the repo settings.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: .
+          tauriScript: npx tauri
+          args: --bundles ${{ matrix.target }}
+
+      - name: check the produced bundle is CPU-only
+        run: npx tsx scripts/check-bundle.ts src-tauri/target/release/bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalAIse-${{ runner.os }}
+          path: |
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/**/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: bundle
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true

@@ -1,0 +1,91 @@
+/* 5. Arctic — cool white, slate, ice blue.
+   A crisp, neutral skin optimized for clarity and dense information over long
+   working sessions. Best for document comparison and file management. */
+
+[data-theme="arctic"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --background: #0c131b;
+  --background-elevated: #121c27;
+  --surface: #16222e;
+  --surface-2: #1c2a38;
+  --surface-hover: #233443;
+  --border: #253648;
+  --border-strong: #34495e;
+
+  --text: #e1edf6;
+  --text-secondary: #afc0d0;
+  --text-muted: #8397aa;
+  --text-faint: #65778b;
+
+  --accent-primary: #6cc6f0;
+  --accent-primary-strong: #48b3e6;
+  --accent-primary-contrast: #05202e;
+  --accent-primary-soft: rgba(108, 198, 240, 0.14);
+
+  --accent-research: #8fb4ff;
+  --accent-research-soft: rgba(143, 180, 255, 0.15);
+
+  --accent-ai: #b7a8ff;
+  --accent-ai-soft: rgba(183, 168, 255, 0.15);
+
+  --accent-attention: #f0c478;
+  --accent-attention-soft: rgba(240, 196, 120, 0.15);
+
+  --accent-success: #6ed7a6;
+  --accent-success-soft: rgba(110, 215, 166, 0.15);
+
+  --accent-danger: #ef8b93;
+  --accent-danger-soft: rgba(239, 139, 147, 0.15);
+
+  --focus: rgba(108, 198, 240, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --scrollbar: #24374b;
+
+  --reading-surface: #16222d;
+}
+
+[data-theme="arctic"][data-mode="light"] {
+  color-scheme: light;
+
+  --background: #f4f7fa;
+  --background-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #eaeff5;
+  --surface-hover: #dfe7ef;
+  --border: #d5dee8;
+  --border-strong: #b7c4d3;
+
+  --text: #131f2b;
+  --text-secondary: #3c4b5c;
+  --text-muted: #63748a;
+  --text-faint: #8a99ab;
+
+  --accent-primary: #26709f;
+  --accent-primary-strong: #1d5b83;
+  --accent-primary-contrast: #ffffff;
+  --accent-primary-soft: rgba(38, 112, 159, 0.1);
+
+  --accent-research: #2f63c4;
+  --accent-research-soft: rgba(47, 99, 196, 0.1);
+
+  --accent-ai: #6b4fc0;
+  --accent-ai-soft: rgba(107, 79, 192, 0.1);
+
+  --accent-attention: #8c6210;
+  --accent-attention-soft: rgba(140, 98, 16, 0.12);
+
+  --accent-success: #17754f;
+  --accent-success-soft: rgba(23, 117, 79, 0.12);
+
+  --accent-danger: #bb3a48;
+  --accent-danger-soft: rgba(187, 58, 72, 0.1);
+
+  --focus: rgba(38, 112, 159, 0.45);
+  --shadow-sm: 0 1px 2px rgba(18, 38, 60, 0.07);
+  --shadow-md: 0 10px 28px rgba(18, 38, 60, 0.13);
+  --scrollbar: #cad7e4;
+
+  --reading-surface: #f8fbfe;
+}

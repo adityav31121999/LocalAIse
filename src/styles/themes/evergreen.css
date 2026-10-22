@@ -1,0 +1,91 @@
+/* 6. Evergreen — forest charcoal, moss, sage.
+   An organic, low-saturation skin that stays calm without washing out.
+   Best for the diary, knowledge management and extended research sessions. */
+
+[data-theme="evergreen"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --background: #0f140f;
+  --background-elevated: #161d15;
+  --surface: #1b231a;
+  --surface-2: #212a20;
+  --surface-hover: #283326;
+  --border: #2c382a;
+  --border-strong: #3f4f3c;
+
+  --text: #e5ede2;
+  --text-secondary: #b4c1ad;
+  --text-muted: #8a9984;
+  --text-faint: #6a7865;
+
+  --accent-primary: #a3c98a;
+  --accent-primary-strong: #8dba72;
+  --accent-primary-contrast: #141d10;
+  --accent-primary-soft: rgba(163, 201, 138, 0.15);
+
+  --accent-research: #7cc3c8;
+  --accent-research-soft: rgba(124, 195, 200, 0.15);
+
+  --accent-ai: #bcaae0;
+  --accent-ai-soft: rgba(188, 170, 224, 0.15);
+
+  --accent-attention: #e0b46a;
+  --accent-attention-soft: rgba(224, 180, 106, 0.15);
+
+  --accent-success: #8ad38c;
+  --accent-success-soft: rgba(138, 211, 140, 0.15);
+
+  --accent-danger: #e0907f;
+  --accent-danger-soft: rgba(224, 144, 127, 0.15);
+
+  --focus: rgba(163, 201, 138, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.42);
+  --scrollbar: #33402f;
+
+  --reading-surface: #1a2118;
+}
+
+[data-theme="evergreen"][data-mode="light"] {
+  color-scheme: light;
+
+  --background: #f4f6f1;
+  --background-elevated: #ffffff;
+  --surface: #fdfdfb;
+  --surface-2: #ecf0e7;
+  --surface-hover: #e2e8db;
+  --border: #dae0cf;
+  --border-strong: #c1cbb1;
+
+  --text: #1b2318;
+  --text-secondary: #3e4a3a;
+  --text-muted: #657160;
+  --text-faint: #8a9482;
+
+  --accent-primary: #4a7340;
+  --accent-primary-strong: #3b5c33;
+  --accent-primary-contrast: #ffffff;
+  --accent-primary-soft: rgba(74, 115, 64, 0.1);
+
+  --accent-research: #1f6d72;
+  --accent-research-soft: rgba(31, 109, 114, 0.1);
+
+  --accent-ai: #6a54a8;
+  --accent-ai-soft: rgba(106, 84, 168, 0.1);
+
+  --accent-attention: #8a6110;
+  --accent-attention-soft: rgba(138, 97, 16, 0.12);
+
+  --accent-success: #2c7a44;
+  --accent-success-soft: rgba(44, 122, 68, 0.12);
+
+  --accent-danger: #a8453a;
+  --accent-danger-soft: rgba(168, 69, 58, 0.1);
+
+  --focus: rgba(74, 115, 64, 0.45);
+  --shadow-sm: 0 1px 2px rgba(36, 48, 28, 0.07);
+  --shadow-md: 0 10px 28px rgba(36, 48, 28, 0.13);
+  --scrollbar: #d1d9c4;
+
+  --reading-surface: #fbfcf6;
+}

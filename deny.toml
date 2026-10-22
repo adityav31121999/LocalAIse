@@ -1,0 +1,29 @@
+# cargo-deny configuration. The GPU crate ban is the hard rule: the app must
+# never load a graphics runtime, even indirectly, so that CPU-only runs can
+# never allocate VRAM. CI runs `cargo deny check bans` on every change.
+#
+# Install: cargo install cargo-deny
+# Check:   cargo deny check --all-features bans
+
+[graph]
+targets = [
+  { triple = "x86_64-pc-windows-msvc" },
+  { triple = "x86_64-unknown-linux-gnu" },
+]
+
+[licenses]
+version = 2
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-3-Clause", "BSD-2-Clause", "ISC", "Unicode-3.0", "Zlib"]
+
+[bans]
+multiple-versions = "warn"
+deny = [
+  # GPU runtimes: loading any of these initializes drivers and can allocate
+  # VRAM even when the inference profile is CPU-only.
+  { name = "wgpu" },
+  { name = "ash" },
+  { name = "nvml-wrapper" },
+  { name = "cudarc" },
+  { name = "vulkano" },
+  { name = "erupt" },
+]

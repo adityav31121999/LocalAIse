@@ -1,0 +1,45 @@
+/* Light mode — fallback values before a theme layer is applied. */
+
+[data-mode="light"] {
+  color-scheme: light;
+
+  --background: #f5f7f6;
+  --background-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f0f4f2;
+  --surface-hover: #e9efec;
+  --border: #dfe6e2;
+  --border-strong: #c7d3cd;
+
+  --text: #16222a;
+  --text-secondary: #3d4f59;
+  --text-muted: #64757e;
+  --text-faint: #8898a0;
+
+  --accent-primary: #087f68;
+  --accent-primary-strong: #076a57;
+  --accent-primary-contrast: #ffffff;
+  --accent-primary-soft: rgba(8, 127, 104, 0.1);
+
+  --accent-research: #1679ad;
+  --accent-research-soft: rgba(22, 121, 173, 0.1);
+
+  --accent-ai: #7655c5;
+  --accent-ai-soft: rgba(118, 85, 197, 0.1);
+
+  --accent-attention: #a96913;
+  --accent-attention-soft: rgba(169, 105, 19, 0.12);
+
+  --accent-success: #21844c;
+  --accent-success-soft: rgba(33, 132, 76, 0.12);
+
+  --accent-danger: #b3423a;
+  --accent-danger-soft: rgba(179, 66, 58, 0.1);
+
+  --focus: rgba(8, 127, 104, 0.45);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 32, 0.06);
+  --shadow-md: 0 10px 28px rgba(16, 24, 32, 0.12);
+  --scrollbar: #cfdad5;
+
+  --reading-surface: #fbf8f1;
+}

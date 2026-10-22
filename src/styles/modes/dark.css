@@ -1,0 +1,47 @@
+/* Dark mode — fallback values before a theme layer is applied. */
+
+:root,
+[data-mode="dark"] {
+  color-scheme: dark;
+
+  --background: #101820;
+  --background-elevated: #16222c;
+  --surface: #192630;
+  --surface-2: #1e2d38;
+  --surface-hover: #22323e;
+  --border: #263743;
+  --border-strong: #33474f;
+
+  --text: #e6eef2;
+  --text-secondary: #b3c2cb;
+  --text-muted: #8296a1;
+  --text-faint: #647780;
+
+  --accent-primary: #66d9b5;
+  --accent-primary-strong: #4cc39c;
+  --accent-primary-contrast: #06231c;
+  --accent-primary-soft: rgba(102, 217, 181, 0.14);
+
+  --accent-research: #53bfe8;
+  --accent-research-soft: rgba(83, 191, 232, 0.14);
+
+  --accent-ai: #b9a0ff;
+  --accent-ai-soft: rgba(185, 160, 255, 0.14);
+
+  --accent-attention: #f2bc69;
+  --accent-attention-soft: rgba(242, 188, 105, 0.14);
+
+  --accent-success: #75d69c;
+  --accent-success-soft: rgba(117, 214, 156, 0.14);
+
+  --accent-danger: #e8847c;
+  --accent-danger-soft: rgba(232, 132, 124, 0.14);
+
+  --focus: rgba(102, 217, 181, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --scrollbar: #2c3d49;
+
+  /* Warm paper surface for diary and long-form reading */
+  --reading-surface: #1c2620;
+}

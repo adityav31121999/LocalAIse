@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · checks
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --all-targets
+
+      - name: cargo clippy (warnings fail the build)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: unit and integration tests
+        run: cargo test
+
+      - name: GPU crate ban (cargo-deny)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: deny check
+        run: cargo deny check bans
+
+  web:
+    name: frontend · checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: bundle is CPU-only
+        run: npx tsx scripts/check-bundle.ts dist
