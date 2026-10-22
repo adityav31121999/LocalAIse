@@ -1,0 +1,2 @@
+# LocalAIse
+Local AI assistant
