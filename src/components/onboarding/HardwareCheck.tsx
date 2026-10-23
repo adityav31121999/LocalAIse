@@ -27,6 +27,7 @@ export function HardwareCheck({ onNext, onBack }: { onNext: () => void; onBack: 
   const fallback: HardwareReport = {
     totalRamGb: 16,
     availableRamGb: 16,
+    cpuName: "Unknown CPU",
     cpuCores: 8,
     cpuPhysicalCores: 8,
     cpuAvx2: true,
@@ -116,6 +117,10 @@ export function HardwareCheck({ onNext, onBack }: { onNext: () => void; onBack: 
 
       {report ? (
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", padding: "16px", marginBottom: "20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
+            <span>CPU:</span>
+            <strong>{report.cpuName || "Unknown CPU"}</strong>
+          </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
             <span>CPU Cores:</span>
             <strong>{report.cpuCores} cores (auto microarchitecture dispatch)</strong>

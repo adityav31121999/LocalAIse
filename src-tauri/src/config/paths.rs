@@ -21,6 +21,8 @@ pub struct AppDirs {
     pub models: PathBuf,
     /// Where llama-server builds are kept.
     pub llama: PathBuf,
+    /// Writable runtime folder: <app_local_data_dir>/runtime/llama/<tag> in prod, or resources in dev.
+    pub runtime: PathBuf,
     /// Default parent for projects the app creates.
     pub default_projects: PathBuf,
     /// Default personal space folder for diary and calendar.
@@ -39,10 +41,13 @@ impl AppDirs {
         let home = app.path().home_dir().ok();
         let fallback = || documents.clone().or_else(|| home.clone()).unwrap_or_else(|| base.clone());
 
+        let runtime = crate::runtime::gpu_build::runtime_dir(app)?;
+
         let dirs = AppDirs {
             state_file: base.join("state.json"),
             models: base.join("models"),
             llama: base.join("llama"),
+            runtime,
             default_projects: fallback().join("localAIse"),
             default_personal: fallback().join("localAIse-Personal"),
             base,

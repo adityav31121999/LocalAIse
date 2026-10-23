@@ -1,6 +1,7 @@
 # Dependencies
 /node_modules/
 /resources/
+/src-tauri/bundle-llama/
 
 # Build output
 /dist/

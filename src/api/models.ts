@@ -24,6 +24,7 @@ export interface HardwareReport {
   totalRamGb: number;
   /** RAM that is free right now. */
   availableRamGb: number;
+  cpuName?: string;
   cpuCores: number;
   cpuPhysicalCores?: number;
   cpuAvx2?: boolean;

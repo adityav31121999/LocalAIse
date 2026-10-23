@@ -10,6 +10,7 @@ pub struct HardwareReport {
     pub total_ram_gb: f32,
     /// RAM that is free right now.
     pub available_ram_gb: f32,
+    pub cpu_name: String,
     pub cpu_cores: usize,
     pub cpu_physical_cores: u32,
     /// Informational, shown in the model manager. llama.cpp dispatches on its
@@ -50,6 +51,7 @@ pub fn probe_hardware() -> HardwareReport {
         } else {
             total_ram_gb
         },
+        cpu_name: cpu.name,
         cpu_cores: cpu.logical_cores as usize,
         cpu_physical_cores: cpu.physical_cores,
         cpu_avx2: cpu.has_avx2,

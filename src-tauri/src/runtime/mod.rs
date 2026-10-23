@@ -47,4 +47,6 @@ pub struct RuntimeStatus {
     pub device: Option<ComputeDevice>,
     /// Why the last launch failed, when it did.
     pub error: Option<String>,
+    /// Fallback notice if GPU health check failed and reverted to CPU.
+    pub fallback_notice: Option<String>,
 }

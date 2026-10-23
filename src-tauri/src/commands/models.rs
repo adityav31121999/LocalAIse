@@ -296,6 +296,7 @@ pub fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
                 profile: None,
                 device: None,
                 error: Some("the local runtime is busy".to_string()),
+                fallback_notice: None,
             };
         }
     };
@@ -317,6 +318,7 @@ pub fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
         device: profile.as_ref().map(|profile| profile.device),
         profile,
         error: supervisor.last_error(),
+        fallback_notice: supervisor.fallback_notice(),
     }
 }
 

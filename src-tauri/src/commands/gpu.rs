@@ -1,13 +1,9 @@
-//! Tauri entry points for the GPU build installer.
-//!
-//! The settings page lists the backend builds it knows about, sees which one
-//! matches the machine's graphics card, and asks for the install. The work
-//! itself lives in `runtime::gpu_build`; this module only wires state, the
-//! run stop and the capability cache to it.
+//! Tauri entry points for GPU detection and backend management.
 
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
+use crate::hardware::gpu::{self, GpuRecommendation};
 use crate::runtime::gpu_build::{self, GpuTarget};
 use crate::AppState;
 
@@ -15,39 +11,54 @@ use crate::AppState;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuBuildList {
-    /// The adapter the machine reports, so the UI can say what was matched.
     pub gpu_name: String,
-    /// "CUDA", "Vulkan" or "CPU only" — the detection's own word.
     pub gpu_backend: String,
-    /// True when the machine reports a graphics card at all.
     pub gpu_available: bool,
-    /// The backend that matches the detected card, for the badge.
     pub recommended: Option<String>,
-    /// CUDA, Vulkan and OpenCL, in that order.
     pub builds: Vec<gpu_build::GpuBuildStatus>,
+    pub recommendation: GpuRecommendation,
+}
+
+/// Detects the machine's GPU and returns full recommendation details.
+#[tauri::command]
+pub fn detect_gpu() -> GpuRecommendation {
+    gpu::recommend_gpu()
 }
 
 /// The state of the GPU builds the app knows about.
 #[tauri::command]
 pub fn list_gpu_builds(state: tauri::State<'_, AppState>) -> GpuBuildList {
-    let gpu = crate::hardware::gpu::detect();
-    let builds = gpu_build::status(&state.dirs, &gpu.backend);
+    list_backends(state)
+}
+
+/// Lists all known backends (aliased command per spec).
+#[tauri::command]
+pub fn list_backends(state: tauri::State<'_, AppState>) -> GpuBuildList {
+    let rec = gpu::recommend_gpu();
+    let gpu_info = gpu::detect();
+    let builds = gpu_build::status(&state.dirs, &gpu_info.backend);
     GpuBuildList {
-        recommended: gpu_build::recommend(&gpu.backend)
+        recommended: gpu_build::recommend(&gpu_info.backend)
             .map(|target| target.as_str().to_string()),
-        gpu_name: gpu.name,
-        gpu_backend: gpu.backend.as_str().to_string(),
-        gpu_available: gpu.backend != crate::hardware::gpu::GpuBackend::None,
+        gpu_name: rec.device_name.clone(),
+        gpu_backend: rec.backend.clone(),
+        gpu_available: rec.backend != "none",
         builds,
+        recommendation: rec,
     }
 }
 
+/// Installs a backend.
+#[tauri::command]
+pub async fn install_backend(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    backend: String,
+) -> AppResult<String> {
+    install_gpu_build(app, state, backend).await
+}
+
 /// Installs the prebuilt llama.cpp build of `target`.
-///
-/// The launcher of the running server is stopped first: the install has to
-/// replace files the old server may hold open. After the install the build
-/// resolver prefers the new build automatically, so the next chat turn runs
-/// on the GPU without further configuration.
 #[tauri::command]
 pub async fn install_gpu_build(
     app: tauri::AppHandle,
@@ -60,21 +71,47 @@ pub async fn install_gpu_build(
 
     let dirs = state.dirs.clone();
 
-    // The install replaces the build on disk, so any running server has to
-    // go first.
+    // The install replaces the build on disk, so any running server has to go first.
     if let Ok(mut supervisor) = state.supervisor.lock() {
         supervisor.stop();
     }
 
     let binary = gpu_build::install(&app, &dirs, target).await?;
 
-    // The resolved build may have changed identity entirely.
     if let Ok(mut cache) = state.capabilities.lock() {
         cache.invalidate(&binary);
-        // Every installed build was probed only through the old resolution;
-        // a cosmetic extra probe is cheaper than a stale answer.
         cache.clear();
     }
 
     Ok(binary.to_string_lossy().into_owned())
+}
+
+/// Removes an installed GPU backend.
+#[tauri::command]
+pub fn remove_backend(
+    state: tauri::State<'_, AppState>,
+    backend: String,
+) -> AppResult<()> {
+    let target = GpuTarget::parse(&backend).ok_or_else(|| {
+        AppError::msg("Unknown backend")
+    })?;
+
+    if let Ok(mut supervisor) = state.supervisor.lock() {
+        supervisor.stop();
+    }
+
+    gpu_build::remove(&state.dirs, target)?;
+
+    if let Ok(mut cache) = state.capabilities.lock() {
+        cache.clear();
+    }
+
+    Ok(())
+}
+
+/// Cancels an in-progress backend download/install.
+#[tauri::command]
+pub fn cancel_install() -> AppResult<()> {
+    gpu_build::cancel_current_install();
+    Ok(())
 }

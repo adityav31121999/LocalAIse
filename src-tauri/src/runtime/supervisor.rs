@@ -15,6 +15,7 @@ pub struct Supervisor {
     running: Option<Running>,
     last_error: Option<String>,
     device_verified: Option<(PathBuf, String)>,
+    fallback_notice: Option<String>,
 }
 
 struct Running {
@@ -49,6 +50,7 @@ impl Supervisor {
             running: None,
             last_error: None,
             device_verified: None,
+            fallback_notice: None,
         }
     }
 
@@ -59,6 +61,14 @@ impl Supervisor {
 
     pub fn last_error(&self) -> Option<String> {
         self.last_error.clone()
+    }
+
+    pub fn fallback_notice(&self) -> Option<String> {
+        self.fallback_notice.clone()
+    }
+
+    pub fn set_fallback_notice(&mut self, notice: Option<String>) {
+        self.fallback_notice = notice;
     }
 
     pub fn running_model(&self) -> Option<PathBuf> {
@@ -118,6 +128,15 @@ impl Supervisor {
             .stderr(Stdio::null());
         for (key, value) in &launch.env {
             command.env(key, value);
+        }
+
+        // On Linux, set LD_LIBRARY_PATH to the directory of the server binary so
+        // backend shared libraries (.so) can be located dynamically.
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(parent) = request.server.parent() {
+                command.env("LD_LIBRARY_PATH", parent);
+            }
         }
 
         let child = command.spawn().map_err(|error| {

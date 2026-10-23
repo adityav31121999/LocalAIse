@@ -124,12 +124,59 @@ pub async fn chat_send(
     }
     messages.push(client::message("user", user_prompt));
 
-    if let Err(error) = client::wait_until_ready(&serving).await {
-        if let Ok(mut supervisor) = state.supervisor() {
-            supervisor.mark_failed(error.to_string());
+    let serving = match client::wait_until_ready(&serving).await {
+        Ok(()) => serving,
+        Err(error) => {
+            // Check if this was a GPU run. If so, attempt fallback to CPU once.
+            let is_gpu_run = state
+                .supervisor()
+                .ok()
+                .and_then(|sup| sup.running_profile().map(|p| p.device.gpu_layers() > 0))
+                .unwrap_or(false);
+
+            if is_gpu_run {
+                if let Ok(mut supervisor) = state.supervisor() {
+                    supervisor.stop();
+                    supervisor.set_fallback_notice(Some(
+                        "GPU runtime failed health check. Fell back to CPU backend.".to_string(),
+                    ));
+                }
+
+                // Force a CPU setup and launch
+                let cpu_settings = settings.clone();
+                let mut cpu_profile = cpu_settings.profile_for(Some(&model), Some(&project_id)).clone();
+                cpu_profile.device = crate::runtime::profile::ComputeDevice::Cpu;
+
+                let cpu_server = crate::runtime::backend::resolve_server(&state.dirs, &cpu_settings)
+                    .ok_or(AppError::msg("no CPU-capable llama-server found"))?;
+                let projector = models::projector_for(&model);
+
+                let cpu_serving = {
+                    let mut supervisor = state.supervisor()?;
+                    supervisor.ensure(&crate::runtime::supervisor::LaunchRequest {
+                        model: model.as_path(),
+                        projector: projector.as_deref(),
+                        server: cpu_server.as_path(),
+                        profile: &cpu_profile,
+                    })?
+                };
+
+                if let Err(retry_err) = client::wait_until_ready(&cpu_serving).await {
+                    if let Ok(mut supervisor) = state.supervisor() {
+                        supervisor.mark_failed(retry_err.to_string());
+                    }
+                    return Err(retry_err);
+                }
+
+                cpu_serving
+            } else {
+                if let Ok(mut supervisor) = state.supervisor() {
+                    supervisor.mark_failed(error.to_string());
+                }
+                return Err(error);
+            }
         }
-        return Err(error);
-    }
+    };
 
     let model_label = models::label(&model);
     let emitter = app.clone();

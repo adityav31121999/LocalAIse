@@ -73,6 +73,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Ensure writable runtime exists and base CPU files are staged before supervisor launches
+            if let Err(e) = crate::runtime::gpu_build::ensure_runtime(app.handle()) {
+                eprintln!("[runtime] Warning: ensure_runtime: {e}");
+            }
+
             let dirs = AppDirs::resolve(app.handle())?;
             let registry = Registry::load(&dirs.state_file);
 
@@ -89,6 +94,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::gpu::detect_gpu,
+            commands::gpu::list_backends,
+            commands::gpu::install_backend,
+            commands::gpu::remove_backend,
+            commands::gpu::cancel_install,
             commands::projects::list_projects,
             commands::projects::open_project,
             commands::projects::list_sources,

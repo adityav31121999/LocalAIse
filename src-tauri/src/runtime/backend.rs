@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use crate::config::app_config::Settings;
 use crate::config::paths::AppDirs;
+use crate::hardware::gpu::{self};
 use crate::runtime::budget::{auto_gpu_layers, ModelShape};
 use crate::runtime::gpu_build::{backend_dll_installed, installed_binary, platform_dir, GpuTarget};
 use crate::runtime::profile::{ComputeDevice, InferenceProfile};
@@ -261,22 +262,43 @@ fn cpu_candidates(dirs: &AppDirs) -> Vec<PathBuf> {
 
 /// The GPU-capable server binary, when any accelerated backend DLL is present.
 ///
-/// All GPU backends share the same launcher (`llama-server`) in the flat
-/// platform folder. The presence of `ggml-cuda.dll`, `ggml-vulkan.dll` or
-/// `ggml-opencl.dll` next to it determines which backends are active at
-/// runtime (the `--list-devices` probe confirms this). CUDA wins when
-/// multiple backends are installed on the same machine.
+/// Prefers the installed GPU backend that matches the detected vendor (e.g. CUDA for NVIDIA,
+/// Vulkan for AMD/Intel).
 fn gpu_candidates(dirs: &AppDirs) -> Vec<PathBuf> {
-    let has_any_gpu = [GpuTarget::Cuda, GpuTarget::Vulkan, GpuTarget::Opencl]
-        .iter()
-        .any(|t| backend_dll_installed(dirs, *t));
-    if has_any_gpu {
-        installed_binary(dirs, GpuTarget::Cuda)
-            .into_iter()
-            .collect()
+    let rec = gpu::recommend_gpu();
+    let preferred_target = match rec.backend.as_str() {
+        "cuda" => Some(GpuTarget::Cuda),
+        "vulkan" => Some(GpuTarget::Vulkan),
+        "opencl" => Some(GpuTarget::Opencl),
+        _ => None,
+    };
+
+    let mut targets_to_try = Vec::new();
+    if let Some(preferred) = preferred_target {
+        if backend_dll_installed(dirs, preferred) {
+            targets_to_try.push(preferred);
+        }
+    }
+
+    for fallback in [GpuTarget::Cuda, GpuTarget::Vulkan, GpuTarget::Opencl] {
+        if !targets_to_try.contains(&fallback) && backend_dll_installed(dirs, fallback) {
+            targets_to_try.push(fallback);
+        }
+    }
+
+    if let Some(target) = targets_to_try.first() {
+        installed_binary(dirs, *target).into_iter().collect()
     } else {
         vec![]
     }
+}
+
+/// Returns installed GPU targets count, allowing explicit device flag if multiple exist.
+pub fn installed_gpu_backends(dirs: &AppDirs) -> Vec<GpuTarget> {
+    [GpuTarget::Cuda, GpuTarget::Vulkan, GpuTarget::Opencl]
+        .into_iter()
+        .filter(|t| backend_dll_installed(dirs, *t))
+        .collect()
 }
 
 /// The first candidate that exists on disk.
@@ -527,7 +549,8 @@ mod tests {
             base: root.clone(),
             state_file: root.join("state.json"),
             models: root.join("models"),
-            llama: llama_dir,
+            llama: llama_dir.clone(),
+            runtime: llama_dir,
             default_projects: root.join("projects"),
             default_personal: root.join("personal"),
         };

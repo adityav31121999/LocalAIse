@@ -12,6 +12,8 @@ const FORBIDDEN = [
   /libcudart/i,
   /ggml-cuda/i,
   /ggml-vulkan/i,
+  /ggml-opencl/i,
+  /opencl/i,
 ];
 
 function walk(dir: string): string[] {
