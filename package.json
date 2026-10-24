@@ -13,20 +13,33 @@
     "fetch-llama-server": "npx tsx scripts/fetch-llama-server.ts",
     "verify-binaries": "npx tsx scripts/verify-binaries.ts",
     "check-bundle": "npx tsx scripts/check-bundle.ts",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.1.1",
+    "@google/genai": "^2.4.0",
+    "@tauri-apps/api": "^2.12.4",
+    "@tailwindcss/vite": "^4.3.3",
     "jszip": "^3.10.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "zustand": "^5.0.1"
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "zustand": "^5.0.16",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/express": "^4.17.21",
     "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"
   }

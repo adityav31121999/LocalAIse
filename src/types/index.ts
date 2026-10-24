@@ -127,7 +127,7 @@ export interface RuntimeStatus {
   error: string | null;
 }
 
-export type WorkspaceTab = "chat" | "files" | "analysis" | "research" | "diary" | "activity";
+export type WorkspaceTab = "chat" | "files" | "calendar" | "analysis" | "research" | "diary" | "activity";
 
 /** A diary entry. `date` is "YYYY-MM-DD" for a dated entry, or null for a page the user added. */
 export interface DiaryPage {
@@ -137,7 +137,25 @@ export interface DiaryPage {
   body: string;
   createdAt: string;
   updatedAt: string;
+  folderId?: string;
+  folderName?: string;
+  filePath?: string;
+  isHidden?: boolean;
 }
+
+export interface PersonalFolderRecord {
+  id: string;
+  name: string;
+  path: string;
+  isDir: boolean;
+  isHidden: boolean;
+  isDefault: boolean;
+  type: "calendar_pages" | "user_folder";
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 
 export interface CalendarEvent {
   id: string;

@@ -275,3 +275,13 @@ export function XIcon(props: IconProps) {
     </Base>
   );
 }
+
+export function HomeIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M3 9.5l9-7 9 7v10.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20V9.5z" />
+      <path d="M9 21v-6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v6" />
+    </Base>
+  );
+}
+

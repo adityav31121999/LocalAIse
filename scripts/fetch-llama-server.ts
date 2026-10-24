@@ -45,7 +45,6 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  rmSync,
   statSync,
   readFileSync,
   writeFileSync,

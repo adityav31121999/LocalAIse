@@ -31,9 +31,8 @@
     "targets": ["nsis", "appimage", "deb"],
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "resources": [
-      "bundle-llama/windows-x64/*",
-      "bundle-llama/linux-x64/*",
-      "../resources/models/embedding-manifest.json"
+      "../resources/llama/windows-x64/*",
+      "../resources/llama/linux-x64/*"
     ]
   }
 }

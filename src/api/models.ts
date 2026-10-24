@@ -453,6 +453,8 @@ const RUNTIME_OVERHEAD = 0.5 * GIB;
 
 const MOCK_RAM_TOTAL = 16 * GIB;
 const MOCK_RAM_AVAILABLE = 9.4 * GIB;
+const MOCK_VRAM_TOTAL = 8.0 * GIB;
+const VRAM_RESERVE = 0.8 * GIB;
 const MOCK_CORES = 12;
 
 /** Bytes per cached value, including the block-scale overhead. */
@@ -758,26 +760,37 @@ function mockFindings(
     });
   }
 
+  const onGpu = device.device === "user_gpu";
   if (fit === "exceeds") {
-    messages.push({
-      code: "memory-exceeds",
-      severity: "warning",
-      title: "May exceed available memory",
-      detail:
-        `The weights, the cache and the runtime need about ${(needed / GIB).toFixed(1)} GB, ` +
-        `but only ${(budget / GIB).toFixed(1)} GB of the ${(MOCK_RAM_TOTAL / GIB).toFixed(1)} GB ` +
-        "of RAM are free for inference. Lower the context window, pick a smaller KV cache type " +
-        "(Q5 or Q4), or turn on partial loading so llama-server shrinks the context to fit.",
-    });
+    if (onGpu) {
+      messages.push({
+        code: "vram-exceeds",
+        severity: "error",
+        title: "Estimated VRAM exceeds physical GPU memory",
+        detail:
+          `The weights and KV cache need about ${(needed / GIB).toFixed(1)} GB VRAM, ` +
+          `exceeding the ${(MOCK_VRAM_TOTAL / GIB).toFixed(1)} GB physical VRAM available on the graphics adapter. ` +
+          "Lower the context window, switch to a quantized KV cache (Q4 or Q8), or reduce offloaded GPU layers.",
+      });
+    } else {
+      messages.push({
+        code: "memory-exceeds",
+        severity: "warning",
+        title: "Estimated memory exceeds available physical RAM",
+        detail:
+          `The weights, KV cache, and runtime overhead need about ${(needed / GIB).toFixed(1)} GB RAM, ` +
+          `which exceeds the ${(MOCK_RAM_AVAILABLE / GIB).toFixed(1)} GB currently available and approaches/exceeds ${(MOCK_RAM_TOTAL / GIB).toFixed(1)} GB physical RAM. ` +
+          "Lower the context window, pick a smaller KV cache type (Q5 or Q4), or turn on partial loading so llama-server shrinks the context to fit.",
+      });
+    }
   } else if (fit === "tight") {
     messages.push({
       code: "memory-tight",
       severity: "warning",
       title: "Tight memory budget",
       detail:
-        `The weights, the cache and the runtime need about ${(needed / GIB).toFixed(1)} GB of ` +
-        `the ${(budget / GIB).toFixed(1)} GB that are free for inference. It fits, but there is ` +
-        "little room for anything else.",
+        `The weights, cache, and runtime need about ${(needed / GIB).toFixed(1)} GB of ` +
+        `the ${(budget / GIB).toFixed(1)} GB available for inference. It fits, but with very little safety margin for multitasking.`,
     });
   }
 
@@ -804,7 +817,6 @@ function mockFindings(
     });
   }
 
-  void device;
   return messages;
 }
 
@@ -840,14 +852,15 @@ function mockEstimate(draft: InferenceProfile, modelPath?: string | null): Profi
   const vramBytes = onGpu ? fileBytes + kvBytes : 0;
 
   const ramBudget = MOCK_RAM_TOTAL - RAM_RESERVE;
-  // The fixture machine has no graphics card, so there is no VRAM to measure
-  // against and the RAM side is the one that counts.
-  const fit: FitLevel = onGpu
-    ? mockFit(ramBytes, ramBudget)
-    : mockFit(ramBytes + RUNTIME_OVERHEAD, ramBudget);
-  const needed = onGpu ? ramBytes : ramBytes + RUNTIME_OVERHEAD;
+  const vramBudget = MOCK_VRAM_TOTAL - VRAM_RESERVE;
 
-  const messages = mockFindings(draft, shape, device, fit, needed, ramBudget);
+  const fit: FitLevel = onGpu
+    ? mockFit(vramBytes, vramBudget)
+    : mockFit(ramBytes + RUNTIME_OVERHEAD, ramBudget);
+  const needed = onGpu ? vramBytes : ramBytes + RUNTIME_OVERHEAD;
+  const effectiveBudget = onGpu ? vramBudget : ramBudget;
+
+  const messages = mockFindings(draft, shape, device, fit, needed, effectiveBudget);
   const running = MOCK_RUNNING.profile;
   const requiresRestart = !sameResolved(resolved, running);
 
@@ -862,14 +875,14 @@ function mockEstimate(draft: InferenceProfile, modelPath?: string | null): Profi
     kvCacheGb: kvBytes / GIB,
     kvCacheGbByType,
     runtimeOverheadGb: RUNTIME_OVERHEAD / GIB,
-    ramNeededGb: ramBytes / GIB,
+    ramNeededGb: (onGpu ? RUNTIME_OVERHEAD : ramBytes + RUNTIME_OVERHEAD) / GIB,
     ramTotalGb: MOCK_RAM_TOTAL / GIB,
     ramAvailableGb: MOCK_RAM_AVAILABLE / GIB,
     ramBudgetGb: ramBudget / GIB,
     vramNeededGb: vramBytes / GIB,
-    vramTotalGb: 0,
-    vramBudgetGb: 0,
-    vramKnown: false,
+    vramTotalGb: MOCK_VRAM_TOTAL / GIB,
+    vramBudgetGb: vramBudget / GIB,
+    vramKnown: true,
     fit,
     isMoe: false,
     recommended: mockRecommend(shape, draft.contextTokens, ramBudget),

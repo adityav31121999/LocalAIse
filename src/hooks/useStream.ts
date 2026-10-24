@@ -22,9 +22,11 @@ type Unsubscribe = () => void;
 export function subscribeChatTokens(onToken: (event: ChatTokenEvent) => void): Promise<Unsubscribe> {
   if (!isTauri) return Promise.resolve(() => undefined);
 
-  return import("@tauri-apps/api/event").then(({ listen }) =>
-    listen<ChatTokenEvent>("chat://token", (event) => {
-      if (event.payload) onToken(event.payload);
-    }),
-  );
+  return import("@tauri-apps/api/event")
+    .then(({ listen }) =>
+      listen<ChatTokenEvent>("chat://token", (event) => {
+        if (event.payload) onToken(event.payload);
+      }),
+    )
+    .catch(() => () => undefined);
 }

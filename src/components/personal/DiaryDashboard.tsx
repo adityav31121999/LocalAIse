@@ -135,13 +135,27 @@ export function DiaryDashboard() {
           <div className="project-header__identity">
             <div className="project-header__name">
               <BookIcon size={14} />
-              <span className="truncate">Diary</span>
+              <span className="truncate">Personal Calendar & Diary</span>
               <span className="badge">{pages.length} pages</span>
+              {!scopeProjectId && (
+                <span
+                  className="badge"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "10.5px",
+                    background: "var(--surface-2)",
+                    color: "var(--text-muted)",
+                  }}
+                  title="Recorded on database: default hidden folder storing all personal calendar pages"
+                >
+                  📁 .calendar (hidden)
+                </span>
+              )}
             </div>
             <div className="project-header__path truncate">
               {scopeProjectId
                 ? `${project?.name} · diary/ folder in the project · one page per day`
-                : "Personal space · one page per day, plus any page you add"}
+                : "Personal space · All pages stored in default hidden database folder: .calendar"}
             </div>
           </div>
 

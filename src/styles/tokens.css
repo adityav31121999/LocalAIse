@@ -60,6 +60,8 @@
 
   /* Legacy aliases used by earlier theme files */
   --bg: var(--background);
+  --app-bg: var(--background);
+  --text-primary: var(--text);
   --primary: var(--accent-primary);
   --research: var(--accent-research);
   --ai: var(--accent-ai);
