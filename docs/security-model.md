@@ -37,11 +37,14 @@ Everything here exists to make that promise load-bearing rather than cosmetic.
   the hardware settings can download the official prebuilt llama.cpp build
   for the card this machine reports (CUDA on NVIDIA, Vulkan elsewhere),
   taking the archive from ggml-org's release, checking its SHA-256 against
-  the digest the release publishes and recording the story in
-  `build-info.json` next to the build. These installs live in the app's data
-  dir, never inside the installers, and the release bundle stays scanned by
-  `scripts/check-bundle.ts`. GPU programs (`wgpu`, `ash`, `nvml-wrapper`,
-  `cudarc`, `vulkano`) stay banned in the app's own code (`deny.toml`).
+  the digest pinned in `src-tauri/backends.json` and recording the story in
+  `build-info.json` next to the build. (Upstream publishes no checksum
+  files for these archives, so the app pins digests itself; the pinned tag
+  is covered by `docs/backend.md`'s re-audit checklist.) These installs live
+  in the app's data dir, never inside the installers, and the release bundle
+  stays scanned by `scripts/check-bundle.ts`. GPU programs (`wgpu`, `ash`,
+  `nvml-wrapper`, `cudarc`, `vulkano`) stay banned in the app's own code
+  (`deny.toml`).
 - CPU-only runs pin zero devices explicitly: the launcher passes
   `--device none` plus empty `CUDA_VISIBLE_DEVICES`,
   `GGML_VK_VISIBLE_DEVICES` and `GGML_OPENCL_VISIBLE_DEVICES`, so on any

@@ -15,6 +15,7 @@ import {
 } from "../../api/models";
 import { RuntimeActions } from "./RuntimeActions";
 import { deviceLabel, useRuntimeConfig } from "./runtime-config";
+import { DownloadProgress } from "../ui/DownloadProgress";
 
 const STATE_LABELS: Record<string, string> = {
   ready: "Running",
@@ -100,6 +101,10 @@ export function HardwareSettings() {
   const [builds, setBuilds] = useState<GpuBuildList | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
   const [installStage, setInstallStage] = useState<string | null>(null);
+  /** How far the running download has got, in bytes, as the installer reports it. */
+  const [progress, setProgress] = useState<{ target: string; done: number; total: number } | null>(
+    null,
+  );
   const [buildError, setBuildError] = useState<string | null>(null);
 
   const readBuilds = async () => {
@@ -115,8 +120,21 @@ export function HardwareSettings() {
     import("@tauri-apps/api/event")
       .then(({ listen }) =>
         listen("localAIse/gpu-build", (event) => {
-          const stage = (event.payload as { stage?: string })?.stage ?? null;
-          if (stage) setInstallStage(stage);
+          const payload = event.payload as {
+            stage?: string;
+            target?: string;
+            done?: number;
+            total?: number;
+          };
+          if (payload?.stage) setInstallStage(payload.stage);
+          // A download reports bytes; other stages (unpacking, probing) do not.
+          if (payload?.stage === "downloading" && payload.target != null) {
+            setProgress({
+              target: payload.target,
+              done: payload.done ?? 0,
+              total: payload.total ?? 0,
+            });
+          }
         }),
       )
       .then((stop) => {
@@ -154,6 +172,7 @@ export function HardwareSettings() {
     setInstalling(target);
     setBuildError(null);
     setInstallStage("resolving");
+    setProgress(null);
     try {
       await installGpuBuild(target);
       // The new build takes over as the resolved one; both readings move.
@@ -163,6 +182,7 @@ export function HardwareSettings() {
     } finally {
       setInstalling(null);
       setInstallStage(null);
+      setProgress(null);
     }
   };
 
@@ -261,7 +281,7 @@ export function HardwareSettings() {
         <p className="field__hint">
           The installer ships a CPU-only build of llama.cpp. For the graphics card, the app can
           install the official llama.cpp build that matches this machine — CUDA on NVIDIA, Vulkan
-          everywhere else — verified against the checksums the release publishes, or you can point
+          everywhere else — verified against the checksums pinned in the app, or you can point
           it at your own build.
         </p>
         <div className="caps">
@@ -328,6 +348,17 @@ export function HardwareSettings() {
           <p className="field__hint">
             {STAGE_LABELS[installStage] ?? installStage} {installing ? `(${installing})` : ""}
           </p>
+        )}
+        {installing && (
+          <DownloadProgress
+            done={progress?.done ?? 0}
+            total={progress?.total ?? 0}
+            pendingLabel={
+              installStage && installStage !== "downloading"
+                ? "The archive is unpacking — the download itself is finished."
+                : "Waiting for the download to start…"
+            }
+          />
         )}
         {buildError && <p className="field__hint perf__error">{buildError}</p>}
 

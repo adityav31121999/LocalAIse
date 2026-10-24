@@ -6,6 +6,8 @@ interface NavState {
   showHome(): void;
   showDiary(): void;
   showSettings(): void;
+  showThemeSettings(): void;
+  showModelConfig(): void;
 }
 
 export const useNavStore = create<NavState>()((set) => ({
@@ -13,4 +15,6 @@ export const useNavStore = create<NavState>()((set) => ({
   showHome: () => set({ view: "home" }),
   showDiary: () => set({ view: "diary" }),
   showSettings: () => set({ view: "settings" }),
+  showThemeSettings: () => set({ view: "theme-settings" }),
+  showModelConfig: () => set({ view: "model-config" }),
 }));

@@ -18,7 +18,7 @@ fn project_root(state: &State<'_, AppState>, project_id: &str) -> AppResult<Path
 }
 
 #[tauri::command]
-pub fn list_project_directory(
+pub async fn list_project_directory(
     state: State<'_, AppState>,
     project_id: String,
     path: String,

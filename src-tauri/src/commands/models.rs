@@ -7,6 +7,7 @@
 //! will run on, and only then is it persisted. Applying a profile stops the
 //! running server, so the next chat starts it again with the validated flags.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use tauri::State;
@@ -18,7 +19,7 @@ use crate::models::registry as models;
 use crate::models::shape::read_shape;
 use crate::runtime::backend::{self, ServerCapabilities};
 use crate::runtime::budget::{self, FitLevel, ModelShape};
-use crate::runtime::profile::{ComputeDevice, InferenceProfile, ProfileScope};
+use crate::runtime::profile::{ComputeDevice, InferenceProfile, KvCacheType, ProfileScope};
 use crate::runtime::{RuntimeState, RuntimeStatus};
 use crate::AppState;
 
@@ -42,6 +43,11 @@ pub struct ProfileEstimate {
     pub max_context: u32,
     /// Estimated KV cache bytes for the current profile.
     pub kv_cache_gb: f32,
+    /// What the same window costs under every cache type, keyed by the type's
+    /// wire name. Empty when the shape is unknown. The control that picks the
+    /// type shows all of them, so the choice is made with the numbers in view
+    /// instead of by guesswork.
+    pub kv_cache_gb_by_type: BTreeMap<String, f32>,
     /// Working memory llama.cpp needs on top of the weights and the cache.
     pub runtime_overhead_gb: f32,
     /// Estimated RAM for the whole run when the device is CPU.
@@ -127,8 +133,16 @@ struct Facts {
 /// A model and the multimodal projector beside it belong together, so they are
 /// returned as one group rather than as loose files. Models the app stores a
 /// configuration of its own for are marked, so the models list can say so.
+///
+/// Heavy commands in this file are `async` so Tauri runs them on its worker
+/// pool instead of the main thread: a synchronous command freezes the whole
+/// window while it works, and these ones walk folders and spawn processes.
+/// Async commands that borrow `State` must return a `Result`, so the ones
+/// that cannot fail say `Ok` — to the webview that reads the same as before.
 #[tauri::command]
-pub fn list_available_models(state: State<'_, AppState>) -> Vec<models::ModelGroup> {
+pub async fn list_available_models(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<models::ModelGroup>> {
     let settings = state
         .registry()
         .map(|registry| registry.settings.clone())
@@ -141,7 +155,7 @@ pub fn list_available_models(state: State<'_, AppState>) -> Vec<models::ModelGro
         }
     }
 
-    groups
+    Ok(groups)
 }
 
 /// The GGUF folders the user keeps models in.
@@ -226,7 +240,7 @@ fn register_folder(state: &State<'_, AppState>, folder: &str) -> AppResult<()> {
 
 /// Set the selected model path in persistent settings.
 #[tauri::command]
-pub fn select_model(state: State<'_, AppState>, model_path: String) -> AppResult<()> {
+pub async fn select_model(state: State<'_, AppState>, model_path: String) -> AppResult<()> {
     let state_file = state.dirs.state_file.clone();
     let mut registry = state.registry()?;
     registry.settings.selected_model = if model_path.is_empty() {
@@ -243,7 +257,7 @@ pub fn select_model(state: State<'_, AppState>, model_path: String) -> AppResult
 
 /// Remove a model file from the models folder.
 #[tauri::command]
-pub fn delete_model(state: State<'_, AppState>, model_path: String) -> AppResult<()> {
+pub async fn delete_model(state: State<'_, AppState>, model_path: String) -> AppResult<()> {
     let models_dir = state.dirs.models.clone();
     let path = std::path::PathBuf::from(&model_path);
     if !path.starts_with(&models_dir) {
@@ -273,7 +287,7 @@ pub fn get_selected_model(state: State<'_, AppState>) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn get_hardware_report() -> crate::hardware::HardwareReport {
+pub async fn get_hardware_report() -> crate::hardware::HardwareReport {
     crate::hardware::probe_hardware()
 }
 
@@ -347,12 +361,14 @@ pub fn get_runtime_profile(
 /// The answer comes from the build itself, not from the driver files: a
 /// build that cannot see a graphics card says so.
 #[tauri::command]
-pub fn get_runtime_capabilities(state: State<'_, AppState>) -> ServerCapabilities {
+pub async fn get_runtime_capabilities(
+    state: State<'_, AppState>,
+) -> AppResult<ServerCapabilities> {
     let settings = state
         .registry()
         .map(|registry| registry.settings.clone())
         .unwrap_or_default();
-    capabilities_for(&state, &settings)
+    Ok(capabilities_for(&state, &settings))
 }
 
 /// The capabilities of the build that would run for these settings.
@@ -369,7 +385,7 @@ fn capabilities_for(state: &AppState, settings: &Settings) -> ServerCapabilities
 /// This never changes anything: the UI calls it while the user edits, and the
 /// findings are shown next to the controls that caused them.
 #[tauri::command]
-pub fn validate_runtime_profile(
+pub async fn validate_runtime_profile(
     state: State<'_, AppState>,
     profile: InferenceProfile,
     model_path: Option<String>,
@@ -397,7 +413,7 @@ pub fn validate_runtime_profile(
 /// this model or this project — and the server is only stopped when the
 /// profile that is actually in effect changes.
 #[tauri::command]
-pub fn apply_runtime_profile(
+pub async fn apply_runtime_profile(
     state: State<'_, AppState>,
     profile: InferenceProfile,
     model_path: Option<String>,
@@ -454,7 +470,7 @@ pub fn apply_runtime_profile(
 /// The global default has nothing above it, so clearing it restores the
 /// app's own default instead.
 #[tauri::command]
-pub fn reset_runtime_profile(
+pub async fn reset_runtime_profile(
     state: State<'_, AppState>,
     model_path: Option<String>,
     project_id: Option<String>,
@@ -623,7 +639,7 @@ fn gather(state: &AppState, settings: &Settings, requested: Option<&str>) -> Fac
 /// The profile is sent by the UI so the estimate follows the on-screen draft
 /// live; without it, the saved profile is used.
 #[tauri::command]
-pub fn get_profile_estimate(
+pub async fn get_profile_estimate(
     state: State<'_, AppState>,
     profile: Option<InferenceProfile>,
     model_path: Option<String>,
@@ -667,6 +683,23 @@ fn estimate_for(draft: &InferenceProfile, facts: &Facts) -> ProfileEstimate {
         budget::kv_cache_bytes(&shape, context_tokens, resolved.kv_type)
     } else {
         0
+    };
+    // The same window priced under every cache type, so the picker can show
+    // what each option costs — the ratios follow bytes_per_element, but the
+    // absolute GB are what the user is choosing between.
+    let kv_by_type = if known {
+        KvCacheType::OPTIONS
+            .iter()
+            .map(|kv| {
+                (
+                    kv.as_arg().to_string(),
+                    budget::kv_cache_bytes(&shape, context_tokens, *kv) as f32
+                        / 1_073_741_824.0,
+                )
+            })
+            .collect()
+    } else {
+        BTreeMap::new()
     };
     let split = budget::split(&shape, &resolved);
 
@@ -727,6 +760,7 @@ fn estimate_for(draft: &InferenceProfile, facts: &Facts) -> ProfileEstimate {
         context_tokens,
         max_context: shape.max_context,
         kv_cache_gb: kv as f32 / 1_073_741_824.0,
+        kv_cache_gb_by_type: kv_by_type,
         runtime_overhead_gb: budget::RUNTIME_OVERHEAD_BYTES as f32 / 1_073_741_824.0,
         ram_needed_gb: split.ram_bytes as f32 / 1_073_741_824.0,
         ram_total_gb: facts.total_ram_bytes as f32 / 1_073_741_824.0,
@@ -758,13 +792,16 @@ fn worse(a: FitLevel, b: FitLevel) -> FitLevel {
 /// disk — an installed GPU build first, the bundled CPU build afterwards.
 /// The settings page shows this as the build in use.
 #[tauri::command]
-pub fn get_server_binary(state: State<'_, AppState>) -> Option<String> {
+pub async fn get_server_binary(state: State<'_, AppState>) -> AppResult<Option<String>> {
     let settings = state
         .registry()
         .ok()
         .map(|registry| registry.settings.clone())
         .unwrap_or_default();
-    backend::resolve_server(&state.dirs, &settings).map(|path| path.to_string_lossy().into_owned())
+    Ok(
+        backend::resolve_server(&state.dirs, &settings)
+            .map(|path| path.to_string_lossy().into_owned()),
+    )
 }
 
 /// Lets the user pick their own llama-server build. Needed together with GPU

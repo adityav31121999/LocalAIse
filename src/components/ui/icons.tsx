@@ -233,3 +233,45 @@ export function MonitorIcon(props: IconProps) {
     </Base>
   );
 }
+
+export function PaletteIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle cx="13.5" cy="6.5" r="5.5" />
+      <circle cx="18.5" cy="10.5" r="1.5" />
+      <circle cx="7.5" cy="7.5" r="1.5" />
+      <circle cx="10.5" cy="18.5" r="1.5" />
+      <circle cx="18.5" cy="19.5" r="1.5" />
+      <circle cx="6.5" cy="17.5" r="1.5" />
+    </Base>
+  );
+}
+
+export function CpuIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4M8 4v4M12 4v4M8 20v4M12 20v4" />
+    </Base>
+  );
+}
+
+export function DensityIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <rect x="3" y="3" width="6" height="6" rx="1" />
+      <rect x="15" y="3" width="6" height="6" rx="1" />
+      <rect x="3" y="15" width="6" height="6" rx="1" />
+      <rect x="15" y="15" width="6" height="6" rx="1" />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
+    </Base>
+  );
+}
+
+export function XIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </Base>
+  );
+}

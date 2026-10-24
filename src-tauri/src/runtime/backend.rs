@@ -170,7 +170,11 @@ fn probe_flash_attn(binary: &Path) -> Option<bool> {
     if !help.contains("flash") {
         return None;
     }
-    Some(help.contains("flash-attn") || help.contains("flash_attn"))
+    Some(
+        help.contains("flash-attn")
+            || help.contains("flash_attn")
+            || help.contains("flash attention"),
+    )
 }
 
 /// Reads a device line such as "CUDA0: NVIDIA GeForce RTX 4090 (VRAM: 24564 MiB)".
@@ -532,40 +536,32 @@ mod tests {
     }
 
     #[test]
-    fn resolution_prefers_the_gpu_build_but_knows_the_cpu_build() {
+    fn resolution_finds_the_flat_runtime_binary() {
         let root = std::env::temp_dir().join(format!("localaise-backend-{}", std::process::id()));
         let llama_dir = root.join("llama");
-        std::fs::create_dir_all(&llama_dir).unwrap();
-
-        // Two fake builds: one GPU one in place, one CPU build next to it.
-        let gpu_dir = llama_dir.join(format!("{}-vulkan", platform_prefix()));
-        let cpu_dir = llama_dir.join(format!("{}-cpu", platform_prefix()));
-        std::fs::create_dir_all(&gpu_dir).unwrap();
-        std::fs::create_dir_all(&cpu_dir).unwrap();
-        std::fs::write(gpu_dir.join(executable_name()), "x").unwrap();
-        std::fs::write(cpu_dir.join(executable_name()), "x").unwrap();
+        // One flat folder holds the binary and every backend DLL, GPU or not.
+        let runtime_dir = llama_dir.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        std::fs::write(runtime_dir.join(executable_name()), "x").unwrap();
+        std::fs::write(runtime_dir.join("ggml-vulkan.dll"), "x").unwrap();
 
         let dirs = crate::config::paths::AppDirs {
             base: root.clone(),
             state_file: root.join("state.json"),
             models: root.join("models"),
             llama: llama_dir.clone(),
-            runtime: llama_dir,
+            runtime: runtime_dir.clone(),
             default_projects: root.join("projects"),
             default_personal: root.join("personal"),
         };
         let settings = Settings::default();
 
-        // The preferred question answers with the GPU build; the CPU-only
-        // question with the CPU build.
-        assert_eq!(
-            resolve_server(&dirs, &settings),
-            Some(gpu_dir.join(executable_name()))
-        );
-        assert_eq!(
-            resolve_cpu_server(&dirs, &settings),
-            Some(cpu_dir.join(executable_name()))
-        );
+        // Both questions answer with the one binary in the flat folder: a
+        // GPU build and a CPU build are the same file now, and the launcher
+        // is what keeps a CPU-only run off the GPU.
+        let binary = runtime_dir.join(executable_name());
+        assert_eq!(resolve_server(&dirs, &settings), Some(binary.clone()));
+        assert_eq!(resolve_cpu_server(&dirs, &settings), Some(binary));
 
         std::fs::remove_dir_all(&root).ok();
     }

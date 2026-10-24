@@ -156,7 +156,7 @@ export interface PersonalSearchResult {
   snippet: string;
 }
 
-export type AppView = "home" | "diary" | "settings";
+export type AppView = "home" | "diary" | "settings" | "theme-settings" | "model-config";
 
 /** Inference profile — mirrors the Rust InferenceProfile struct. */
 export type KvCacheType = "f16" | "q8_0" | "q5_1" | "q4_0";
@@ -257,6 +257,12 @@ export interface ProfileEstimate {
   /** Context length the model declares, 0 when unknown. */
   maxContext: number;
   kvCacheGb: number;
+  /**
+   * What the same window costs under every cache type, keyed by the type's
+   * wire name. Empty when the model shape is unknown, so the control that
+   * picks the type can show each option's price next to it.
+   */
+  kvCacheGbByType: Partial<Record<KvCacheType, number>>;
   /** Working memory llama.cpp needs on top of the weights and the cache. */
   runtimeOverheadGb: number;
   ramNeededGb: number;

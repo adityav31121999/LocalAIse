@@ -826,6 +826,15 @@ function mockEstimate(draft: InferenceProfile, modelPath?: string | null): Profi
   const contextTokens =
     draft.contextTokens > 0 ? draft.contextTokens : Math.max(maxContext, 8_192);
   const kvBytes = shape ? mockKvBytes(shape, contextTokens, draft.kvType) : 0;
+  // The same window priced under every cache type, mirroring the core.
+  const kvCacheGbByType: Partial<Record<KvCacheType, number>> = shape
+    ? Object.fromEntries(
+        (["f16", "q8_0", "q5_1", "q4_0"] as KvCacheType[]).map((kv) => [
+          kv,
+          mockKvBytes(shape, contextTokens, kv) / GIB,
+        ]),
+      )
+    : {};
   const onGpu = device.device === "user_gpu";
   const ramBytes = onGpu ? 0 : fileBytes + kvBytes;
   const vramBytes = onGpu ? fileBytes + kvBytes : 0;
@@ -851,6 +860,7 @@ function mockEstimate(draft: InferenceProfile, modelPath?: string | null): Profi
     contextTokens,
     maxContext,
     kvCacheGb: kvBytes / GIB,
+    kvCacheGbByType,
     runtimeOverheadGb: RUNTIME_OVERHEAD / GIB,
     ramNeededGb: ramBytes / GIB,
     ramTotalGb: MOCK_RAM_TOTAL / GIB,

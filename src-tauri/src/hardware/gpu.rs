@@ -4,6 +4,7 @@
 //! and discrete vs integrated GPU preference.
 
 use serde::Serialize;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +51,16 @@ pub struct GpuRecommendation {
 }
 
 /// Heuristically detect the best GPU backend available on this system.
+///
+/// Detected once per process: the answer shells out to `nvidia-smi` (and
+/// `wmic` as a fallback), which can take seconds, and neither the adapters
+/// nor the drivers change while the app runs.
 pub fn detect() -> GpuInfo {
+    static DETECTED: OnceLock<GpuInfo> = OnceLock::new();
+    DETECTED.get_or_init(detect_once).clone()
+}
+
+fn detect_once() -> GpuInfo {
     let rec = recommend_gpu();
     let backend = match rec.backend.as_str() {
         "cuda" => GpuBackend::Cuda,
@@ -87,6 +97,11 @@ pub fn detect() -> GpuInfo {
 
 /// Full GPU recommendation logic considering vendor, dGPU vs iGPU, and driver version.
 pub fn recommend_gpu() -> GpuRecommendation {
+    static RECOMMENDED: OnceLock<GpuRecommendation> = OnceLock::new();
+    RECOMMENDED.get_or_init(recommend_once).clone()
+}
+
+fn recommend_once() -> GpuRecommendation {
     let mut warnings = Vec::new();
 
     #[cfg(target_os = "windows")]
@@ -319,11 +334,16 @@ fn list_adapters_windows() -> Vec<AdapterRecord> {
 #[cfg(target_os = "windows")]
 fn adapter_info_windows() -> Option<(u64, Option<String>)> {
     let adapters = list_adapters_windows();
-    let best = adapters.into_iter().max_by_key(|a| a.vram_bytes)?;
+    // Prefer a discrete adapter first, then the one with the most VRAM.
+    let best = adapters
+        .iter()
+        .filter(|a| is_discrete_gpu(&a.name))
+        .max_by_key(|a| a.vram_bytes)
+        .or_else(|| adapters.iter().max_by_key(|a| a.vram_bytes))?;
     if best.vram_bytes == 0 && best.name.is_empty() {
         return None;
     }
-    Some((best.vram_bytes, Some(best.name)))
+    Some((best.vram_bytes, Some(best.name.clone())))
 }
 
 #[cfg(target_os = "windows")]

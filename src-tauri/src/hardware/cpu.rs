@@ -1,6 +1,8 @@
 //! CPU facts: how many cores to use and which instruction sets llama.cpp can
 //! pick at runtime. Informational only — llama.cpp does its own dispatch.
 
+use std::sync::OnceLock;
+
 #[derive(Debug, Clone)]
 pub struct CpuInfo {
     pub name: String,
@@ -44,7 +46,17 @@ fn cpu_name() -> String {
     "Unknown CPU".to_string()
 }
 
+/// The CPU's facts, detected once per process.
+///
+/// Reading the name shells out to `wmic` on Windows, which can take seconds
+/// on a cold start — no caller can afford that on a hot path, and nothing
+/// about the CPU changes while the app runs.
 pub fn detect() -> CpuInfo {
+    static DETECTED: OnceLock<CpuInfo> = OnceLock::new();
+    DETECTED.get_or_init(detect_once).clone()
+}
+
+fn detect_once() -> CpuInfo {
     let logical = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(2);

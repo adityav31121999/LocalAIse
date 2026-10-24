@@ -7,13 +7,13 @@
       "files": [
         {
           "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11678/llama-b11678-bin-win-cuda-12.4-x64.zip",
-          "sha256": "",
-          "size": 0
+          "sha256": "57d4f5d0f72d7cf8f40cd8afca2455a8238a878f1d56f04b8ca51210c901a286",
+          "size": 266610370
         },
         {
           "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11678/cudart-llama-bin-win-cuda-12.4-x64.zip",
-          "sha256": "",
-          "size": 0
+          "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+          "size": 391443627
         }
       ],
       "keep": [
@@ -28,8 +28,8 @@
       "files": [
         {
           "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11678/llama-b11678-bin-win-vulkan-x64.zip",
-          "sha256": "",
-          "size": 0
+          "sha256": "dad3ea8140d26a821ba113ad6e8cad13cc00065f995ce08bf3481c8f041d0e70",
+          "size": 32210140
         }
       ],
       "keep": [
@@ -42,13 +42,13 @@
       "files": [
         {
           "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11678/llama-b11678-bin-ubuntu-cuda-12.8-x64.tar.gz",
-          "sha256": "",
-          "size": 0
+          "sha256": "236408294e6471dd3021c6676db8aa3ecb49dfb8ee77369ab3eb40227855b4dd",
+          "size": 172566591
         },
         {
-          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11678/cudart-llama-bin-ubuntu-cuda-12.8-x64.tar.gz",
-          "sha256": "",
-          "size": 0
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11678/cudart-llama-b11678-bin-ubuntu-cuda-12.8-x64.tar.gz",
+          "sha256": "95fdf2396ac0ca8bd6d203103d04f92ec7ff42ab8aea369b96bb5603baf841d9",
+          "size": 594377923
         }
       ],
       "keep": [
@@ -63,8 +63,8 @@
       "files": [
         {
           "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11678/llama-b11678-bin-ubuntu-vulkan-x64.tar.gz",
-          "sha256": "",
-          "size": 0
+          "sha256": "a96bb99ac98b8d49a503b131854060ebe5589dd58f0312a244475b19e720d100",
+          "size": 30526270
         }
       ],
       "keep": [

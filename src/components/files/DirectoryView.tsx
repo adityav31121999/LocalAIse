@@ -108,39 +108,73 @@ function TreeNode({ project, path, name, isDir, depth }: NodeProps) {
   );
 }
 
-export function DirectoryView({ project }: { project: Project }) {
-  const watching = useProjectEvents(project.id);
+function RootNode({ project }: { project: Project }) {
+  const [children, setChildren] = useState<DirectoryEntry[]>([]);
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
 
-  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  const load = useCallback(() => {
+    setStatus("loading");
+    listDirectory(project.id, "")
+      .then((items) => {
+        setChildren(items);
+        setStatus("ready");
+        setError(null);
+      })
+      .catch((loadError) => {
+        setChildren([]);
+        setError(message(loadError));
+        setStatus("error");
+      });
+  }, [project.id]);
 
+  useEffect(() => {
+    load();
+  }, [load, revision]);
+
+  const watching = useProjectEvents(project.id);
   const wasWatching = useRef(false);
   useEffect(() => {
-    if (wasWatching.current && !watching) reload();
+    if (wasWatching.current && !watching) setRevision((v) => v + 1);
     wasWatching.current = watching;
-  }, [watching, reload]);
+  }, [watching]);
 
-  // Force remount of tree on revision change by keying root.
   return (
-    <div className="files">
-      <div className="files__bar">
-        <div className="files__crumbs" aria-label="Directory path">
-          <span className="files__crumb">
-            <FolderIcon size={14} />
-            <span className="truncate">{project.name}</span>
-          </span>
-        </div>
-      </div>
-      <div className="files__scroll" key={revision}>
-        <div role="list">
+    <div role="list">
+      {status === "loading" ? (
+        <p className="files__note" style={{ paddingLeft: 14 }}>
+          Reading the folder…
+        </p>
+      ) : status === "error" ? (
+        <p className="files__note" style={{ paddingLeft: 14 }}>
+          {error}
+        </p>
+      ) : children.length === 0 ? (
+        <p className="files__note" style={{ paddingLeft: 14 }}>
+          Empty
+        </p>
+      ) : (
+        children.map((entry) => (
           <TreeNode
+            key={entry.path}
             project={project}
-            path=""
-            name={project.name}
-            isDir={true}
+            path={entry.path}
+            name={entry.name}
+            isDir={entry.isDir}
             depth={0}
           />
-        </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+export function DirectoryView({ project }: { project: Project }) {
+  return (
+    <div className="files">
+      <div className="files__scroll">
+        <RootNode project={project} />
       </div>
     </div>
   );

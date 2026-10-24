@@ -8,16 +8,22 @@ required, and no data leaving the folder you point it at.
 
 - **Tauri 2 app** — a Rust core (`src-tauri`) with a React UI (`src`). No Node server runs at
   runtime; the UI talks to Rust over IPC.
-- **llama.cpp runtime** — dynamic backend dispatch architecture pinned to
-  llama.cpp nightly build tag **b6742** (`vendor/llama.cpp`, `resources/llama/<platform>`). The server
-  launches per selected model with an API key, streaming tokens to the UI over the `chat://token`
-  event.
-- **Dynamic Hardware & Backend Loading** — the base bundle ships a universal CPU build with
-  runtime microarchitecture dispatch tiers (SSE4.2, AVX2, AVX-512 variants chosen by `cpuid` at
-  startup). The runtime non-intrusively detects the host GPU vendor (CUDA for NVIDIA, Vulkan for
-  AMD/Intel, OpenCL as fallback) and downloads the matching backend on first launch or from
-  Hardware settings. All backends share **one flat platform folder** (`resources/llama/windows-x64`
-  or `resources/llama/linux-x64`): GPU backends drop their `ggml-<backend>.dll` next to the CPU
+- **llama.cpp runtime** — pinned to llama.cpp nightly build tag **b11678**
+  (`vendor/llama.cpp`, `resources/llama/<platform>`; `PINNED_TAG` in
+  `src-tauri/src/runtime/gpu_build.rs` and `scripts/fetch-llama-server.ts`). llama.cpp uses
+  build tags (`b<number>`), not semver; this tag corresponds to the v0.7.0+ dynamic backend
+  dispatch series. The server launches per selected model with an API key, streaming tokens to
+  the UI over the `chat://token` event.
+- **CPU backend** — universal CPU build with runtime microarchitecture dispatch tiers
+  (SSE4.2 / AVX / AVX2 / AVX-512 variants chosen by `cpuid` at startup via
+  `GGML_CPU_ALL_VARIANTS=ON` + `GGML_BACKEND_DL=ON`).
+- **GPU backends** — detected from the host GPU vendor and downloaded on demand:
+  - NVIDIA → CUDA (`ggml-cuda.dll` / `libggml-cuda.so`)
+  - AMD / Intel → Vulkan (`ggml-vulkan.dll` / `libggml-vulkan.so`)
+  - fallback → OpenCL (`ggml-opencl.dll` / `libggml-opencl.so`)
+  - macOS → Metal (bundled with the CPU build)
+  All backends share one flat platform folder (`resources/llama/windows-x64` or
+  `resources/llama/linux-x64`): GPU backends drop their `ggml-<backend>` library next to the CPU
   files and are discovered automatically at startup. See `docs/backend.md` for the full
   architecture.
 

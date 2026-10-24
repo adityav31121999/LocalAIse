@@ -30,13 +30,13 @@ pub fn open_project(state: State<'_, AppState>, project_id: String) -> AppResult
 }
 
 #[tauri::command]
-pub fn list_sources(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<SourceFile>> {
+pub async fn list_sources(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<SourceFile>> {
     let registry = state.registry()?;
     manager::sources(&registry, &project_id)
 }
 
 #[tauri::command]
-pub fn reindex_sources(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<SourceFile>> {
+pub async fn reindex_sources(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<SourceFile>> {
     let registry = state.registry()?;
     let record = registry
         .find(&project_id)

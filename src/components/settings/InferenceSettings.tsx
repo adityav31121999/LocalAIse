@@ -33,6 +33,11 @@ function gigabytes(value: number): string {
   return value >= 10 ? `${value.toFixed(0)} GB` : `${value.toFixed(2)} GB`;
 }
 
+/** The label the KV control shows for a cache type. */
+function kvLabel(value: KvCacheType): string {
+  return KV_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
 /** The file name of a model, without its extension. */
 function modelName(path: string | null): string {
   if (!path) return "";
@@ -66,6 +71,11 @@ export function InferenceSettings() {
   const fit = estimate?.fit ?? "comfortable";
   const onGpu = estimate?.device.device === "user_gpu";
   const quantized = draft.kvType !== "f16";
+
+  // What the same window costs under every cache type, so the control can
+  // price each option. Absent until the model file has been parsed.
+  const kvCosts = estimate?.modelShapeKnown ? (estimate.kvCacheGbByType ?? {}) : {};
+  const kvCost = (value: KvCacheType): number | undefined => kvCosts[value];
 
   // The model declares a context length; the slider cannot offer more than
   // that, but the draft may still hold an older, larger value.
@@ -216,10 +226,20 @@ export function InferenceSettings() {
             </span>
           </div>
           <div className="ctx-readout__row">
-            <span className="ctx-readout__key">KV cache (estimated)</span>
+            <span className="ctx-readout__key">KV cache ({kvLabel(draft.kvType)}, estimated)</span>
             <span className="ctx-readout__value mono">
               {estimate && estimate.modelShapeKnown
                 ? `≈ ${gigabytes(estimate.kvCacheGb)}`
+                : "not known yet"}
+            </span>
+          </div>
+          <div className="ctx-readout__row">
+            <span className="ctx-readout__key">Total memory used</span>
+            <span className="ctx-readout__value mono">
+              {estimate && estimate.modelShapeKnown
+                ? onGpu
+                  ? `≈ ${gigabytes(estimate.vramNeededGb)} VRAM + ${gigabytes(estimate.ramNeededGb)} RAM`
+                  : `≈ ${gigabytes(estimate.ramNeededGb)} RAM`
                 : "not known yet"}
             </span>
           </div>
@@ -246,18 +266,29 @@ export function InferenceSettings() {
           answer quality, and it only works together with flash attention.
         </p>
         <div className="segmented" role="group" aria-labelledby="field-kv">
-          {KV_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className="segmented__item"
-              aria-pressed={draft.kvType === option.value}
-              onClick={() => setKvType(option.value)}
-            >
-              {option.label} · {option.hint}
-            </button>
-          ))}
+          {KV_OPTIONS.map((option) => {
+            const cost = kvCost(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className="segmented__item"
+                aria-pressed={draft.kvType === option.value}
+                onClick={() => setKvType(option.value)}
+              >
+                {option.label} · {cost != null ? `≈ ${gigabytes(cost)}` : option.hint}
+              </button>
+            );
+          })}
         </div>
+        {estimate?.modelShapeKnown && kvCost(draft.kvType) != null && kvCost("f16") != null && (
+          <p className="field__hint">
+            Cache at {formatTokens(runtimeContext)} tokens.{" "}
+            {draft.kvType === "f16"
+              ? "Every quantized type below trades a little quality for memory."
+              : `${kvLabel(draft.kvType)} saves ${gigabytes((kvCost("f16") ?? 0) - (kvCost(draft.kvType) ?? 0))} of cache versus f16 (${gigabytes(kvCost("f16") ?? 0)}).`}
+          </p>
+        )}
 
         <label className="perf__check">
           <input

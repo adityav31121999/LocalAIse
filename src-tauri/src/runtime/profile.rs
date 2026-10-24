@@ -155,19 +155,120 @@ pub enum MoeOffload {
     FirstLayers { n: u32 },
 }
 
-/// One llama-server launch, fully specified.
+/// The profile as it is read off the wire.
 ///
-/// The container-level default keeps older state files readable: a profile
-/// written before a setting existed falls back to the default instead of
-/// failing to load and resetting every other preference with it.
+/// Container-level default is load-bearing, not an optimisation: a state file
+/// written before a setting existed falls back to `desktop_default()` for the
+/// fields it does not have, instead of failing to load and taking every other
+/// preference down with it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+struct ProfileWire {
+    context_tokens: u32,
+    threads: u32,
+    /// Nested, the way every other device on the wire is spelled. See
+    /// [`InferenceProfile`]'s `Deserialize` for why it is read by hand.
+    device: ComputeDevice,
+    kv_type: KvCacheType,
+    flash_attn: bool,
+    batch_size: u32,
+    parallel_slots: u32,
+    use_mmap: bool,
+    moe: MoeOffload,
+    thinking_budget: u32,
+    partial_load: bool,
+}
+
+/// Rewrites the one shape that changed.
+///
+/// `device` used to be flattened into the profile, so the tag and `gpu_layers`
+/// sat beside the profile's own fields. The nested spelling is left alone.
+fn nest_flat_device(value: serde_json::Value) -> serde_json::Value {
+    let Some(object) = value.as_object() else {
+        return value;
+    };
+    // Already nested — `device` is an object, not the bare tag string.
+    let Some(tag) = object.get("device").and_then(|entry| entry.as_str()) else {
+        return value;
+    };
+    let mut nested = serde_json::Map::new();
+    nested.insert("device".into(), serde_json::Value::String(tag.to_string()));
+    if let Some(layers) = object.get("gpu_layers").cloned() {
+        nested.insert("gpu_layers".into(), layers);
+    }
+    let mut object = object.clone();
+    object.remove("gpu_layers");
+    object.insert("device".into(), serde_json::Value::Object(nested));
+    serde_json::Value::Object(object)
+}
+
+impl Default for ProfileWire {
+    fn default() -> Self {
+        InferenceProfile::desktop_default().into()
+    }
+}
+
+impl From<ProfileWire> for InferenceProfile {
+    fn from(wire: ProfileWire) -> Self {
+        InferenceProfile {
+            context_tokens: wire.context_tokens,
+            threads: wire.threads,
+            device: wire.device,
+            kv_type: wire.kv_type,
+            flash_attn: wire.flash_attn,
+            batch_size: wire.batch_size,
+            parallel_slots: wire.parallel_slots,
+            use_mmap: wire.use_mmap,
+            moe: wire.moe,
+            thinking_budget: wire.thinking_budget,
+            partial_load: wire.partial_load,
+        }
+    }
+}
+
+impl From<InferenceProfile> for ProfileWire {
+    fn from(profile: InferenceProfile) -> Self {
+        ProfileWire {
+            context_tokens: profile.context_tokens,
+            threads: profile.threads,
+            device: profile.device,
+            kv_type: profile.kv_type,
+            flash_attn: profile.flash_attn,
+            batch_size: profile.batch_size,
+            parallel_slots: profile.parallel_slots,
+            use_mmap: profile.use_mmap,
+            moe: profile.moe,
+            thinking_budget: profile.thinking_budget,
+            partial_load: profile.partial_load,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for InferenceProfile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = nest_flat_device(serde_json::Value::deserialize(deserializer)?);
+        ProfileWire::deserialize(value)
+            .map(Into::into)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// One llama-server launch, fully specified.
+///
+/// `device` is a nested object, the same spelling the estimate and the runtime
+/// status use, so the settings page reads one shape everywhere. An older state
+/// file that flattened it is migrated on the way in — see this type's
+/// `Deserialize`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InferenceProfile {
     pub context_tokens: u32,
     /// `0` means "pick automatically", which the supervisor and argument
     /// builder resolve from the core count.
     pub threads: u32,
-    #[serde(flatten)]
     pub device: ComputeDevice,
     pub kv_type: KvCacheType,
     /// Required whenever the KV cache is quantized.
@@ -178,12 +279,10 @@ pub struct InferenceProfile {
     pub moe: MoeOffload,
     /// Cap on reasoning tokens. `0` means "auto": the flag is not passed and
     /// llama-server leaves thinking unrestricted (its default of -1).
-    #[serde(default)]
     pub thinking_budget: u32,
     /// Let llama-server adapt unset parameters (`--fit on`) instead of
     /// passing an explicit context, so a bloated KV cache lowers the context
     /// rather than failing the load.
-    #[serde(default)]
     pub partial_load: bool,
 }
 
@@ -336,5 +435,120 @@ mod tests {
         let mut profile = InferenceProfile::desktop_default();
         profile.context_tokens = 0;
         assert!(profile.validate().is_ok());
+    }
+
+    /// The exact shape the Inference tab sends over `apply_runtime_profile`.
+    /// Serde errors carry no field path, so the wire format has to be pinned
+    /// down by a test instead of by reading the struct.
+    #[test]
+    fn the_settings_page_payload_deserializes() {
+        // The shape the settings page sends, and the shape the core must emit
+        // back: `device` nested, the same spelling the estimate and the
+        // runtime status already used.
+        let wire = r#"{
+            "contextTokens": 41472,
+            "threads": 11,
+            "device": { "device": "user_gpu", "gpu_layers": 999 },
+            "kvType": "f16",
+            "flashAttn": false,
+            "batchSize": 512,
+            "parallelSlots": 1,
+            "useMmap": true,
+            "moe": { "mode": "off" },
+            "thinkingBudget": 2048,
+            "partialLoad": false
+        }"#;
+        let profile: InferenceProfile = serde_json::from_str(wire)
+            .unwrap_or_else(|error| panic!("settings page payload rejected: {error}"));
+        assert_eq!(profile.context_tokens, 41_472);
+        assert_eq!(profile.thinking_budget, 2_048);
+        assert_eq!(profile.device, ComputeDevice::UserGpu { gpu_layers: 999 });
+
+        // Round trip: what the core writes must read back as the same profile.
+        let emitted = serde_json::to_string(&profile).expect("profile serializes");
+        assert!(
+            emitted.contains(r#""device":{"device":"user_gpu","gpu_layers":999}"#),
+            "device must stay nested on the way out, got: {emitted}"
+        );
+        let back: InferenceProfile =
+            serde_json::from_str(&emitted).expect("a profile the core emits must read back");
+        assert_eq!(back, profile);
+
+        // The other two device shapes the same tab produces.
+        for (device, expected) in [
+            (r#"{ "device": "auto" }"#, ComputeDevice::Auto),
+            (r#"{ "device": "cpu" }"#, ComputeDevice::Cpu),
+        ] {
+            let payload = format!(
+                r#"{{"contextTokens":8192,"threads":0,"device":{device},"kvType":"f16",
+                    "flashAttn":false,"batchSize":512,"parallelSlots":1,"useMmap":true,
+                    "moe":{{"mode":"off"}},"thinkingBudget":0,"partialLoad":false}}"#
+            );
+            let parsed: InferenceProfile = serde_json::from_str(&payload)
+                .unwrap_or_else(|error| panic!("device shape {device} rejected: {error}"));
+            assert_eq!(parsed.device, expected);
+        }
+    }
+
+    /// A state file written before `device` stopped being flattened into the
+    /// profile must still load, and must keep the layers it stored.
+    #[test]
+    fn a_state_file_with_a_flattened_device_still_loads() {
+        for (wire, expected) in [
+            (r#""device":"cpu""#, ComputeDevice::Cpu),
+            (r#""device":"auto""#, ComputeDevice::Auto),
+            (
+                r#""device":"user_gpu","gpu_layers":999"#,
+                ComputeDevice::UserGpu { gpu_layers: 999 },
+            ),
+        ] {
+            let payload = format!(
+                r#"{{"contextTokens":32768,"threads":11,{wire},"kvType":"q4_0",
+                    "flashAttn":true,"batchSize":512,"parallelSlots":1,"useMmap":true,
+                    "moe":{{"mode":"off"}},"thinkingBudget":2048,"partialLoad":false}}"#
+            );
+            let profile: InferenceProfile = serde_json::from_str(&payload)
+                .unwrap_or_else(|error| panic!("legacy shape {wire} rejected: {error}"));
+            assert_eq!(profile.device, expected);
+            assert_eq!(profile.context_tokens, 32_768);
+        }
+    }
+
+    /// A profile written before a setting existed must still load, falling
+    /// back to the default for the fields it does not carry.
+    #[test]
+    fn a_profile_missing_the_newer_settings_still_loads() {
+        let wire = r#"{
+            "contextTokens": 16384,
+            "threads": 6,
+            "device": { "device": "cpu" },
+            "kvType": "q8_0",
+            "flashAttn": true,
+            "batchSize": 256,
+            "parallelSlots": 1,
+            "useMmap": true,
+            "moe": { "mode": "off" }
+        }"#;
+        let profile: InferenceProfile = serde_json::from_str(wire)
+            .unwrap_or_else(|error| panic!("older profile rejected: {error}"));
+        assert_eq!(profile.thinking_budget, 0);
+        assert!(!profile.partial_load);
+        // The defaults the container falls back to are the desktop defaults,
+        // not zeros — a zero batch size would fail validation on load.
+        assert_eq!(
+            InferenceProfile::from(ProfileWire::default()),
+            InferenceProfile::desktop_default()
+        );
+    }
+
+    /// The estimate prices every cache type under `as_arg`, so the two
+    /// spellings must stay the same word or the map keys stop matching what
+    /// the settings page sends back.
+    #[test]
+    fn kv_type_argument_names_match_the_wire_names() {
+        for kv in KvCacheType::OPTIONS {
+            let wire = serde_json::to_value(kv).expect("kv type serializes");
+            assert_eq!(wire, serde_json::json!(kv.as_arg()));
+        }
     }
 }

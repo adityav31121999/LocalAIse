@@ -404,14 +404,17 @@ export function buildMockAnswer(project: Project, prompt: string): ChatStreamRes
 // ---- Mock chat sessions (browser mode only) --------------------------------
 
 const mockChats: Record<string, ChatSession[]> = {};
+const chatCounters: Record<string, number> = {};
 
 function newMockId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function mockTitle(prompt: string): string {
-  const line = prompt.trim().split("\n")[0];
-  return line.length > 60 ? `${line.slice(0, 60)}…` : line;
+function getNextChatNumber(projectId: string): number {
+  const current = chatCounters[projectId] ?? 0;
+  const next = current + 1;
+  chatCounters[projectId] = next;
+  return next;
 }
 
 export function mockChatList(projectId: string): ChatSummary[] {
@@ -450,9 +453,10 @@ export function mockChatAppend(
   let session = chatId ? chats.find((item) => item.id === chatId) : undefined;
 
   if (!session) {
+    const chatNumber = getNextChatNumber(projectId);
     session = {
       id: newMockId("chat"),
-      title: mockTitle(prompt),
+      title: `chat${chatNumber}`,
       createdAt: now,
       updatedAt: now,
       messages: [],

@@ -60,7 +60,7 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Pinned llama.cpp nightly build tag. Bump deliberately and re-audit
 // the flag surface runtime/args.rs relies on each time.
 // Override locally with LLAMA_TAG (e.g. `LLAMA_TAG=b6000 npm run fetch-llama-server`).
-const PINNED_TAG = process.env.LLAMA_TAG ?? "b6742";
+const PINNED_TAG = process.env.LLAMA_TAG ?? "b11678";
 
 const CHECKOUT = join(ROOT, "vendor", "llama.cpp");
 

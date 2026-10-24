@@ -6,6 +6,7 @@ import {
   type GpuBuildList,
   type HardwareReport,
 } from "../../api/models";
+import { DownloadProgress } from "../ui/DownloadProgress";
 
 const STAGE_LABELS: Record<string, string> = {
   resolving: "Looking up release archive…",
@@ -66,10 +67,15 @@ export function HardwareCheck({ onNext, onBack }: { onNext: () => void; onBack: 
       import("@tauri-apps/api/event")
         .then(({ listen }) =>
           listen("localAIse/gpu-build", (event) => {
-            const payload = event.payload as { stage?: string; done?: number; total?: number };
+            const payload = event.payload as {
+              stage?: string;
+              target?: string;
+              done?: number;
+              total?: number;
+            };
             if (payload?.stage) setInstallStage(payload.stage);
-            if (payload?.done && payload?.total) {
-              setDownloadProgress({ done: payload.done, total: payload.total });
+            if (payload?.stage === "downloading" && payload.target != null) {
+              setDownloadProgress({ done: payload.done ?? 0, total: payload.total ?? 0 });
             }
           }),
         )
@@ -191,10 +197,16 @@ export function HardwareCheck({ onNext, onBack }: { onNext: () => void; onBack: 
           {installStage && (
             <div style={{ marginTop: "12px", fontSize: "13px", color: "var(--accent)" }}>
               <span>{STAGE_LABELS[installStage] ?? installStage}</span>
-              {downloadProgress && downloadProgress.total > 0 && (
-                <span style={{ marginLeft: "8px" }}>
-                  ({Math.round((downloadProgress.done / downloadProgress.total) * 100)}%)
-                </span>
+              {installing && (
+                <DownloadProgress
+                  done={downloadProgress?.done ?? 0}
+                  total={downloadProgress?.total ?? 0}
+                  pendingLabel={
+                    installStage !== "downloading"
+                      ? "The archive is unpacking — the download itself is finished."
+                      : "Waiting for the download to start…"
+                  }
+                />
               )}
             </div>
           )}

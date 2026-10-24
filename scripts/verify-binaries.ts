@@ -24,6 +24,34 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const LLAMA_DIR = join(ROOT, "resources", "llama");
 const CHECKSUMS_PATH = join(LLAMA_DIR, "checksums.json");
 
+/**
+ * In dev the GPU installer's runtime directory IS resources/llama/<platform>,
+ * so an installed backend drops files into this same tree. Those are checked
+ * against src-tauri/backends.json when they are downloaded, and runtime.json /
+ * build-info-*.json are state the installer writes, so neither belongs in the
+ * bundled-build ledger this script maintains.
+ */
+const INSTALLER_OWNED = new Set([
+  "runtime.json",
+  "ggml-cuda.dll",
+  "ggml-vulkan.dll",
+  "ggml-opencl.dll",
+  "libggml-cuda.so",
+  "libggml-vulkan.so",
+  "libggml-opencl.so",
+]);
+
+function isInstallerOwned(name: string): boolean {
+  if (INSTALLER_OWNED.has(name)) return true;
+  return (
+    /^cudart/i.test(name) ||
+    /^cublas/i.test(name) ||
+    /^libcudart/i.test(name) ||
+    /^libcublas/i.test(name) ||
+    /^build-info-.*\.json$/.test(name)
+  );
+}
+
 function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -34,9 +62,13 @@ function walk(dir: string): string[] {
     if (statSync(path).isDirectory()) {
       return walk(path);
     }
-    // The checksum ledger itself, and empty-folder placeholders, are not
-    // runtime files.
-    return name === "checksums.json" || statSync(path).size === 0 ? [] : [path];
+    // The checksum ledger itself, empty-folder placeholders, and anything the
+    // GPU installer owns are not part of the bundled build.
+    return name === "checksums.json" ||
+      isInstallerOwned(name) ||
+      statSync(path).size === 0
+      ? []
+      : [path];
   });
 }
 

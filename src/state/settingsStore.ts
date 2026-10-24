@@ -29,8 +29,8 @@ export const THEME_ORDER: ThemeName[] = [
   "evergreen",
 ];
 
-const MODE_ORDER: ThemeMode[] = ["system", "dark", "light"];
-const DENSITIES: Density[] = ["compact", "comfortable", "spacious"];
+export const MODE_ORDER: ThemeMode[] = ["system", "dark", "light"];
+export const DENSITIES: Density[] = ["compact", "comfortable", "spacious"];
 
 function isColorMode(value: unknown): value is ThemeMode {
   return value === "light" || value === "dark" || value === "system";

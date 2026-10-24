@@ -4,6 +4,8 @@ import { HomeDashboard } from "./components/dashboard/HomeDashboard";
 import { ProjectDashboard } from "./components/dashboard/ProjectDashboard";
 import { DiaryDashboard } from "./components/personal/DiaryDashboard";
 import { SettingsView } from "./components/settings/SettingsView";
+import { ThemeSettingsPanel } from "./components/settings/ThemeSettingsPanel";
+import { ModelConfigPanel } from "./components/settings/ModelConfigPanel";
 import { Welcome } from "./components/onboarding/Welcome";
 import { HardwareCheck } from "./components/onboarding/HardwareCheck";
 import { ModelPicker } from "./components/onboarding/ModelPicker";
@@ -14,6 +16,7 @@ import { useSettingsStore } from "./state/settingsStore";
 
 export default function App() {
   const view = useNavStore((state) => state.view);
+  const showHome = useNavStore((state) => state.showHome);
   const project = useProjectStore(selectActiveProject);
   const onboardingComplete = useSettingsStore((state) => state.onboardingComplete);
   const completeOnboarding = useSettingsStore((state) => state.completeOnboarding);
@@ -36,9 +39,14 @@ export default function App() {
     );
   }
 
+  const showThemePanel = view === "theme-settings";
+  const showModelConfig = view === "model-config";
+
   return (
     <AppShell>
-      {view === "settings" ? (
+      {showModelConfig ? (
+        <ModelConfigPanel />
+      ) : view === "settings" ? (
         <SettingsView />
       ) : view === "diary" ? (
         <DiaryDashboard />
@@ -46,6 +54,10 @@ export default function App() {
         <ProjectDashboard key={project.id} project={project} />
       ) : (
         <HomeDashboard />
+      )}
+
+      {showThemePanel && (
+        <ThemeSettingsPanel onClose={showHome} />
       )}
     </AppShell>
   );

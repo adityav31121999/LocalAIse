@@ -57,10 +57,11 @@ GPU builds come in two user-initiated ways:
 - `runtime/gpu_build.rs` — the hardware settings can install the official
   prebuilt llama.cpp archive that matches the machine's detected card (CUDA on
   NVIDIA, Vulkan elsewhere), from ggml-org's release, SHA-256-checked against
-  the digest the release publishes and recorded in a `build-info.json`
-  manifest. Installs live in the app-data `llama/` folder next to the CPU
-  build (`<platform>-cuda`, `<platform>-vulkan`). There is no official
-  OpenCL archive, so OpenCL comes only from a local build.
+  the digest pinned in `src-tauri/backends.json` (upstream publishes no
+  checksum files) and recorded in a `build-info.json` manifest. Installs land
+  flat in the app-data `llama/` folder next to the CPU build — one shared
+  platform folder, with only the backend's own libraries added. There is no
+  official OpenCL archive, so OpenCL comes only from a local build.
 - `scripts/fetch-llama-server.ts windows-x64-|linux-x64-{vulkan,cuda,opencl}`
   — local builds from the vendored checkout for machines the in-app install
   cannot serve (no official archive, exotic toolchain, CUDA version pinned).

@@ -21,23 +21,23 @@ pub struct GpuBuildList {
 
 /// Detects the machine's GPU and returns full recommendation details.
 #[tauri::command]
-pub fn detect_gpu() -> GpuRecommendation {
+pub async fn detect_gpu() -> GpuRecommendation {
     gpu::recommend_gpu()
 }
 
 /// The state of the GPU builds the app knows about.
 #[tauri::command]
-pub fn list_gpu_builds(state: tauri::State<'_, AppState>) -> GpuBuildList {
-    list_backends(state)
+pub async fn list_gpu_builds(state: tauri::State<'_, AppState>) -> AppResult<GpuBuildList> {
+    Ok(list_backends(state).await?)
 }
 
 /// Lists all known backends (aliased command per spec).
 #[tauri::command]
-pub fn list_backends(state: tauri::State<'_, AppState>) -> GpuBuildList {
+pub async fn list_backends(state: tauri::State<'_, AppState>) -> AppResult<GpuBuildList> {
     let rec = gpu::recommend_gpu();
     let gpu_info = gpu::detect();
     let builds = gpu_build::status(&state.dirs, &gpu_info.backend);
-    GpuBuildList {
+    Ok(GpuBuildList {
         recommended: gpu_build::recommend(&gpu_info.backend)
             .map(|target| target.as_str().to_string()),
         gpu_name: rec.device_name.clone(),
@@ -45,7 +45,7 @@ pub fn list_backends(state: tauri::State<'_, AppState>) -> GpuBuildList {
         gpu_available: rec.backend != "none",
         builds,
         recommendation: rec,
-    }
+    })
 }
 
 /// Installs a backend.
@@ -88,7 +88,7 @@ pub async fn install_gpu_build(
 
 /// Removes an installed GPU backend.
 #[tauri::command]
-pub fn remove_backend(
+pub async fn remove_backend(
     state: tauri::State<'_, AppState>,
     backend: String,
 ) -> AppResult<()> {

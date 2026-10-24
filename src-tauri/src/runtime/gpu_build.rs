@@ -16,7 +16,7 @@ use crate::error::{AppError, AppResult};
 use crate::hardware::gpu::GpuBackend;
 
 /// Pinned llama.cpp tag.
-pub const PINNED_TAG: &str = "b6742";
+pub const PINNED_TAG: &str = "b11678";
 
 /// Event the settings and onboarding pages listen to during install.
 pub const PROGRESS_EVENT: &str = "backend://progress";
@@ -314,12 +314,19 @@ fn resources_backend_dll(target: GpuTarget) -> Option<PathBuf> {
     let ext = if cfg!(target_os = "windows") { "dll" } else { "so" };
     let prefix = if cfg!(target_os = "windows") { "ggml-" } else { "libggml-" };
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let path = repo
-        .join("resources")
-        .join("llama")
-        .join(platform_prefix())
-        .join(format!("{}{}.{}", prefix, target.as_str(), ext));
-    path.is_file().then_some(path)
+    // Try per-backend folder first (documented dev layout), then flat folder.
+    for dir in [
+        repo.join("resources")
+            .join("llama")
+            .join(format!("{}-{}", platform_prefix(), target.as_str())),
+        repo.join("resources").join("llama").join(platform_prefix()),
+    ] {
+        let path = dir.join(format!("{}{}.{}", prefix, target.as_str(), ext));
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 pub fn status(dirs: &AppDirs, detected: &GpuBackend) -> Vec<GpuBuildStatus> {

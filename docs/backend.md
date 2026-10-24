@@ -349,7 +349,7 @@ localAIse on **Windows** and **Linux**.
 
 ## 1. Why Multiple `.dll` / `.so` Files Exist
 
-Upstream llama.cpp (build tag `b6742`+) uses **dynamic backend dispatch**
+Upstream llama.cpp (build tag `b11678`+) uses **dynamic backend dispatch**
 (`GGML_BACKEND_DL=ON` + `GGML_CPU_ALL_VARIANTS=ON`). This is a single build split into pieces —
 not separate downloads per system.
 
@@ -482,7 +482,7 @@ set `RPATH=$ORIGIN` (CMake `-DCMAKE_INSTALL_RPATH='$ORIGIN'`), or the Rust super
 ## 5. Build Tag vs. Semantic Version
 
 llama.cpp does **not** use semantic versioning. It uses nightly build tags of the form
-`b<number>` (e.g. `b6742`). The pinned tag is in:
+`b<number>` (e.g. `b11678`). The pinned tag is in:
 
 - `scripts/fetch-llama-server.ts` → `PINNED_TAG`
 - `src-tauri/src/runtime/gpu_build.rs` → `RELEASE_TAG`
