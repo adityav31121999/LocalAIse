@@ -19,6 +19,7 @@ import type {
   ValidationMessage,
   ValidationReport,
 } from "../types";
+import { PROFILE_BUDGET_DEFAULTS } from "../types";
 
 export interface HardwareReport {
   totalRamGb: number;
@@ -442,6 +443,14 @@ export const DEFAULT_PROFILE: InferenceProfile = {
   moe: { mode: "off" },
   thinkingBudget: 0,
   partialLoad: false,
+  maxInputTokens: 0,
+  maxOutputTokens: 0,
+  agentMaxInputTokens: 0,
+  agentMaxOutputTokens: 0,
+  agentThinkingBudget: 0,
+  subagentMaxInputTokens: 0,
+  subagentMaxOutputTokens: 0,
+  subagentThinkingBudget: 0,
 };
 
 const GIB = 1024 ** 3;
@@ -693,6 +702,7 @@ function mockRecommend(
           moe: { mode: "off" },
           thinkingBudget: 0,
           partialLoad: false,
+          ...PROFILE_BUDGET_DEFAULTS,
         };
       }
     }

@@ -16,11 +16,13 @@ pub mod models;
 pub mod network;
 pub mod personal;
 pub mod projects;
+pub mod research;
 pub mod retrieval;
 pub mod runtime;
 pub mod sandbox;
 pub mod tools;
 pub mod util;
+pub mod eval;
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
@@ -127,6 +129,7 @@ pub fn run() {
             commands::projects::reindex_sources,
             commands::projects::set_project_internet,
             commands::projects::set_project_system_prompt,
+            commands::projects::set_project_chat_mode,
             commands::projects::set_project_diary,
             commands::projects::create_project_folder,
             commands::files::list_project_directory,
@@ -143,6 +146,7 @@ pub fn run() {
             commands::research::analyze_document,
             commands::research::create_research_plan,
             commands::research::execute_research_plan,
+            commands::research::run_deep_research,
             commands::chat::chat_send,
             commands::models::select_model,
             commands::models::delete_model,

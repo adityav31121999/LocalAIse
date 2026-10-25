@@ -4,6 +4,7 @@ import { HomeDashboard } from "./components/dashboard/HomeDashboard";
 import { ProjectDashboard } from "./components/dashboard/ProjectDashboard";
 import { DiaryDashboard } from "./components/personal/DiaryDashboard";
 import { SettingsView } from "./components/settings/SettingsView";
+import { DeepResearchView } from "./components/research/DeepResearchView";
 import { ThemeSettingsPanel } from "./components/settings/ThemeSettingsPanel";
 import { ModelConfigPanel } from "./components/settings/ModelConfigPanel";
 import { Welcome } from "./components/onboarding/Welcome";
@@ -50,6 +51,8 @@ export default function App() {
         <ModelConfigPanel />
       ) : view === "settings" ? (
         <SettingsView />
+      ) : view === "deep-research" ? (
+        <DeepResearchView />
       ) : view === "diary" ? (
         <DiaryDashboard />
       ) : project ? (

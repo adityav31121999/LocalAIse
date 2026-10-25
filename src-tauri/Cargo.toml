@@ -6,6 +6,11 @@ authors = ["localAIse"]
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.77"
+default-run = "LocalAIse"
+
+[[bin]]
+name = "rag_eval"
+path = "src/bin/rag_eval.rs"
 
 [lib]
 name = "localaise_lib"
@@ -33,12 +38,26 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "cha
 tokio = { version = "1", features = ["time"] }
 # Stream utilities for model download progress tracking.
 futures-util = "0.3"
+# The chat agent loop: LangChain tools agent pointed at the local llama-server.
+langchain-rust = "7"
+# Evaluation harness
+async-trait = "0.1"
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+# Stream combinators the agent event loop needs; futures-util alone is not enough.
+futures = "0.3"
 # The GPU build installer: GitHub archives unzip or untar into the app's
 # data dir. sha2 verifies the digest GitHub publishes for every release asset.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1"
 sha2 = "0.10"
+dom_smoothie = "0.18"
+htmd = "0.1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sqlite-vec = "0.1"
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }
+fastembed = "4"
 
 # Reading the display-adapter class keys to get real VRAM sizes.
 [target.'cfg(windows)'.dependencies]

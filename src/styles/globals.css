@@ -883,6 +883,61 @@ button.net:hover {
   background: var(--accent-attention);
 }
 
+/* Assistant mode switch (chat-bot / agent), sits beside the internet toggle */
+
+.mode {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-h-sm);
+  padding: 0 2px;
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+
+.mode__option {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-3);
+  border-radius: calc(var(--radius-sm) - 2px);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+
+.mode__option:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.mode__option:disabled {
+  cursor: default;
+}
+
+.mode__option--selected {
+  background: var(--accent-soft, var(--surface-hover));
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+.mode--agent {
+  border-color: var(--accent-attention);
+}
+
+.mode--agent .mode__option--selected {
+  background: var(--accent-attention);
+  color: var(--accent-primary-contrast, var(--surface));
+}
+
+.mode--static {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+
 /* Sidebar (sources) */
 
 .panel {
@@ -3539,12 +3594,14 @@ button.net:hover {
 
 .model-config__main {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* The runtime side carries denser numeric controls, so it gets the wider
+     share; the model list only needs to show names, sizes and the picker. */
+  grid-template-columns: minmax(320px, 0.85fr) minmax(560px, 1.85fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  gap: var(--space-6);
-  padding: var(--space-6);
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 
 .model-config__column {
@@ -3568,7 +3625,7 @@ button.net:hover {
 }
 
 .model-config__column--models {
-  min-width: 400px;
+  min-width: 320px;
 }
 
 .model-config__column--models .models {
@@ -3578,7 +3635,7 @@ button.net:hover {
 }
 
 .model-config__column--runtime {
-  min-width: 400px;
+  min-width: 560px;
 }
 
 .model-config__runtime-tabs {
@@ -3637,4 +3694,53 @@ button.net:hover {
   .model-config__column--runtime {
     min-width: 0;
   }
+}
+
+/* Dense numeric tables in the runtime settings: token limits and memory
+   numbers read better as numbers than as sliders and bars. */
+.limits-table {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) repeat(3, minmax(96px, 1fr));
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+}
+
+.limits-table__cell--head {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.limits-table__cell--row {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+}
+
+.limits-table .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.memory-table {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.memory-table__key {
+  color: var(--text-muted);
+}
+
+.memory-table__value {
+  font-family: var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.memory-table__value--strong {
+  font-weight: var(--weight-semibold);
 }

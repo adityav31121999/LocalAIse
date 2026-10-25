@@ -25,6 +25,23 @@ pub const ACTIVITY_FILE: &str = "activity.log";
 /// these names, and the knowledge base never reads inside them.
 pub const RESERVED_DIRS: [&str; 3] = [CHATS_DIR, DIARY_DIR, OUTPUTS_DIR];
 
+/// How the assistant answers in this project's chat.
+///
+/// `Chat` is the plain assistant: it answers from the conversation and the
+/// indexed sources, with no side effects. `Agent` may additionally use the
+/// tools — reading and writing files in the folder, searching the index,
+/// diary and calendar, and (when the internet toggle allows) the web.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[derive(Default)]
+pub enum ChatMode {
+    /// Simple assistant: answers only, never acts on the folder.
+    #[default]
+    Chat,
+    /// Tool-using agent: can read, list and write files and search around.
+    Agent,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
@@ -80,6 +97,9 @@ pub struct ProjectFile {
     /// Per-project chat system prompt. `None` keeps the built-in default.
     #[serde(default)]
     pub system_prompt: Option<String>,
+    /// Per-project assistant mode: plain chat or the tool-using agent.
+    #[serde(default)]
+    pub chat_mode: ChatMode,
     /// The directory's folder layout (see `ProjectFolders`).
     #[serde(default)]
     pub folders: ProjectFolders,
@@ -100,6 +120,7 @@ impl ProjectFile {
             template,
             internet_enabled,
             system_prompt: None,
+            chat_mode: ChatMode::Chat,
             folders: ProjectFolders::default(),
             diary_enabled: false,
             rag_paths: Vec::new(),

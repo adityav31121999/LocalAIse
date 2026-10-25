@@ -11,6 +11,9 @@ export type Density = "compact" | "comfortable" | "spacious";
 
 export type ProjectTemplate = "budget" | "content-writing" | "research" | "general";
 
+/** How the assistant answers in this project's chat: plain chat or agent. */
+export type ChatMode = "chat" | "agent";
+
 export type SourceStatus = "indexed" | "indexing" | "pending" | "error";
 
 export interface Project {
@@ -22,6 +25,8 @@ export interface Project {
   internetEnabled: boolean;
   /** Custom chat system prompt; null means the built-in default is in use. */
   systemPrompt: string | null;
+  /** The assistant this project's chat uses: plain chat or the tool-using agent. */
+  chatMode: ChatMode;
   /** Whether the project keeps its own diary/ folder (one page per day). */
   diaryEnabled: boolean;
   /** Folders the user added to the project directory. */
@@ -174,7 +179,7 @@ export interface PersonalSearchResult {
   snippet: string;
 }
 
-export type AppView = "home" | "diary" | "settings" | "theme-settings" | "model-config";
+export type AppView = "home" | "diary" | "settings" | "theme-settings" | "model-config" | "deep-research";
 
 /** Inference profile — mirrors the Rust InferenceProfile struct. */
 export type KvCacheType = "f16" | "q8_0" | "q5_1" | "q4_0";
@@ -212,6 +217,55 @@ export interface InferenceProfile {
   thinkingBudget: number;
   /** Let llama-server shrink the context to fit memory (--fit on). */
   partialLoad: boolean;
+
+  // Token budgets per role. 0 = unlimited. Optional so an older core that
+  // does not know the fields cannot break the settings page: missing values
+  // read the defaults from `withProfileDefaults`.
+  /** Cap on prompt tokens the model may be given. */
+  maxInputTokens?: number;
+  /** Cap on response tokens the model may produce. */
+  maxOutputTokens?: number;
+  /** Same input cap for the tool-using agent. */
+  agentMaxInputTokens?: number;
+  /** Same output cap for the agent. */
+  agentMaxOutputTokens?: number;
+  /** Thinking budget for the agent. 0 = auto. */
+  agentThinkingBudget?: number;
+  /** Input cap for subagent/map-reduce workers. */
+  subagentMaxInputTokens?: number;
+  /** Output cap for subagent/map-reduce workers. */
+  subagentMaxOutputTokens?: number;
+  /** Thinking budget for subagent workers. 0 = auto. */
+  subagentThinkingBudget?: number;
+}
+
+/** Every token budget the settings page can edit, and its default. */
+export const PROFILE_BUDGET_DEFAULTS: Record<
+  | "maxInputTokens"
+  | "maxOutputTokens"
+  | "agentMaxInputTokens"
+  | "agentMaxOutputTokens"
+  | "agentThinkingBudget"
+  | "subagentMaxInputTokens"
+  | "subagentMaxOutputTokens"
+  | "subagentThinkingBudget",
+  number
+> = {
+  maxInputTokens: 0,
+  maxOutputTokens: 0,
+  agentMaxInputTokens: 0,
+  agentMaxOutputTokens: 0,
+  agentThinkingBudget: 0,
+  subagentMaxInputTokens: 0,
+  subagentMaxOutputTokens: 0,
+  subagentThinkingBudget: 0,
+};
+
+/** Fills the optional token-budget fields a stored profile may not carry. */
+export function withProfileDefaults<T extends Partial<InferenceProfile>>(
+  profile: T,
+): InferenceProfile & T {
+  return { ...PROFILE_BUDGET_DEFAULTS, ...profile } as InferenceProfile & T;
 }
 
 /**

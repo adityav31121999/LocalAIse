@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, StopIcon } from "../ui/icons";
 import { NetworkIndicator } from "../layout/NetworkIndicator";
+import { ModeIndicator } from "../layout/ModeIndicator";
 import { useProjectStore } from "../../state/projectStore";
 import type { Project } from "../../types";
 
@@ -15,10 +16,20 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
   const [value, setValue] = useState("");
   const [promptOpen, setPromptOpen] = useState(false);
   const [promptDraft, setPromptDraft] = useState("");
+  const [samplingOpen, setSamplingOpen] = useState(false);
+  const [temperature, setTemperature] = useState(0.7);
+  const [topP, setTopP] = useState(0.9);
+  const [topK, setTopK] = useState(40);
+  // Display strings for the sampling fields, so digits can be deleted and
+  // retyped without the stored value snapping the text back.
+  const [temperatureDisplay, setTemperatureDisplay] = useState("0.7");
+  const [topPDisplay, setTopPDisplay] = useState("0.9");
+  const [topKDisplay, setTopKDisplay] = useState("40");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const setSystemPrompt = useProjectStore((state) => state.setSystemPrompt);
   const setInternet = useProjectStore((state) => state.setInternet);
+  const setChatMode = useProjectStore((state) => state.setChatMode);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -112,7 +123,11 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
                 submit();
               }
             }}
-            placeholder={`Ask about the sources in ${project.name}…`}
+            placeholder={
+              project.chatMode === "agent"
+                ? `Agent mode — ask, or have it read, write and search ${project.name}…`
+                : `Ask about the sources in ${project.name}…`
+            }
             aria-label="Ask a question about this project"
           />
 
@@ -159,6 +174,78 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             enabled={project.internetEnabled}
             onToggle={(enabled) => void setInternet(enabled)}
           />
+          <ModeIndicator
+            mode={project.chatMode}
+            onToggle={(mode) => void setChatMode(mode)}
+          />
+          <button
+            type="button"
+            className={`composer__prompt-btn${samplingOpen ? " composer__prompt-btn--active" : ""}`}
+            aria-expanded={samplingOpen}
+            onClick={() => setSamplingOpen((open) => !open)}
+            title="Adjust sampling parameters"
+          >
+            Sampling
+          </button>
+          {samplingOpen && (
+            <div className="composer__prompt" style={{ marginTop: 8 }}>
+              <div className="composer__prompt-head">
+                <span className="composer__prompt-title">Sampling</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, padding: 8 }}>
+                <label>
+                  Temp
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="2"
+                    value={temperatureDisplay}
+                    onChange={(e) => {
+                      setTemperatureDisplay(e.target.value);
+                      const n = Number(e.target.value);
+                      if (!Number.isNaN(n)) setTemperature(n);
+                    }}
+                    onBlur={() => setTemperatureDisplay(String(temperature))}
+                    className="input"
+                  />
+                </label>
+                <label>
+                  Top-p
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="1"
+                    value={topPDisplay}
+                    onChange={(e) => {
+                      setTopPDisplay(e.target.value);
+                      const n = Number(e.target.value);
+                      if (!Number.isNaN(n)) setTopP(n);
+                    }}
+                    onBlur={() => setTopPDisplay(String(topP))}
+                    className="input"
+                  />
+                </label>
+                <label>
+                  Top-k
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={topKDisplay}
+                    onChange={(e) => {
+                      setTopKDisplay(e.target.value);
+                      const n = Number(e.target.value);
+                      if (!Number.isNaN(n)) setTopK(Math.max(0, n));
+                    }}
+                    onBlur={() => setTopKDisplay(String(topK))}
+                    className="input"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
           <span className="composer__hint">Enter to send · Shift+Enter for a new line</span>
         </div>
       </div>

@@ -23,6 +23,7 @@ export const useNavStore = create<NavState>()((set, get) => ({
   showHome: () => set({ view: "home", previousView: "home" }),
   showDiary: () => set({ view: "diary", previousView: "home" }),
   showSettings: () => set({ view: "settings", previousView: "home" }),
+  showDeepResearch: () => set({ view: "deep-research", previousView: "home" }),
   showThemeSettings: () => {
     const current = get().view;
     set({

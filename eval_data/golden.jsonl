@@ -1,0 +1,10 @@
+{"id":"q001","query":"what does RRF k parameter control","relevant":[{"source":"docs/retrieval.md","contains":"k = 60"}],"domain":"technical","difficulty":"easy"}
+{"id":"q002","query":"how is the token limit enforced","relevant":[{"source":"docs/ingest.md","contains":"target_tokens"}],"domain":"technical","difficulty":"medium"}
+{"id":"q003","query":"what is the capital of France","relevant":[],"domain":"negative","difficulty":"easy"}
+{"id":"q004","query":"how does the embedder worker thread work","relevant":[{"source":"src/embeddings/worker.rs","contains":"mpsc::sync_channel"}],"domain":"technical","difficulty":"medium"}
+{"id":"q005","query":"what is the reranker model","relevant":[{"source":"docs/roadmap.md","contains":"bge-reranker-v2-m3"}],"domain":"technical","difficulty":"easy"}
+{"id":"q006","query":"describe the sqlite-vec schema","relevant":[{"source":"docs/index/schema.sql","contains":"CREATE VIRTUAL TABLE chunk_vec"}],"domain":"technical","difficulty":"medium"}
+{"id":"q007","query":"what is the chunk size target","relevant":[{"source":"docs/ingest/chunk.md","contains":"300-500 tokens"}],"domain":"technical","difficulty":"easy"}
+{"id":"q008","query":"how does MMR diversity work","relevant":[{"source":"docs/retrieval/fusion.rs","contains":"mmr_lambda"}],"domain":"technical","difficulty":"medium"}
+{"id":"q009","query":"what languages does the embedder support","relevant":[{"source":"docs/models/granite.md","contains":"200+ languages"}],"domain":"technical","difficulty":"easy"}
+{"id":"q010","query":"random query with no relevant docs","relevant":[],"domain":"negative","difficulty":"easy"}

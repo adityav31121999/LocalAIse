@@ -7,7 +7,7 @@ pub mod watcher;
 
 use serde::Serialize;
 
-use crate::projects::layout::ProjectTemplate;
+use crate::projects::layout::{ChatMode, ProjectTemplate};
 
 /// What the UI shows on a project card and in the project header.
 #[derive(Debug, Clone, Serialize)]
@@ -22,6 +22,8 @@ pub struct Project {
     pub internet_enabled: bool,
     /// Chat system prompt the user set. `None` means the built-in default.
     pub system_prompt: Option<String>,
+    /// The assistant the project's chat uses: plain chat or tool-using agent.
+    pub chat_mode: ChatMode,
     /// Whether the project keeps its own `diary/` folder (one page per day).
     pub diary_enabled: bool,
     /// Folders the user added to the project through the app.

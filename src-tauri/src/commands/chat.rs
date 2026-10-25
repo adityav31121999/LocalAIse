@@ -11,11 +11,12 @@
 
 use tauri::{AppHandle, Emitter, State};
 
+use crate::agent::agent_chat;
 use crate::activity::log as activity;
 use crate::error::{AppError, AppResult};
 use crate::models::registry as models;
 use crate::projects::chats::{self, ChatSession, StoredMessage};
-use crate::projects::layout::ProjectPaths;
+use crate::projects::layout::{ChatMode, ProjectPaths};
 use crate::retrieval::citations::Citation;
 use crate::runtime::client;
 use crate::util::{hash, time};
@@ -115,14 +116,22 @@ pub async fn chat_send(
         None => system_prompt(&record.name),
     };
 
+    // In agent mode the built-in prompt gains the tool rules; the custom
+    // prompt the user set still leads the model's voice and behaviour.
+    let system = if record.chat_mode == ChatMode::Agent {
+        agent_chat::instructions(&system, record.internet_enabled)
+    } else {
+        system
+    };
+
     // 3. Replay the tail of the conversation, then ask the new question.
-    let mut messages = vec![client::message("system", system)];
+    let mut messages = vec![client::message("system", system.clone())];
     let history_start = session.messages.len().saturating_sub(HISTORY_LIMIT);
     for turn in &session.messages[history_start..] {
         let role = if turn.role == "assistant" { "assistant" } else { "user" };
         messages.push(client::message(role, turn.content.clone()));
     }
-    messages.push(client::message("user", user_prompt));
+    messages.push(client::message("user", user_prompt.clone()));
 
     let serving = match client::wait_until_ready(&serving).await {
         Ok(()) => serving,
@@ -192,18 +201,47 @@ pub async fn chat_send(
             )
             .ok();
     };
-    let completion = client::complete_stream(
-        &serving,
-        &model_label,
-        &messages,
-        // A brand-new chat never reuses another conversation's cache.
-        !fresh,
-        |delta| emit(false, delta),
-        |delta| emit(true, delta),
-    )
-    .await?;
-    let content = completion.content;
-    let reasoning = completion.reasoning;
+
+    // Agent mode runs the LangChain tools agent over the same local server;
+    // chat mode is one streamed call.
+    let (content, reasoning) = if record.chat_mode == ChatMode::Agent {
+        let personal_space = {
+            let registry = state.registry()?;
+            registry.personal_space_or_default(&state.dirs)
+        };
+        let history = session.messages[history_start..]
+            .iter()
+            .map(|turn| agent_chat::HistoryTurn {
+                assistant: turn.role == "assistant",
+                content: turn.content.clone(),
+            })
+            .collect();
+        let turn = agent_chat::run(
+            &serving,
+            &model_label,
+            system.clone(),
+            history,
+            user_prompt.clone(),
+            &record.path,
+            &personal_space,
+            record.internet_enabled,
+            |delta| emit(false, delta),
+        )
+        .await?;
+        (turn.content, String::new())
+    } else {
+        let completion = client::complete_stream(
+            &serving,
+            &model_label,
+            &messages,
+            // A brand-new chat never reuses another conversation's cache.
+            !fresh,
+            |delta| emit(false, delta),
+            |delta| emit(true, delta),
+        )
+        .await?;
+        (completion.content, completion.reasoning)
+    };
 
     // 4. Save the turn: one JSON file per session in the project's chats folder.
     let now = time::now_iso();

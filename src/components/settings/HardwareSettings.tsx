@@ -18,6 +18,7 @@ import { RuntimeActions } from "./RuntimeActions";
 import { MemoryWarningAlert } from "./MemoryWarningAlert";
 import { deviceLabel, useRuntimeConfig } from "./runtime-config";
 import { DownloadProgress } from "../ui/DownloadProgress";
+import { NumberField } from "../ui/NumberField";
 
 const STATE_LABELS: Record<string, string> = {
   ready: "Running",
@@ -483,28 +484,22 @@ export function HardwareSettings() {
         </p>
         <div className="perf__slider-row">
           <span className="field__hint">Batch size:</span>
-          <input
+          <NumberField
             className="input perf__threads"
-            type="number"
             min={1}
             step={64}
             value={draft.batchSize}
-            onChange={(event) =>
-              patch({ batchSize: Math.max(1, Number(event.target.value) || 1) })
-            }
-            aria-label="Batch size"
+            onChange={(n) => patch({ batchSize: n })}
+            label="Batch size"
           />
           <span className="field__hint">Parallel slots:</span>
-          <input
+          <NumberField
             className="input perf__threads"
-            type="number"
             min={1}
             step={1}
             value={draft.parallelSlots}
-            onChange={(event) =>
-              patch({ parallelSlots: Math.max(1, Number(event.target.value) || 1) })
-            }
-            aria-label="Parallel slots"
+            onChange={(n) => patch({ parallelSlots: n })}
+            label="Parallel slots"
           />
         </div>
       </section>

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
-use crate::projects::layout::ProjectTemplate;
+use crate::projects::layout::{ChatMode, ProjectTemplate};
 use crate::runtime::profile::{InferenceProfile, ProfileScope};
 use crate::util::paths::plain;
 
@@ -192,6 +192,9 @@ pub struct ProjectRecord {
     /// Custom chat system prompt; `None` uses the built-in project prompt.
     #[serde(default)]
     pub system_prompt: Option<String>,
+    /// The chat assistant mode: plain chat or the tool-using agent.
+    #[serde(default)]
+    pub chat_mode: ChatMode,
     pub last_opened_at: Option<String>,
 }
 

@@ -7,6 +7,7 @@ import {
   mockChatRead,
 } from "./mock";
 import type {
+  ChatMode,
   ChatSession,
   ChatSummary,
   Project,
@@ -83,6 +84,16 @@ export async function setProjectSystemPrompt(
   const project = MOCK_PROJECTS.find((item) => item.id === projectId);
   if (!project) throw new Error(`Unknown project: ${projectId}`);
   project.systemPrompt = prompt;
+  return { ...project };
+}
+
+/** Switches the chat between the plain assistant and the tool-using agent. */
+export async function setProjectChatMode(projectId: string, mode: ChatMode): Promise<Project> {
+  if (isTauri) return invoke<Project>("set_project_chat_mode", { projectId, mode });
+  await delay(90);
+  const project = MOCK_PROJECTS.find((item) => item.id === projectId);
+  if (!project) throw new Error(`Unknown project: ${projectId}`);
+  project.chatMode = mode;
   return { ...project };
 }
 

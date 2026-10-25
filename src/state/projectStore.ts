@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as projectsApi from "../api/projects";
-import type { Project, ProjectTemplate, SourceFile } from "../types";
+import type { ChatMode, Project, ProjectTemplate, SourceFile } from "../types";
 
 import { useNavStore } from "./navStore";
 
@@ -18,6 +18,7 @@ interface ProjectState {
   closeProject(): void;
   setInternet(enabled: boolean): Promise<void>;
   setSystemPrompt(prompt: string | null): Promise<void>;
+  setChatMode(mode: ChatMode): Promise<void>;
   setDiary(enabled: boolean): Promise<void>;
   createFolder(name: string): Promise<boolean>;
   addFolder(): Promise<void>;
@@ -92,6 +93,19 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     try {
       const project = await projectsApi.setProjectSystemPrompt(projectId, prompt);
       set((state) => ({ projects: replaceProject(state.projects, project) }));
+    } catch (error) {
+      set({ error: message(error) });
+    }
+  },
+
+  /** Switches this project's chat between the plain chat assistant and the
+   * tool-using agent. The project record the core returns stays the truth. */
+  setChatMode: async (mode) => {
+    const projectId = get().activeProjectId;
+    if (!projectId) return;
+    try {
+      const project = await projectsApi.setProjectChatMode(projectId, mode);
+      set((state) => ({ projects: replaceProject(state.projects, project), error: null }));
     } catch (error) {
       set({ error: message(error) });
     }

@@ -10,7 +10,7 @@ use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
 use crate::models::registry as models;
 use crate::projects::layout::{
-    ProjectFile, ProjectFolders, ProjectPaths, ProjectTemplate, RESERVED_DIRS, STATE_DIR,
+    ChatMode, ProjectFile, ProjectFolders, ProjectPaths, ProjectTemplate, RESERVED_DIRS, STATE_DIR,
 };
 use crate::projects::templates;
 use crate::projects::{Project, SourceFile, SourceStatus};
@@ -73,6 +73,7 @@ fn to_project(context: &Context, record: &ProjectRecord) -> Project {
         source_count,
         internet_enabled: record.internet_enabled,
         system_prompt: record.system_prompt.clone(),
+        chat_mode: record.chat_mode,
         diary_enabled: on_disk.as_ref().map(|file| file.diary_enabled).unwrap_or(false),
         custom_folders: on_disk
             .as_ref()
@@ -229,6 +230,14 @@ fn register(
         .and_then(|file| file.system_prompt.clone())
         .or_else(|| known.as_ref().and_then(|record| record.system_prompt.clone()));
 
+    // A folder that was already a project keeps its assistant mode; a fresh
+    // one starts as the plain chat assistant.
+    let chat_mode = on_disk
+        .as_ref()
+        .map(|file| file.chat_mode)
+        .or_else(|| known.as_ref().map(|record| record.chat_mode))
+        .unwrap_or_default();
+
     // An existing manifest keeps its layout, diary setting and RAG scope; a
     // fresh folder gets the defaults.
     let (folders, diary_enabled, rag_paths) = on_disk
@@ -248,6 +257,7 @@ fn register(
         template,
         internet_enabled,
         system_prompt: system_prompt.clone(),
+        chat_mode,
         folders: folders.clone(),
         diary_enabled,
         rag_paths: rag_paths.clone(),
@@ -261,6 +271,7 @@ fn register(
         template,
         internet_enabled,
         system_prompt,
+        chat_mode,
         last_opened_at: Some(time::now_iso()),
     };
 
@@ -422,6 +433,42 @@ pub fn set_system_prompt(
 
     let updated = ProjectRecord {
         system_prompt: prompt,
+        ..record
+    };
+    registry.upsert(updated.clone());
+    registry.save(&dirs.state_file)?;
+
+    Ok(to_project(&Context { registry, dirs }, &updated))
+}
+
+/// Switches the project's chat between the plain assistant and the
+/// tool-using agent. The chat transcript itself is untouched: both modes
+/// share the same sessions in `chats/`.
+pub fn set_chat_mode(
+    registry: &mut Registry,
+    dirs: &AppDirs,
+    id: &str,
+    mode: ChatMode,
+) -> AppResult<Project> {
+    let record = registry
+        .find(id)
+        .cloned()
+        .ok_or_else(|| AppError::UnknownProject(id.to_string()))?;
+
+    let paths = ProjectPaths::new(record.path.clone());
+    let mut file = paths.read().unwrap_or_else(|| {
+        ProjectFile::new(
+            record.id.clone(),
+            record.name.clone(),
+            record.template,
+            record.internet_enabled,
+        )
+    });
+    file.chat_mode = mode;
+    paths.write(&file)?;
+
+    let updated = ProjectRecord {
+        chat_mode: mode,
         ..record
     };
     registry.upsert(updated.clone());

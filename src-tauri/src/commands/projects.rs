@@ -9,7 +9,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::config::app_config::Registry;
 use crate::error::{AppError, AppResult};
 use crate::projects::chats::{self, ChatSession, ChatSummary};
-use crate::projects::layout::{ProjectPaths, ProjectTemplate};
+use crate::projects::layout::{ChatMode, ProjectPaths, ProjectTemplate};
 use crate::projects::manager::{self, Context};
 use crate::projects::{Project, SourceFile};
 use crate::AppState;
@@ -97,6 +97,17 @@ pub fn set_project_system_prompt(
 ) -> AppResult<Project> {
     let mut registry = state.registry()?;
     manager::set_system_prompt(&mut registry, &state.dirs, &project_id, prompt)
+}
+
+/// Switches the chat between the plain assistant and the tool-using agent.
+#[tauri::command]
+pub fn set_project_chat_mode(
+    state: State<'_, AppState>,
+    project_id: String,
+    mode: ChatMode,
+) -> AppResult<Project> {
+    let mut registry = state.registry()?;
+    manager::set_chat_mode(&mut registry, &state.dirs, &project_id, mode)
 }
 
 /// Turns the project's own `diary/` folder on or off. Turning it off never

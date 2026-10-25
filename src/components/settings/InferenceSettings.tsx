@@ -1,7 +1,7 @@
 /** The Inference settings tab: how the model runs.
  *
  * Every control here maps to one llama-server flag. The draft is measured by
- * the core while the user edits, so the numbers next to the sliders are the
+ * the core while the user edits, so the numbers beside the controls are the
  * same ones the server will be started with — and never a guess made in the
  * browser.
  */
@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { KvCacheType, ProfileScope } from "../../types";
 import { RuntimeActions } from "./RuntimeActions";
 import { MemoryWarningAlert } from "./MemoryWarningAlert";
+import { NumberField } from "../ui/NumberField";
 import {
   FIT_LABELS,
   deviceLabel,
@@ -66,7 +67,6 @@ export function InferenceSettings() {
     setKvType,
     setMoe,
   } = useRuntimeConfig();
-  const [budgetMax, setBudgetMax] = useState(16_384);
   const [expertLayers, setExpertLayers] = useState(4);
 
   const fit = estimate?.fit ?? "comfortable";
@@ -78,16 +78,14 @@ export function InferenceSettings() {
   const kvCosts = estimate?.modelShapeKnown ? (estimate.kvCacheGbByType ?? {}) : {};
   const kvCost = (value: KvCacheType): number | undefined => kvCosts[value];
 
-  // The model declares a context length; the slider cannot offer more than
-  // that, but the draft may still hold an older, larger value.
+  // The model declares a context length; the input may still hold an older,
+  // larger value — the readout below shows what the model supports.
   const declared = estimate?.maxContext ?? 0;
-  const ctxMax = declared > 0 ? declared : 131_072;
-  const sliderValue = Math.min(draft.contextTokens, ctxMax);
 
   // The window the server will run with. The core works it out — it knows
   // what the model declares and what the memory allows — so the number here
-  // is the number the server gets, not the number the slider happens to sit
-  // on. Without an estimate only the draft is known.
+  // is the number the server gets, not the number the input happens to hold.
+  // Without an estimate only the draft is known.
   const runtimeContext = estimate
     ? estimate.contextTokens
     : draft.contextTokens === 0
@@ -95,14 +93,6 @@ export function InferenceSettings() {
       : draft.contextTokens;
 
   const flashSupport = capabilities?.flashAttn ?? null;
-
-  const ramPercent = estimate
-    ? Math.min(100, Math.round((estimate.ramNeededGb / Math.max(estimate.ramTotalGb, 1)) * 100))
-    : 0;
-  const vramPercent =
-    estimate && estimate.vramKnown && estimate.vramTotalGb > 0
-      ? Math.min(100, Math.round((estimate.vramNeededGb / estimate.vramTotalGb) * 100))
-      : 0;
 
   // The three places a configuration can live. The more specific one wins:
   // a project sits on top of a model, and a model on top of the default.
@@ -195,29 +185,38 @@ export function InferenceSettings() {
           How much text the model can see at once — files pasted into chat, long citations and
           multi-turn research all count against this. 0 lets the model use its own default context.
         </p>
-        <div className="perf__slider-row">
-          <input
-            className="slider"
-            type="range"
+        <div className="perf__slider-row" style={{ gap: "var(--space-2)" }}>
+          <NumberField
+            className="input"
+            style={{ maxWidth: "140px" }}
             min={0}
-            max={ctxMax}
-            step={512}
-            value={sliderValue}
-            onChange={(event) => {
-              const raw = Number(event.target.value);
-              // 0 is "model default"; small hands-on values round up to the
-              // per-profile floor instead of failing validation later.
-              patch({ contextTokens: raw === 0 ? 0 : Math.max(512, raw) });
+            step={1024}
+            value={draft.contextTokens}
+            onChange={(n) => {
+              // 0 is "model default"; anything else is at least a 512-token
+              // window, the smallest the core accepts.
+              patch({ contextTokens: n === 0 ? 0 : Math.max(512, n) });
             }}
-            aria-labelledby="field-context"
+            label="Context window in tokens"
           />
-          <span className="perf__slider-value mono">
-            {draft.contextTokens === 0 ? "Model default" : formatTokens(draft.contextTokens)}
+          <span className="field__hint">
+            {draft.contextTokens === 0 ? "0 = model default" : "tokens"}
           </span>
+          {[4_096, 8_192, 16_384, 32_768].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className="btn btn--ghost btn--sm"
+              aria-pressed={draft.contextTokens === preset}
+              onClick={() => patch({ contextTokens: preset })}
+            >
+              {preset >= 1024 ? `${preset / 1024}K` : String(preset)}
+            </button>
+          ))}
         </div>
 
-        {/* The estimate sits beside the slider: how much cache the chosen
-            window needs, and whether that fits on this machine. */}
+        {/* The estimate follows the window chosen above: how much cache it
+            needs, and whether that fits on this machine. */}
         <div className="ctx-readout">
           <div className="ctx-readout__row">
             <span className="ctx-readout__key">Runtime context</span>
@@ -324,49 +323,97 @@ export function InferenceSettings() {
         )}
       </section>
 
-      <section className="field" aria-labelledby="field-thinking">
-        <h2 className="field__label" id="field-thinking">
-          Thinking budget
+      <section className="field" aria-labelledby="field-budgets">
+        <h2 className="field__label" id="field-budgets">
+          Token budgets
         </h2>
         <p className="field__hint">
-          How many tokens a thinking model may spend reasoning before it answers. Auto lets the
-          model decide; a limit trades deeper reasoning for earlier answers.
+          Caps per role, in tokens. 0 means unlimited — the model's own server settings decide.
+          The agent row governs tool-using chat, the subagent row the map-reduce workers.
         </p>
-        <div className="perf__slider-row">
-          <input
-            className="slider"
-            type="range"
+        <div className="limits-table">
+          <span className="limits-table__cell--head" aria-hidden="true" />
+          <span className="limits-table__cell--head">Max input</span>
+          <span className="limits-table__cell--head">Max output</span>
+          <span className="limits-table__cell--head">Thinking</span>
+
+          <span className="limits-table__cell--row">Model</span>
+          <NumberField
+            className="input"
             min={0}
-            max={budgetMax}
-            step={128}
-            value={Math.min(draft.thinkingBudget, budgetMax)}
-            onChange={(event) => {
-              const budget = Number(event.target.value);
-              // 0 is "auto (unrestricted)"; anything else is a hard cap.
-              patch({ thinkingBudget: budget === 0 ? 0 : Math.max(1, budget) });
-            }}
-            aria-labelledby="field-thinking"
+            step={256}
+            value={draft.maxInputTokens ?? 0}
+            onChange={(n) => patch({ maxInputTokens: n })}
+            label="Max input tokens for the model"
           />
-          <span className="perf__slider-value mono">
-            {draft.thinkingBudget === 0 ? "Auto" : `${formatTokens(draft.thinkingBudget)} tokens`}
-          </span>
-        </div>
-        <div className="perf__slider-row">
-          <span className="field__hint">Slider max:</span>
-          <input
-            className="input perf__threads"
-            type="number"
-            min={1}
-            step={128}
-            value={budgetMax}
-            onChange={(event) => {
-              const max = Math.max(1, Number(event.target.value) || 1);
-              setBudgetMax(max);
-              if (draft.thinkingBudget > max) patch({ thinkingBudget: max });
-            }}
-            aria-label="Maximum thinking budget shown on the slider"
+          <NumberField
+            className="input"
+            min={0}
+            step={256}
+            value={draft.maxOutputTokens ?? 0}
+            onChange={(n) => patch({ maxOutputTokens: n })}
+            label="Max output tokens for the model"
           />
-          <span className="field__hint mono">tokens</span>
+          <NumberField
+            className="input"
+            min={0}
+            step={128}
+            value={draft.thinkingBudget}
+            onChange={(n) => patch({ thinkingBudget: n })}
+            label="Thinking budget for the model"
+          />
+
+          <span className="limits-table__cell--row">Agent</span>
+          <NumberField
+            className="input"
+            min={0}
+            step={256}
+            value={draft.agentMaxInputTokens ?? 0}
+            onChange={(n) => patch({ agentMaxInputTokens: n })}
+            label="Max input tokens for the agent"
+          />
+          <NumberField
+            className="input"
+            min={0}
+            step={256}
+            value={draft.agentMaxOutputTokens ?? 0}
+            onChange={(n) => patch({ agentMaxOutputTokens: n })}
+            label="Max output tokens for the agent"
+          />
+          <NumberField
+            className="input"
+            min={0}
+            step={128}
+            value={draft.agentThinkingBudget ?? 0}
+            onChange={(n) => patch({ agentThinkingBudget: n })}
+            label="Thinking budget for the agent"
+          />
+
+          <span className="limits-table__cell--row">Subagent</span>
+          <NumberField
+            className="input"
+            min={0}
+            step={256}
+            value={draft.subagentMaxInputTokens ?? 0}
+            onChange={(n) => patch({ subagentMaxInputTokens: n })}
+            label="Max input tokens for the subagent"
+          />
+          <NumberField
+            className="input"
+            min={0}
+            step={256}
+            value={draft.subagentMaxOutputTokens ?? 0}
+            onChange={(n) => patch({ subagentMaxOutputTokens: n })}
+            label="Max output tokens for the subagent"
+          />
+          <NumberField
+            className="input"
+            min={0}
+            step={128}
+            value={draft.subagentThinkingBudget ?? 0}
+            onChange={(n) => patch({ subagentThinkingBudget: n })}
+            label="Thinking budget for the subagent"
+          />
         </div>
       </section>
 
@@ -392,14 +439,13 @@ export function InferenceSettings() {
             <span>Auto</span>
           </label>
           {draft.threads > 0 && (
-            <input
+            <NumberField
               className="input perf__threads"
-              type="number"
               min={1}
               max={hardware?.cpuCores ?? 64}
               value={draft.threads}
-              onChange={(event) => patch({ threads: Math.max(1, Number(event.target.value) || 1) })}
-              aria-label="Thread count"
+              onChange={(n) => patch({ threads: n })}
+              label="Thread count"
             />
           )}
         </div>
@@ -419,7 +465,8 @@ export function InferenceSettings() {
             Partial loading
             <span className="field__hint">
               {" "}— when the context bloats the KV cache past what fits, llama-server lowers the
-              context automatically instead of failing to load. The slider above becomes a minimum.
+              context automatically instead of failing to load. The window input
+              becomes a minimum.
             </span>
           </span>
         </label>
@@ -482,18 +529,16 @@ export function InferenceSettings() {
               {draft.moe.mode === "first_layers" && (
                 <div className="perf__slider-row">
                   <span className="field__hint">Layers in RAM:</span>
-                  <input
+                  <NumberField
                     className="input perf__threads"
-                    type="number"
                     min={1}
                     step={1}
                     value={draft.moe.n}
-                    onChange={(event) => {
-                      const count = Math.max(1, Number(event.target.value) || 1);
+                    onChange={(count) => {
                       setExpertLayers(count);
                       patch({ moe: { mode: "first_layers", n: count } });
                     }}
-                    aria-label="Number of layers whose experts stay in system RAM"
+                    label="Number of layers whose experts stay in system RAM"
                   />
                 </div>
               )}
@@ -520,64 +565,39 @@ export function InferenceSettings() {
           {estimate ? deviceLabel(estimate.device) : "the selected device"}.
         </p>
         {estimate?.modelShapeKnown ? (
-          <div className="memory">
-            {onGpu && estimate.vramKnown && (
-              <>
-                <div className="memory__scale">
-                  <span>0 GB</span>
-                  <span>{estimate.vramTotalGb.toFixed(1)} GB VRAM</span>
-                </div>
-                <div
-                  className="memory__bar"
-                  role="meter"
-                  aria-valuemin={0}
-                  aria-valuemax={Math.round(estimate.vramTotalGb)}
-                  aria-valuenow={Math.round(estimate.vramNeededGb)}
-                  aria-label="VRAM needed for this profile"
-                >
-                  <div
-                    className={`memory__fill${fit !== "comfortable" ? " memory__fill--tight" : ""}`}
-                    style={{ width: `${vramPercent}%` }}
-                  />
-                </div>
-              </>
-            )}
-            <div className="memory__scale">
-              <span>0 GB</span>
-              <span>{estimate.ramTotalGb.toFixed(1)} GB RAM</span>
-            </div>
-            <div
-              className="memory__bar"
-              role="meter"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(estimate.ramTotalGb)}
-              aria-valuenow={Math.round(estimate.ramNeededGb)}
-              aria-label="RAM needed for this profile"
-            >
-              <div
-                className={`memory__fill${fit !== "comfortable" ? " memory__fill--tight" : ""}`}
-                style={{ width: `${ramPercent}%` }}
-              />
-            </div>
-            <div className="memory__detail">
-              <span>
-                Model <strong>{estimate.modelFileGb.toFixed(1)}</strong> GB + KV cache{" "}
-                <strong>{estimate.kvCacheGb.toFixed(2)}</strong> GB + runtime{" "}
-                <strong>{estimate.runtimeOverheadGb.toFixed(2)}</strong> GB
-              </span>
-              <span>
-                ≈ <strong>{estimate.ramNeededGb.toFixed(1)}</strong> of{" "}
-                <strong>{estimate.ramTotalGb.toFixed(1)}</strong> GB RAM ·{" "}
-                {estimate.ramAvailableGb.toFixed(1)} GB free right now
-              </span>
-              {onGpu && (
-                <span>
-                  VRAM ≈ <strong>{estimate.vramNeededGb.toFixed(1)}</strong>
-                  {estimate.vramKnown ? ` of ${estimate.vramTotalGb.toFixed(1)}` : " (size unknown)"}{" "}
-                  GB
-                </span>
-              )}
-            </div>
+          <div className="memory-table">
+            <span className="memory-table__key">Model weights</span>
+            <span className="memory-table__value">{estimate.modelFileGb.toFixed(2)} GB</span>
+
+            <span className="memory-table__key">
+              KV cache ({kvLabel(draft.kvType)}, {formatTokens(runtimeContext)} tokens)
+            </span>
+            <span className="memory-table__value">{estimate.kvCacheGb.toFixed(2)} GB</span>
+
+            <span className="memory-table__key">Runtime overhead</span>
+            <span className="memory-table__value">{estimate.runtimeOverheadGb.toFixed(2)} GB</span>
+
+            <span className="memory-table__key">Estimated need</span>
+            <span className="memory-table__value memory-table__value--strong">
+              {onGpu
+                ? `${estimate.vramNeededGb.toFixed(2)} GB VRAM + ${estimate.ramNeededGb.toFixed(2)} GB RAM`
+                : `${estimate.ramNeededGb.toFixed(2)} GB`}
+            </span>
+
+            <span className="memory-table__key">Device budget</span>
+            <span className="memory-table__value">
+              {onGpu && estimate.vramKnown
+                ? `${estimate.vramBudgetGb.toFixed(2)} GB VRAM · ${estimate.ramBudgetGb.toFixed(2)} GB RAM`
+                : `${estimate.ramBudgetGb.toFixed(2)} GB`}
+            </span>
+
+            <span className="memory-table__key">Free right now</span>
+            <span className="memory-table__value">
+              {estimate.ramAvailableGb.toFixed(2)} GB RAM
+              {onGpu && estimate.vramKnown
+                ? " · VRAM not measured live"
+                : undefined}
+            </span>
           </div>
         ) : (
           <p className="muted">

@@ -58,6 +58,7 @@ import {
 } from "../../api/models";
 import type { HardwareReport } from "../../api/models";
 import { useProjectStore } from "../../state/projectStore";
+import { PROFILE_BUDGET_DEFAULTS, withProfileDefaults } from "../../types";
 
 /** How the three fit levels read on screen. */
 export const FIT_LABELS: Record<ProfileEstimate["fit"], string> = {
@@ -132,8 +133,15 @@ export function sameProfile(a: InferenceProfile, b: InferenceProfile): boolean {
     a.thinkingBudget === b.thinkingBudget &&
     a.partialLoad === b.partialLoad &&
     sameDevice(a.device, b.device) &&
-    sameMoe(a.moe, b.moe)
+    sameMoe(a.moe, b.moe) &&
+    sameBudgets(a, b)
   );
+}
+
+/** Token-budget fields participate in the dirty check only once present. */
+function sameBudgets(a: InferenceProfile, b: InferenceProfile): boolean {
+  const keys = Object.keys(PROFILE_BUDGET_DEFAULTS) as (keyof typeof PROFILE_BUDGET_DEFAULTS)[];
+  return keys.every((key) => (a[key] ?? 0) === (b[key] ?? 0));
 }
 
 export interface RuntimeConfigValue {
@@ -250,7 +258,7 @@ export function RuntimeConfigProvider({
     const stored = await runtimeProfile(model, projectId).catch(() => null);
     if (stored) {
       setStorage(stored);
-      const base = scopeBase(stored, scopeRef.current);
+      const base = withProfileDefaults(scopeBase(stored, scopeRef.current));
       setDraft(base);
       setSaved(base);
     }
@@ -350,7 +358,7 @@ export function RuntimeConfigProvider({
       setScopeState(next);
       setError(null);
       if (storage) {
-        const base = scopeBase(storage, next);
+        const base = withProfileDefaults(scopeBase(storage, next));
         setDraft(base);
         setSaved(base);
       }
@@ -393,7 +401,7 @@ export function RuntimeConfigProvider({
     try {
       const stored = await resetProfile(scope, modelPath, projectId);
       setStorage(stored);
-      const base = scopeBase(stored, scope);
+      const base = withProfileDefaults(scopeBase(stored, scope));
       setDraft(base);
       setSaved(base);
       const state = await runtimeStatus().catch(() => null);
@@ -409,7 +417,7 @@ export function RuntimeConfigProvider({
     const recommended = estimate?.recommended;
     if (!recommended) return;
     setError(null);
-    setDraft(recommended);
+    setDraft(withProfileDefaults(recommended));
   }, [estimate]);
 
   const report = estimate?.report ?? EMPTY_REPORT;

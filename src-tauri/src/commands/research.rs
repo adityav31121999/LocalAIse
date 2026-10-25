@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use tauri::Emitter;
 
 use crate::activity::log as activity;
 use crate::error::{AppError, AppResult};
@@ -186,4 +187,21 @@ pub async fn execute_research_plan(
         record.internet_enabled,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn run_deep_research(
+    app: tauri::AppHandle,
+    question: String,
+) -> Result<i64, String> {
+    use crate::research::orchestrator;
+    use tokio::sync::mpsc;
+    let (tx, mut rx) = mpsc::channel::<crate::research::ResearchEvent>(64);
+    let handle = app.clone();
+    tokio::spawn(async move {
+        while let Some(ev) = rx.recv().await {
+            let _ = handle.emit("research:event", ev);
+        }
+    });
+    orchestrator::run_once(&question, tx).await
 }

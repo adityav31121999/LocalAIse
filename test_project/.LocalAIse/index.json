@@ -1,0 +1,62 @@
+{
+  "chunks": [
+    {
+      "chunk_index": 0,
+      "file_name": "docs/retrieval.md",
+      "content": "RRF (Reciprocal Rank Fusion) combines multiple ranked lists. The k parameter controls the weight of lower-ranked items. A common value is k = 60 which gives reasonable weight to items ranked beyond the top few.",
+      "page": null
+    },
+    {
+      "chunk_index": 1,
+      "file_name": "docs/ingest.md",
+      "content": "The ingestion pipeline enforces token limits by counting tokens with the embedding model's tokenizer. The target_tokens parameter controls the maximum chunk size, typically set to 300-500 tokens with 10-15% overlap.",
+      "page": null
+    },
+    {
+      "chunk_index": 0,
+      "file_name": "src/embeddings/worker.rs",
+      "content": "The embedder runs on a dedicated thread using std::thread. It receives requests via an mpsc::sync_channel with a bounded buffer of 32. The worker calls the synchronous embed function and sends results back through a oneshot channel.",
+      "page": null
+    },
+    {
+      "chunk_index": 0,
+      "file_name": "docs/roadmap.md",
+      "content": "The reranker model for Phase 6 is bge-reranker-v2-m3, a multilingual cross-encoder based on XLM-RoBERTa-large. It scores (query, chunk) pairs and reranks the fused candidate pool of ~40 down to top 5-8.",
+      "page": null
+    },
+    {
+      "chunk_index": 0,
+      "file_name": "docs/index/schema.sql",
+      "content": "CREATE VIRTUAL TABLE chunk_vec USING vec0(\n  session_id integer partition key,\n  embedding  float[384] distance_metric=cosine\n);\n-- insert: rowid = chunks.id\nINSERT INTO chunk_vec(rowid, session_id, embedding) VALUES (?1, ?2, ?3);",
+      "page": null
+    },
+    {
+      "chunk_index": 1,
+      "file_name": "docs/ingest/chunk.md",
+      "content": "Semantic chunking targets 300-500 tokens per chunk with 10-15% overlap. The chunker splits on Markdown headings first, then paragraphs, then sentences. Code blocks and tables are never split mid-way.",
+      "page": null
+    },
+    {
+      "chunk_index": 0,
+      "file_name": "docs/retrieval/fusion.rs",
+      "content": "MMR (Maximal Marginal Relevance) adds diversity to the reranked results. The mmr_lambda parameter (0.5 default) controls the trade-off between relevance and diversity. Per-source caps (default 2) ensure diverse evidence sources.",
+      "page": null
+    },
+    {
+      "chunk_index": 0,
+      "file_name": "docs/models/granite.md",
+      "content": "The Granite embedding model (ibm-granite/granite-embedding-97m-multilingual-r2) supports 200+ languages with enhanced retrieval for 52 languages. It uses ModernBERT architecture with 384-dimensional CLS pooling output.",
+      "page": null
+    }
+  ],
+  "indexed_files": {
+    "docs/retrieval.md": "1234567890",
+    "docs/ingest.md": "1234567891",
+    "src/embeddings/worker.rs": "1234567892",
+    "docs/roadmap.md": "1234567893",
+    "docs/index/schema.sql": "1234567894",
+    "docs/ingest/chunk.md": "1234567895",
+    "docs/retrieval/fusion.rs": "1234567896",
+    "docs/models/granite.md": "1234567897"
+  }
+}
