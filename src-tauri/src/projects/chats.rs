@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::retrieval::citations::Citation;
-use crate::util::{hash, time};
+use crate::util::time;
+
+#[cfg(test)]
+use crate::util::hash;
 
 /// One turn as it is written to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,10 +54,10 @@ pub struct ChatSummary {
 }
 
 impl ChatSession {
-    pub fn new() -> Self {
+    pub fn new(id: Option<String>) -> Self {
         let now = time::now_iso();
         Self {
-            id: new_session_id(),
+            id: id.unwrap_or_default(),
             title: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -75,26 +78,31 @@ impl ChatSession {
 
 impl Default for ChatSession {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
-/// `chat-20261022-143005-a1b2c3`.
-fn new_session_id() -> String {
-    let iso = time::now_iso();
-    // iso = "YYYY-MM-DDTHH:MM:SS.mmmZ"
-    let stamp = format!(
-        "{}{}{}-{}{}{}",
-        &iso[0..4],
-        &iso[5..7],
-        &iso[8..10],
-        &iso[11..13],
-        &iso[14..16],
-        &iso[17..19]
-    );
-    let entropy = format!("{}{}", iso, std::process::id());
-    let digest = hash::short_id(&entropy);
-    format!("chat-{stamp}-{}", &digest[..6])
+/// Sequential chat numbering: `chat-001`, `chat-002`, etc.
+pub fn new_session_id(dir: &Path) -> String {
+    let next_num = next_chat_number(dir);
+    format!("chat-{:03}", next_num)
+}
+
+/// Finds the highest existing chat number and returns the next one.
+fn next_chat_number(dir: &Path) -> u32 {
+    if let Ok(read_dir) = std::fs::read_dir(dir) {
+        read_dir
+            .flatten()
+            .filter_map(|entry| entry.path().file_stem()?.to_str().map(|s| s.to_string()))
+            .filter_map(|name| {
+                name.strip_prefix("chat-")
+                    .and_then(|n| n.parse::<u32>().ok())
+            })
+            .max()
+            .map_or(1, |max| max + 1)
+    } else {
+        1
+    }
 }
 
 /// Rejects ids that could escape the chats folder.
@@ -216,7 +224,7 @@ mod tests {
     fn save_write_list_load_and_delete_one_file_per_session() {
         let dir = temp_dir("roundtrip");
 
-        let mut session = ChatSession::new();
+        let mut session = ChatSession::new(Some(new_session_id(&dir)));
         session.messages.push(message("user", "Where did spending rise?"));
         session.messages.push(message("assistant", "Hardware rose the most."));
 

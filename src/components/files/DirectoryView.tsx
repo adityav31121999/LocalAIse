@@ -18,7 +18,9 @@ import {
   renameEntry,
   deleteEntry,
   copyEntry,
+  importFiles,
 } from "../../api/files";
+import { isTauri } from "../../api";
 import { useProjectEvents } from "../../hooks/useProjectEvents";
 import { formatBytes, formatRelativeTime, fileExtension } from "../../util/format";
 import type { DirectoryEntry, Project } from "../../types";
@@ -26,6 +28,13 @@ import type { DirectoryEntry, Project } from "../../types";
 type ViewMode = "table" | "grid";
 type SortField = "name" | "size" | "date" | "type";
 type SortDirection = "asc" | "desc";
+
+/** Top-level folders the app owns; the backend refuses to move or delete them. */
+const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs"]);
+
+function isProtectedRootEntry(entry: DirectoryEntry, currentPath: string): boolean {
+  return currentPath === "" && entry.isDir && PROTECTED_ROOT_DIRS.has(entry.name.toLowerCase());
+}
 
 function getFileCategory(name: string, isDir: boolean): {
   label: string;
@@ -149,8 +158,6 @@ export function DirectoryView({ project }: { project: Project }) {
   const [renameVal, setRenameVal] = useState("");
   const [showDelete, setShowDelete] = useState<DirectoryEntry | null>(null);
   const [previewModal, setPreviewModal] = useState<DirectoryEntry | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadFolder = useCallback(
     async (path: string) => {
@@ -324,19 +331,13 @@ export function DirectoryView({ project }: { project: Project }) {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        await createEntry(project.id, currentPath, file.name, false);
-      } catch (err) {
-        console.warn(`Could not upload ${file.name}`, err);
-      }
+  const handleImport = async () => {
+    try {
+      await importFiles(project.id, currentPath);
+      await loadFolder(currentPath);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
     }
-    await loadFolder(currentPath);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
@@ -352,14 +353,6 @@ export function DirectoryView({ project }: { project: Project }) {
         overflow: "hidden",
       }}
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        style={{ display: "none" }}
-        onChange={handleFileUpload}
-      />
-
       {/* Explorer Top Bar & Breadcrumbs */}
       <div
         style={{
@@ -539,10 +532,15 @@ export function DirectoryView({ project }: { project: Project }) {
           <button
             type="button"
             className="btn btn--subtle btn--sm"
-            onClick={() => fileInputRef.current?.click()}
-            title="Upload files from your machine"
+            onClick={() => void handleImport()}
+            disabled={!isTauri}
+            title={
+              isTauri
+                ? "Copy files from your machine into this folder"
+                : "Copying files needs the desktop app"
+            }
           >
-            <span>Upload</span>
+            <span>Add files</span>
           </button>
 
           <div style={{ width: "1px", height: "18px", background: "var(--border)" }} />
@@ -730,7 +728,7 @@ export function DirectoryView({ project }: { project: Project }) {
               <p style={{ fontSize: "13px", maxWidth: "40ch", marginBottom: "16px" }}>
                 {query
                   ? `No items match “${query}”. Clear search to see all files.`
-                  : "Drag and drop documents here, or create a new file or folder to get started."}
+                  : "Use Add files to copy documents in, or create a new file or folder to get started."}
               </p>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
@@ -744,9 +742,15 @@ export function DirectoryView({ project }: { project: Project }) {
                 <button
                   type="button"
                   className="btn btn--subtle btn--sm"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => void handleImport()}
+                  disabled={!isTauri}
+                  title={
+                    isTauri
+                      ? "Copy files from your machine into this folder"
+                      : "Copying files needs the desktop app"
+                  }
                 >
-                  <span>Upload Documents</span>
+                  <span>Add files</span>
                 </button>
               </div>
             </div>
@@ -782,6 +786,7 @@ export function DirectoryView({ project }: { project: Project }) {
                 {filteredEntries.map((entry) => {
                   const cat = getFileCategory(entry.name, entry.isDir);
                   const isSelected = selectedEntry?.path === entry.path;
+                  const isProtected = isProtectedRootEntry(entry, currentPath);
                   return (
                     <tr
                       key={entry.path}
@@ -850,34 +855,46 @@ export function DirectoryView({ project }: { project: Project }) {
                               <DocIcon size={13} />
                             </button>
                           )}
-                          <button
-                            type="button"
-                            className="icon-btn icon-btn--sm"
-                            onClick={() => {
-                              setShowRename(entry);
-                              setRenameVal(entry.name);
-                            }}
-                            title="Rename"
-                          >
-                            <PencilIcon size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-btn icon-btn--sm"
-                            onClick={() => void handleCopy(entry)}
-                            title="Duplicate"
-                          >
-                            <CopyIcon size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-btn icon-btn--sm"
-                            onClick={() => setShowDelete(entry)}
-                            title="Delete"
-                            style={{ color: "#ef4444" }}
-                          >
-                            <TrashIcon size={13} />
-                          </button>
+                          {isProtected ? (
+                            <span
+                              className="badge"
+                              style={{ fontSize: "10px" }}
+                              title="Managed by the app; create or delete files inside it instead"
+                            >
+                              Managed
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn--sm"
+                                onClick={() => {
+                                  setShowRename(entry);
+                                  setRenameVal(entry.name);
+                                }}
+                                title="Rename"
+                              >
+                                <PencilIcon size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn--sm"
+                                onClick={() => void handleCopy(entry)}
+                                title="Duplicate"
+                              >
+                                <CopyIcon size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn--sm"
+                                onClick={() => setShowDelete(entry)}
+                                title="Delete"
+                                style={{ color: "#ef4444" }}
+                              >
+                                <TrashIcon size={13} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1101,24 +1118,33 @@ export function DirectoryView({ project }: { project: Project }) {
               >
                 {selectedEntry.isDir ? "Open Folder" : "Preview Document"}
               </button>
-              <button
-                type="button"
-                className="btn btn--subtle btn--sm"
-                onClick={() => {
-                  setShowRename(selectedEntry);
-                  setRenameVal(selectedEntry.name);
-                }}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                className="btn btn--subtle btn--sm"
-                onClick={() => setShowDelete(selectedEntry)}
-                style={{ color: "#ef4444" }}
-              >
-                Delete
-              </button>
+              {isProtectedRootEntry(selectedEntry, currentPath) ? (
+                <span className="muted" style={{ fontSize: "12px", lineHeight: 1.5 }}>
+                  This folder is managed by the app. Create or delete files inside it
+                  instead.
+                </span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--subtle btn--sm"
+                    onClick={() => {
+                      setShowRename(selectedEntry);
+                      setRenameVal(selectedEntry.name);
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--subtle btn--sm"
+                    onClick={() => setShowDelete(selectedEntry)}
+                    style={{ color: "#ef4444" }}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

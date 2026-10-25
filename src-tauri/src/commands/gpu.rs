@@ -35,11 +35,13 @@ pub async fn list_gpu_builds(state: tauri::State<'_, AppState>) -> AppResult<Gpu
 #[tauri::command]
 pub async fn list_backends(state: tauri::State<'_, AppState>) -> AppResult<GpuBuildList> {
     let rec = gpu::recommend_gpu();
-    let gpu_info = gpu::detect();
-    let builds = gpu_build::status(&state.dirs, &gpu_info.backend);
+    let builds = gpu_build::status(&state.dirs, &rec.vendor);
+    // For backward compat: single recommended (first in vendor's list)
+    let recommended = gpu_build::recommend_for_vendor(&rec.vendor)
+        .first()
+        .map(|t| t.as_str().to_string());
     Ok(GpuBuildList {
-        recommended: gpu_build::recommend(&gpu_info.backend)
-            .map(|target| target.as_str().to_string()),
+        recommended,
         gpu_name: rec.device_name.clone(),
         gpu_backend: rec.backend.clone(),
         gpu_available: rec.backend != "none",

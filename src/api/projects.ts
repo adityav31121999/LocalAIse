@@ -50,6 +50,29 @@ export async function setProjectInternet(projectId: string, enabled: boolean): P
   return { ...project };
 }
 
+/** Changes the project's display name; the folder on disk stays where it is. */
+export async function renameProject(projectId: string, name: string): Promise<Project> {
+  if (isTauri) return invoke<Project>("rename_project", { projectId, name });
+  await delay(90);
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Type a project name first.");
+  const project = MOCK_PROJECTS.find((item) => item.id === projectId);
+  if (!project) throw new Error(`Unknown project: ${projectId}`);
+  project.name = trimmed;
+  return { ...project };
+}
+
+/**
+ * Unregisters a project. With `deleteFiles` the folder is removed from disk;
+ * otherwise every file stays exactly where it was.
+ */
+export async function removeProject(projectId: string, deleteFiles: boolean): Promise<void> {
+  if (isTauri) return invoke<void>("remove_project", { projectId, deleteFiles });
+  await delay(80);
+  const index = MOCK_PROJECTS.findIndex((item) => item.id === projectId);
+  if (index >= 0) MOCK_PROJECTS.splice(index, 1);
+}
+
 /** Saves the project's chat system prompt. Null returns to the built-in default. */
 export async function setProjectSystemPrompt(
   projectId: string,

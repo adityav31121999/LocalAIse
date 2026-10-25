@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::error::{AppError, AppResult};
 use crate::projects::files;
@@ -58,6 +59,37 @@ pub fn copy_project_entry(
 ) -> AppResult<()> {
     let root = project_root(&state, &project_id)?;
     files::copy(&root, &path)
+}
+
+/// Picks one or more files from the user's machine and copies their bytes into
+/// the open project folder. Returns the names that were imported; an empty list
+/// means the picker was cancelled.
+#[tauri::command]
+pub async fn import_project_files(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+    parent: String,
+) -> AppResult<Vec<String>> {
+    let root = project_root(&state, &project_id)?;
+
+    let Some(picked) = app
+        .dialog()
+        .file()
+        .set_title("Add files to this project folder")
+        .blocking_pick_files()
+    else {
+        return Ok(Vec::new());
+    };
+
+    let mut imported = Vec::new();
+    for file in picked {
+        let source = file
+            .into_path()
+            .map_err(|error| AppError::msg(format!("that file cannot be read: {error}")))?;
+        imported.push(files::copy_into(&root, &parent, &source)?);
+    }
+    Ok(imported)
 }
 
 #[tauri::command]

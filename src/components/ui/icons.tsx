@@ -285,3 +285,29 @@ export function HomeIcon(props: IconProps) {
   );
 }
 
+// Theme settings — split circle (half-filled) for light/dark appearance
+export function ThemeIcon(props: IconProps) {
+  return (
+    <Base {...props} strokeWidth={1.5}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 1 0 18 9 9 0 0 1 0-18z" />
+      <path d="M12 3v18" />
+    </Base>
+  );
+}
+
+// AI Model settings — neural chip / model module with nodes
+export function ModelIcon(props: IconProps) {
+  return (
+    <Base {...props} strokeWidth={1.5}>
+      <rect x="4" y="6" width="16" height="12" rx="2" />
+      <path d="M8 10h8M8 14h8" />
+      <circle cx="8" cy="18" r="1.5" fill="currentColor" />
+      <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+      <circle cx="16" cy="18" r="1.5" fill="currentColor" />
+      <path d="M4 6V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" />
+      <path d="M4 18v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+    </Base>
+  );
+}
+

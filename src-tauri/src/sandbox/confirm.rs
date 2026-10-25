@@ -64,6 +64,7 @@ fn tracing_note(kind: &ActionKind, description: &str) {
         ActionKind::Delete => "DELETE",
         ActionKind::Network => "NETWORK",
     };
-    // eprintln so it appears in the Tauri console without a heavy logger dep
-    eprintln!("[sandbox] APPROVED {kind_str}: {description}");
+    // Approval trail: goes through the logger so dev and release builds both
+    // keep a record of what was touched.
+    log::info!("[sandbox] APPROVED {kind_str}: {description}");
 }

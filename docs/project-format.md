@@ -12,8 +12,8 @@ projectName/
 │   ├── papers/
 │   └── ...
 ├── chats/                # one JSON file per saved chat session
-│   ├── chat-20261022-143005-a1b2c3.json
-│   └── ...
+│   ├── chat-001.json
+│   └── chat-002.json
 ├── diary/                # optional: one Markdown page per date
 │   ├── 2026-10-22.md
 │   └── 2026-10-21.md
@@ -54,6 +54,8 @@ optional for older projects; missing values fall back to the defaults shown here
 
 - **`folders`** — the directory layout. Reserved folder names are fixed; `custom` lists
   the folders the user created from the sources panel.
+- **`name`** — the label shown in the app. Renaming a project updates this field and
+  the app's registry; the folder on disk keeps its path.
 - **`diaryEnabled`** — whether this project keeps its own diary. Turning it off keeps
   every page on disk; the folder is simply ignored until it is turned back on.
 - **`ragPaths`** — an optional RAG scope: relative folders (`"data"`) or single files
@@ -62,14 +64,17 @@ optional for older projects; missing values fall back to the defaults shown here
 
 ## Chat sessions (`chats/`)
 
-One pretty-printed JSON file per conversation, named after the moment it started. The
-last 12 messages are replayed to the model as context, and the file is rewritten after
-every completed turn. "New chat" starts a new file and tells llama-server to build the
-answer from a completely fresh cache (`cache_prompt: false`).
+One pretty-printed JSON file per conversation, named with a sequential number:
+`chat-001.json`, `chat-002.json`, and so on. The picker above the chat panel shows
+the file's number (`Chat 1`, `Chat 2`); the first prompt appears in the bar beside
+it. The last 12 messages are replayed to the model as context, and the file is
+rewritten after every completed turn. "New chat" starts a new file and tells
+llama-server to build the answer from a completely fresh cache (`cache_prompt:
+false`).
 
 ```json
 {
-  "id": "chat-20261022-143005-a1b2c3",
+  "id": "chat-001",
   "title": "Where did spending rise the most?",
   "createdAt": "2026-10-22T14:30:05.412Z",
   "updatedAt": "2026-10-22T14:31:42.093Z",
@@ -90,6 +95,11 @@ answer from a completely fresh cache (`cache_prompt: false`).
   ]
 }
 ```
+
+The `title` is still the first prompt (clipped to 60 characters) and is shown next
+to the number, so the file name stays stable even when a conversation is about
+several things. Chat files written by older versions used timestamp names; they
+keep their names and are listed by that saved title instead of a number.
 
 ## Diary pages (`diary/`)
 

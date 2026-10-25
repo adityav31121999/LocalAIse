@@ -4,8 +4,8 @@
 //! `data/` holds the source files, `chats/` holds one JSON file per chat
 //! session, `diary/` holds one Markdown page per day, `outputs/` receives the
 //! assistant's exports, and everything else is free space for the user's own
-//! folders. All app-internal state lives under `.LocalAIse/`, whose
-//! `project.json` is the manifest describing the directory's structure.
+//! folders. All app-internal state lives under `.LocalAIse/`, while the
+//! `project.json` manifest describing the directory sits at the project root.
 
 use std::path::{Path, PathBuf};
 

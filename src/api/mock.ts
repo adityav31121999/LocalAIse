@@ -454,9 +454,10 @@ export function mockChatAppend(
 
   if (!session) {
     const chatNumber = getNextChatNumber(projectId);
+    const firstLine = prompt.trim().split("\n")[0].trim();
     session = {
-      id: newMockId("chat"),
-      title: `chat${chatNumber}`,
+      id: `chat-${String(chatNumber).padStart(3, "0")}`,
+      title: firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine,
       createdAt: now,
       updatedAt: now,
       messages: [],

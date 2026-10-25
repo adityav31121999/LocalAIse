@@ -32,6 +32,9 @@ const STATUS_LABEL: Record<SourceStatus, string> = {
   error: "FAILED",
 };
 
+/** Top-level folders the app owns; the backend refuses to move or delete them. */
+const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs"]);
+
 function getFileIconColor(name: string): { color: string; label: string } {
   const ext = fileExtension(name).toLowerCase();
   switch (ext) {
@@ -97,6 +100,8 @@ function TreeNodeItem({
 }: TreeNodeItemProps) {
   const isExpanded = Boolean(expandedFolders[path]);
   const isSelected = selectedPath === path;
+  const isProtected =
+    isDir && !path.includes("/") && PROTECTED_ROOT_DIRS.has(name.toLowerCase());
   const [children, setChildren] = useState<DirectoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -200,15 +205,17 @@ function TreeNodeItem({
             >
               <FolderPlusIcon size={12} />
             </button>
-            <button
-              type="button"
-              className="icon-btn icon-btn--sm"
-              style={{ width: "20px", height: "20px", padding: 0, color: "#ef4444" }}
-              onClick={() => onDelete({ path, name })}
-              title="Delete folder"
-            >
-              <TrashIcon size={12} />
-            </button>
+            {isProtected ? null : (
+              <button
+                type="button"
+                className="icon-btn icon-btn--sm"
+                style={{ width: "20px", height: "20px", padding: 0, color: "#ef4444" }}
+                onClick={() => onDelete({ path, name })}
+                title="Delete folder"
+              >
+                <TrashIcon size={12} />
+              </button>
+            )}
           </div>
         </div>
 

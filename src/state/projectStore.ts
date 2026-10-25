@@ -22,6 +22,8 @@ interface ProjectState {
   createFolder(name: string): Promise<boolean>;
   addFolder(): Promise<void>;
   createProject(template: ProjectTemplate): Promise<void>;
+  renameProject(projectId: string, name: string): Promise<boolean>;
+  removeProject(projectId: string, deleteFiles: boolean): Promise<boolean>;
   reindexSources(): Promise<void>;
 }
 
@@ -140,6 +142,34 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
       await get().openProject(project.id);
     } catch (error) {
       set({ error: message(error) });
+    }
+  },
+
+  renameProject: async (projectId, name) => {
+    try {
+      const project = await projectsApi.renameProject(projectId, name);
+      set((state) => ({ projects: replaceProject(state.projects, project), error: null }));
+      return true;
+    } catch (error) {
+      set({ error: message(error) });
+      return false;
+    }
+  },
+
+  removeProject: async (projectId, deleteFiles) => {
+    try {
+      await projectsApi.removeProject(projectId, deleteFiles);
+      set((state) => ({
+        projects: state.projects.filter((project) => project.id !== projectId),
+        activeProjectId:
+          state.activeProjectId === projectId ? null : state.activeProjectId,
+        sources: state.activeProjectId === projectId ? [] : state.sources,
+        error: null,
+      }));
+      return true;
+    } catch (error) {
+      set({ error: message(error) });
+      return false;
     }
   },
 

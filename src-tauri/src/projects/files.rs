@@ -36,14 +36,19 @@ fn resolve(root: &Path, relative: &str) -> AppResult<PathBuf> {
     ensure_within(root, Path::new(&cleaned))
 }
 
-/// Rejects the app's own state and the manifest, which the directory view must
-/// not move or delete.
+/// Rejects the app's own state, the manifest, and the reserved top-level
+/// folders (`data`, `chats`, `diary`, `outputs`). Those names are part of the
+/// project contract: chat sessions, the RAG scope and diary pages are looked
+/// up by those paths, so the file view must not move, copy or delete them.
+/// Files *inside* them stay editable.
 fn ensure_not_protected(relative: &str) -> AppResult<()> {
     let cleaned = clean_relative(relative);
     let first = cleaned.split('/').next().unwrap_or("");
+    let at_root = !cleaned.contains('/');
     let protected = cleaned.is_empty()
         || first.eq_ignore_ascii_case(STATE_DIR)
-        || cleaned.eq_ignore_ascii_case(PROJECT_FILE);
+        || cleaned.eq_ignore_ascii_case(PROJECT_FILE)
+        || (at_root && is_reserved_at_root(first));
     if protected {
         return Err(AppError::msg(
             "that item is managed by the app and cannot be changed here.",
@@ -187,6 +192,38 @@ pub fn create(root: &Path, parent: &str, name: &str, is_dir: bool) -> AppResult<
     }
 
     Ok(())
+}
+
+/// Copies a file the user picked elsewhere on disk into a project folder. The
+/// name is validated like a hand-typed one and an existing file is never
+/// overwritten. `source` is an absolute path outside the project, so it is not
+/// resolved through the sandbox.
+pub fn copy_into(root: &Path, parent: &str, source: &Path) -> AppResult<String> {
+    let parent = clean_relative(parent);
+    let parent_path = resolve(root, &parent)?;
+    if !parent_path.is_dir() {
+        return Err(AppError::msg("that location is not a folder."));
+    }
+
+    let name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::msg("that file cannot be read."))?;
+    let name = validate_name(&name)?;
+
+    if parent.is_empty() && is_reserved_at_root(&name) {
+        return Err(AppError::msg(format!(
+            "“{name}” is reserved for the app; pick another name."
+        )));
+    }
+    if !source.is_file() {
+        return Err(AppError::msg("only files can be added, not folders."));
+    }
+
+    let target = parent_path.join(&name);
+    ensure_free(&target)?;
+    fs::copy(source, &target)?;
+    Ok(name)
 }
 
 pub fn rename(root: &Path, relative: &str, new_name: &str) -> AppResult<()> {
@@ -386,6 +423,28 @@ mod tests {
     }
 
     #[test]
+    fn copy_into_copies_bytes_and_never_overwrites() {
+        let root = temp_root("upload");
+        let outside = root.with_extension("source");
+        fs::write(&outside, b"real bytes").unwrap();
+        fs::create_dir_all(root.join("data")).unwrap();
+
+        let name = copy_into(&root, "data", &outside).unwrap();
+        assert_eq!(name, outside.file_name().unwrap().to_string_lossy());
+        assert_eq!(
+            fs::read(root.join("data").join(&name)).unwrap(),
+            b"real bytes"
+        );
+
+        // A second import with the same name is refused, not overwritten.
+        assert!(copy_into(&root, "data", &outside).is_err());
+        assert!(copy_into(&root, "", &root.join("data")).is_err());
+
+        let _ = fs::remove_file(&outside);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn refuses_to_leave_the_project() {
         let root = temp_root("sandbox");
         create(&root, "", "notes.md", false).unwrap();
@@ -393,6 +452,25 @@ mod tests {
         assert!(delete(&root, STATE_DIR).is_err());
         assert!(delete(&root, PROJECT_FILE).is_err());
         assert!(create(&root, "", "data", true).is_err());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reserved_top_level_folders_cannot_be_moved_copied_or_deleted() {
+        let root = temp_root("reserved");
+        for name in ["data", "chats", "diary", "outputs"] {
+            fs::create_dir_all(root.join(name)).unwrap();
+            assert!(delete(&root, name).is_err(), "{name} should be protected");
+            assert!(rename(&root, name, "elsewhere").is_err());
+            assert!(copy(&root, name).is_err());
+        }
+
+        // Their contents stay manageable: a chat file can be deleted by hand.
+        let chat = root.join("chats").join("chat-001.json");
+        fs::write(&chat, "{}").unwrap();
+        assert!(delete(&root, "chats/chat-001.json").is_ok());
+        assert!(!chat.exists());
 
         let _ = fs::remove_dir_all(&root);
     }

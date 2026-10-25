@@ -623,6 +623,33 @@ a {
   transform: translateY(-1px);
 }
 
+/* The whole card body opens the project; the footer keeps its own actions. */
+.project-card__open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--border-w) solid var(--border);
+}
+
+.project-card__remove {
+  margin-left: auto;
+  color: var(--status-danger, #ef4444);
+}
+
 .project-card__top {
   display: flex;
   align-items: center;
@@ -1113,6 +1140,14 @@ button.net:hover {
 
 .chat__bar-meta {
   font-size: var(--text-xs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__bar-title {
+  color: var(--text-secondary);
 }
 
 /* A compact switch for turning assistant reasoning on and off. */

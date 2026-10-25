@@ -1,4 +1,4 @@
-import { CalendarIcon, CpuIcon, FolderIcon, HomeIcon, PaletteIcon, ShieldIcon } from "../ui/icons";
+import { CalendarIcon, FolderIcon, HomeIcon, ShieldIcon, ThemeIcon, ModelIcon } from "../ui/icons";
 import { useProjectStore, selectActiveProject } from "../../state/projectStore";
 import { useNavStore } from "../../state/navStore";
 import { useSettingsStore } from "../../state/settingsStore";
@@ -22,6 +22,8 @@ export function ActivityRail() {
   const runtimeStatus = useRuntimeStore((state) => state.status);
 
   const isModelReady = runtimeStatus.state === "ready";
+  const isModelLoading = runtimeStatus.state === "starting";
+  const hasModel = Boolean(runtimeStatus.model);
 
   const handleHomeClick = () => {
     closeProject();
@@ -46,6 +48,34 @@ export function ActivityRail() {
       showHome();
       setActiveProjectTab("calendar");
     }
+  };
+
+  // Shared button styles for theme/model settings
+  const settingsButtonStyle = {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    border: "none",
+    background: "transparent",
+    color: "#94A3B8", // slate-400
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    transition: "background-color 150ms ease, color 150ms ease",
+  } as React.CSSProperties;
+
+  const getActiveAccent = (type: "theme" | "model") => {
+    if (type === "theme") return "#67C7F5"; // sky-300
+    return "#45D6A0"; // emerald-400
+  };
+
+  const getStatusColor = () => {
+    if (!hasModel) return "#FBBF24"; // amber-400
+    if (isModelLoading) return "#67C7F5"; // sky-300 (spinner color)
+    if (isModelReady) return "#45D6A0"; // emerald-400
+    return "#94A3B8"; // slate-400
   };
 
   return (
@@ -101,12 +131,28 @@ export function ActivityRail() {
         )}
       </div>
 
-      {/* 2 buttons on bottom: Theme, Model settings (redesigned with sleek, cohesive styling) */}
+      {/* 2 buttons on bottom: Theme, Model settings (IDE-style technical controls) */}
       <div className="rail__settings">
-        {/* Theme Settings Button */}
+        {/* Theme Settings Button — split circle appearance icon */}
         <button
           type="button"
-          className="rail__item"
+          style={{
+            ...settingsButtonStyle,
+            color: view === "theme-settings" ? getActiveAccent("theme") : "#94A3B8",
+            backgroundColor: view === "theme-settings" ? "rgba(103, 199, 245, 0.12)" : "transparent",
+          }}
+          onMouseEnter={(e) => {
+            if (view !== "theme-settings") {
+              e.currentTarget.style.color = "#E2E8F0";
+              e.currentTarget.style.backgroundColor = "#1E293B";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (view !== "theme-settings") {
+              e.currentTarget.style.color = "#94A3B8";
+              e.currentTarget.style.backgroundColor = "transparent";
+            }
+          }}
           aria-current={view === "theme-settings"}
           onClick={() => {
             if (view === "theme-settings") {
@@ -118,13 +164,44 @@ export function ActivityRail() {
           title={`Theme settings (${themeName})`}
           aria-label="Theme settings"
         >
-          <PaletteIcon size={18} />
+          <ThemeIcon size={16} />
+          {view === "theme-settings" && (
+            <span
+              style={{
+                position: "absolute",
+                left: 0,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 2,
+                height: "60%",
+                background: getActiveAccent("theme"),
+                borderRadius: "0 2px 2px 0",
+              }}
+              aria-hidden="true"
+            />
+          )}
         </button>
 
-        {/* Model Configuration Button */}
+        {/* Model Configuration Button — neural chip with status dot */}
         <button
           type="button"
-          className="rail__item"
+          style={{
+            ...settingsButtonStyle,
+            color: view === "model-config" ? getActiveAccent("model") : "#94A3B8",
+            backgroundColor: view === "model-config" ? "rgba(69, 214, 160, 0.12)" : "transparent",
+          }}
+          onMouseEnter={(e) => {
+            if (view !== "model-config") {
+              e.currentTarget.style.color = "#E2E8F0";
+              e.currentTarget.style.backgroundColor = "#1E293B";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (view !== "model-config") {
+              e.currentTarget.style.color = "#94A3B8";
+              e.currentTarget.style.backgroundColor = "transparent";
+            }
+          }}
           aria-current={view === "model-config"}
           onClick={() => {
             if (view === "model-config") {
@@ -133,12 +210,63 @@ export function ActivityRail() {
               showModelConfig();
             }
           }}
-          title={`Model settings (${runtimeStatus.model || "Local model"}${isModelReady ? " · Ready" : ""})`}
+          title={`Model settings (${runtimeStatus.model || "Local model"}${isModelReady ? " · Ready" : isModelLoading ? " · Loading" : hasModel ? "" : " · Not loaded"})`}
           aria-label="Model configuration"
         >
-          <CpuIcon size={18} />
-          {isModelReady && <span className="rail__status-indicator" title="Model ready" />}
+          <ModelIcon size={16} />
+          {/* Status indicator dot / spinner */}
+          <span
+            style={{
+              position: "absolute",
+              bottom: 4,
+              right: 4,
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: getStatusColor(),
+              boxShadow: "0 0 0 1px rgba(0,0,0,0.2)",
+              animation: isModelLoading ? "rail-spin 1s linear infinite" : "none",
+            }}
+            title={!hasModel ? "No model loaded" : isModelLoading ? "Model loading…" : isModelReady ? "Model ready" : "Model not ready"}
+            aria-hidden="true"
+          >
+            {isModelLoading && (
+              <span
+                style={{
+                  display: "block",
+                  width: "100%",
+                  height: "100%",
+                  border: "1.5px solid currentColor",
+                  borderTopColor: "transparent",
+                  borderRadius: "50%",
+                  animation: "rail-spin 0.7s linear infinite",
+                }}
+              />
+            )}
+          </span>
+          {view === "model-config" && (
+            <span
+              style={{
+                position: "absolute",
+                left: 0,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 2,
+                height: "60%",
+                background: getActiveAccent("model"),
+                borderRadius: "0 2px 2px 0",
+              }}
+              aria-hidden="true"
+            />
+          )}
         </button>
+
+        {/* Keyframes for loading spinner */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          @keyframes rail-spin {
+            to { transform: rotate(360deg); }
+          }
+        ` }} />
       </div>
     </nav>
   );

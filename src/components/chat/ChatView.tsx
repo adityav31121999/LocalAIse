@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { PlusIcon, SparkIcon, TrashIcon } from "../ui/icons";
 import { useChatStore } from "../../state/chatStore";
+import { chatLabel, chatNumber } from "../../util/format";
 import type { ChatMessage, ChatSummary, Project, ProjectTemplate } from "../../types";
 
 const NO_MESSAGES: ChatMessage[] = [];
@@ -26,8 +27,15 @@ const SUGGESTIONS: Record<ProjectTemplate, string[]> = {
 
 export function ChatView({ project }: { project: Project }) {
   const messages = useChatStore((state) => state.byProject[project.id]) ?? NO_MESSAGES;
-  const chats = useChatStore((state) => state.chats[project.id]) ?? NO_CHATS;
+  const storedChats = useChatStore((state) => state.chats[project.id]) ?? NO_CHATS;
   const activeChatId = useChatStore((state) => state.activeChat[project.id]);
+  // Numbered files read in file order, so Chat 1, Chat 2, Chat 3 stay in the
+  // order the sessions were created rather than jumping to the last edited.
+  const chats = useMemo(
+    () => [...storedChats].sort((a, b) => chatNumber(a.id) - chatNumber(b.id)),
+    [storedChats],
+  );
+  const activeChat = chats.find((chat) => chat.id === activeChatId);
   const streaming = useChatStore((state) => state.streamingProjectId === project.id);
   const showThinking = useChatStore((state) => state.showThinking);
   const setShowThinking = useChatStore((state) => state.setShowThinking);
@@ -45,10 +53,13 @@ export function ChatView({ project }: { project: Project }) {
   // Reopening a project restores the conversation it was on. A chat started
   // with "New chat" is explicit, so it is never replaced automatically.
   useEffect(() => {
-    if (activeChatId === undefined && chats.length > 0) {
-      void openChat(project.id, chats[0].id);
+    if (activeChatId === undefined && storedChats.length > 0) {
+      const mostRecent = [...storedChats].sort((a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt),
+      )[0];
+      void openChat(project.id, mostRecent.id);
     }
-  }, [activeChatId, chats, project.id, openChat]);
+  }, [activeChatId, storedChats, project.id, openChat]);
 
   return (
     <div className="chat">
@@ -68,13 +79,21 @@ export function ChatView({ project }: { project: Project }) {
             <option value="">New chat (fresh cache)</option>
             {chats.map((chat) => (
               <option key={chat.id} value={chat.id}>
-                {chat.title || "Untitled chat"}
+                {chatLabel(chat.id, chat.title)}
               </option>
             ))}
           </select>
         </label>
 
         <span className="muted chat__bar-meta">
+          {activeChat?.title ? (
+            <>
+              <span className="chat__bar-title" title={activeChat.title}>
+                {activeChat.title}
+              </span>
+              {" · "}
+            </>
+          ) : null}
           {messages.length > 0
             ? `${messages.length} messages`
             : `${chats.length} saved chat${chats.length === 1 ? "" : "s"} in chats/`}

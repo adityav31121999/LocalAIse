@@ -56,6 +56,29 @@ pub async fn reindex_sources(state: State<'_, AppState>, project_id: String) -> 
     manager::scan_sources(&record.id, &root)
 }
 
+/// Unregisters a project. When `delete_files` is set the folder itself is
+/// removed from disk; otherwise every file stays where it was.
+#[tauri::command]
+pub fn remove_project(
+    state: State<'_, AppState>,
+    project_id: String,
+    delete_files: bool,
+) -> AppResult<()> {
+    let mut registry = state.registry()?;
+    manager::remove(&mut registry, &state.dirs, &project_id, delete_files)
+}
+
+/// Changes the project's display name without moving its folder.
+#[tauri::command]
+pub fn rename_project(
+    state: State<'_, AppState>,
+    project_id: String,
+    name: String,
+) -> AppResult<Project> {
+    let mut registry = state.registry()?;
+    manager::rename(&mut registry, &state.dirs, &project_id, &name)
+}
+
 #[tauri::command]
 pub fn set_project_internet(
     state: State<'_, AppState>,

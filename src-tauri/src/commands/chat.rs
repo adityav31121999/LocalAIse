@@ -77,7 +77,7 @@ pub async fn chat_send(
     let fresh = session_id.is_none();
     let mut session = match &session_id {
         Some(id) => chats::load(&chat_dir, id)?,
-        None => ChatSession::new(),
+        None => ChatSession::new(Some(chats::new_session_id(&chat_dir))),
     };
     if session.title.trim().is_empty() {
         session.title = chats::first_line_title(Some(&prompt));

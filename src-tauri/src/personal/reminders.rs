@@ -13,5 +13,5 @@ pub struct Reminder {
 
 pub fn schedule_notification(title: &str, body: &str) {
     // In Tauri environment, notification triggers or logs to console
-    println!("[Reminder Alert] {title}: {body}");
+    log::info!("[Reminder Alert] {title}: {body}");
 }

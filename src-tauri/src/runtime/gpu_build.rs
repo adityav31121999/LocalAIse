@@ -13,7 +13,6 @@ use tauri::{AppHandle, Manager};
 
 use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
-use crate::hardware::gpu::GpuBackend;
 
 /// Pinned llama.cpp tag.
 pub const PINNED_TAG: &str = "b11678";
@@ -124,12 +123,19 @@ pub struct ManifestFile {
     pub size: u64,
 }
 
-pub fn recommend(backend: &GpuBackend) -> Option<GpuTarget> {
-    match backend {
-        GpuBackend::Cuda => Some(GpuTarget::Cuda),
-        GpuBackend::Vulkan => Some(GpuTarget::Vulkan),
-        GpuBackend::Opencl => Some(GpuTarget::Opencl),
-        _ => None,
+/// Returns the set of recommended backends for a detected GPU vendor.
+///
+/// - NVIDIA → CUDA only (preferred, best performance)
+/// - AMD / Intel → both Vulkan and OpenCL (user chooses)
+/// - Other / CPU → none
+pub fn recommend_for_vendor(vendor: &str) -> Vec<GpuTarget> {
+    let v = vendor.to_lowercase();
+    if v.contains("nvidia") {
+        vec![GpuTarget::Cuda]
+    } else if v.contains("amd") || v.contains("radeon") || v.contains("intel") {
+        vec![GpuTarget::Vulkan, GpuTarget::Opencl]
+    } else {
+        vec![]
     }
 }
 
@@ -329,8 +335,8 @@ fn resources_backend_dll(target: GpuTarget) -> Option<PathBuf> {
     None
 }
 
-pub fn status(dirs: &AppDirs, detected: &GpuBackend) -> Vec<GpuBuildStatus> {
-    let recommended = recommend(detected);
+pub fn status(dirs: &AppDirs, vendor: &str) -> Vec<GpuBuildStatus> {
+    let recommended = recommend_for_vendor(vendor);
     let order = [GpuTarget::Cuda, GpuTarget::Vulkan, GpuTarget::Opencl];
 
     order
@@ -342,7 +348,7 @@ pub fn status(dirs: &AppDirs, detected: &GpuBackend) -> Vec<GpuBuildStatus> {
             source: manifest(dirs, *target).ok(),
             downloadable: target.downloadable(),
             directory: platform_dir(dirs).to_string_lossy().into_owned(),
-            recommended: Some(*target) == recommended,
+            recommended: recommended.contains(target),
         })
         .collect()
 }
@@ -451,9 +457,11 @@ pub async fn install(
     std::fs::create_dir_all(&tmp_dir)
         .map_err(|e| AppError::msg(format!("failed to create tmp dir {}: {e}", tmp_dir.display())))?;
 
+    // Total timeout kills large downloads; use connect timeout + per-read timeout instead.
     let client = reqwest::Client::builder()
         .user_agent("localAIse-BackendInstaller/0.1.0")
-        .timeout(std::time::Duration::from_secs(45))
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .read_timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| AppError::msg(format!("failed to initialize HTTP client: {e}")))?;
 
@@ -679,6 +687,19 @@ async fn download_with_retry(
     expected_sha256: &str,
     target: GpuTarget,
 ) -> AppResult<()> {
+    // If the file already exists and has the correct hash, skip download entirely.
+    // This prevents "resume" sending a RANGE beyond EOF (416) on re-tries.
+    if dest.is_file() {
+        if let Ok(computed) = compute_sha256(dest) {
+            if computed.eq_ignore_ascii_case(expected_sha256) {
+                emit_progress(app, target, "downloading", dest.metadata().unwrap().len(), dest.metadata().unwrap().len());
+                return Ok(());
+            }
+        }
+        // Wrong hash: delete and re-download from scratch.
+        let _ = std::fs::remove_file(dest);
+    }
+
     let mut attempts = 0;
     let max_attempts = 3;
 
@@ -739,6 +760,14 @@ async fn download_resumable(
         .map_err(|e| AppError::msg(format!("failed to send download request to {url}: {e}")))?;
 
     let status = response.status();
+
+    // 416 = Range Not Satisfiable: the server says the requested range (bytes=start_pos-)
+    // is beyond the end of the file. This happens when the local file is already complete.
+    // Treat it as "already have everything" and return Ok; the caller will verify SHA-256.
+    if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        return Ok(());
+    }
+
     let is_range_resumed = status == reqwest::StatusCode::PARTIAL_CONTENT;
 
     if !status.is_success() && !is_range_resumed {

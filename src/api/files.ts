@@ -32,6 +32,15 @@ export async function createEntry(
   mockCreateEntry(projectId, parent, name, isDir);
 }
 
+/** Copies files picked from the machine into a project folder. Desktop only. */
+export async function importFiles(projectId: string, parent: string): Promise<string[]> {
+  if (isTauri) {
+    return invoke<string[]>("import_project_files", { projectId, parent });
+  }
+  await delay(90);
+  return [];
+}
+
 export async function renameEntry(
   projectId: string,
   path: string,

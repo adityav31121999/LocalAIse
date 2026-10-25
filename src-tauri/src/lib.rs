@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 use tauri::{AppHandle, Manager};
+use tauri_plugin_log::{Target, TargetKind};
 
 use crate::config::app_config::Registry;
 use crate::config::paths::AppDirs;
@@ -70,12 +71,31 @@ impl AppState {
 }
 
 pub fn run() {
+    // Debug builds talk to the terminal that ran `npm start`; both builds also
+    // keep a rolling log file under the app's log directory.
+    let log_level = if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+
+    let log_plugin = tauri_plugin_log::Builder::new()
+        .level(log_level)
+        .targets([
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::LogDir {
+                file_name: Some("localaise".into()),
+            }),
+        ])
+        .build();
+
     tauri::Builder::default()
+        .plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Ensure writable runtime exists and base CPU files are staged before supervisor launches
             if let Err(e) = crate::runtime::gpu_build::ensure_runtime(app.handle()) {
-                eprintln!("[runtime] Warning: ensure_runtime: {e}");
+                log::warn!("[runtime] Warning: ensure_runtime: {e}");
             }
 
             let dirs = AppDirs::resolve(app.handle())?;
@@ -101,6 +121,8 @@ pub fn run() {
             commands::gpu::cancel_install,
             commands::projects::list_projects,
             commands::projects::open_project,
+            commands::projects::rename_project,
+            commands::projects::remove_project,
             commands::projects::list_sources,
             commands::projects::reindex_sources,
             commands::projects::set_project_internet,
@@ -111,6 +133,7 @@ pub fn run() {
             commands::files::create_project_entry,
             commands::files::rename_project_entry,
             commands::files::copy_project_entry,
+            commands::files::import_project_files,
             commands::files::delete_project_entry,
             commands::projects::list_project_chats,
             commands::projects::read_project_chat,

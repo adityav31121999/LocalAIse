@@ -288,6 +288,93 @@ pub fn set_internet(
     Ok(to_project(&Context { registry, dirs }, &updated))
 }
 
+/// Removes a project from the app. With `delete_files` the project folder is
+/// deleted from disk as well; otherwise the folder stays exactly as it is and
+/// only the app stops listing it.
+pub fn remove(
+    registry: &mut Registry,
+    dirs: &AppDirs,
+    id: &str,
+    delete_files: bool,
+) -> AppResult<()> {
+    let record = registry
+        .find(id)
+        .cloned()
+        .ok_or_else(|| AppError::UnknownProject(id.to_string()))?;
+
+    if delete_files {
+        // Never delete a filesystem root, and never follow a link out of the
+        // folder the user registered.
+        let root = &record.path;
+        if root.parent().is_none() || root.as_os_str().is_empty() {
+            return Err(AppError::msg(
+                "that folder is a drive root and cannot be deleted from the app.",
+            ));
+        }
+        match std::fs::remove_dir_all(root) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(AppError::msg(format!(
+                    "could not delete {}: {error}",
+                    root.display()
+                )))
+            }
+        }
+    }
+
+    registry.projects.retain(|project| project.id != id);
+    registry.settings.project_profiles.remove(id);
+    registry.save(&dirs.state_file)?;
+    Ok(())
+}
+
+/// Changes the project's display name. The folder on disk keeps its path, so
+/// only the label in the app and `project.json` change.
+pub fn rename(
+    registry: &mut Registry,
+    dirs: &AppDirs,
+    id: &str,
+    new_name: &str,
+) -> AppResult<Project> {
+    let name = new_name.trim();
+    if name.is_empty() {
+        return Err(AppError::msg("type a project name first."));
+    }
+    if name.chars().any(|character| character.is_control()) {
+        return Err(AppError::msg("a project name cannot contain control characters."));
+    }
+    if name.chars().count() > 80 {
+        return Err(AppError::msg("that project name is too long."));
+    }
+
+    let record = registry
+        .find(id)
+        .cloned()
+        .ok_or_else(|| AppError::UnknownProject(id.to_string()))?;
+
+    let paths = ProjectPaths::new(record.path.clone());
+    let mut file = paths.read().unwrap_or_else(|| {
+        ProjectFile::new(
+            record.id.clone(),
+            record.name.clone(),
+            record.template,
+            record.internet_enabled,
+        )
+    });
+    file.name = name.to_string();
+    paths.write(&file)?;
+
+    let updated = ProjectRecord {
+        name: name.to_string(),
+        ..record
+    };
+    registry.upsert(updated.clone());
+    registry.save(&dirs.state_file)?;
+
+    Ok(to_project(&Context { registry, dirs }, &updated))
+}
+
 /// Stores or clears the project's chat system prompt. `None` (or a blank
 /// string) returns the project to the built-in default.
 pub fn set_system_prompt(
@@ -587,9 +674,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    fn test_dirs(base: &Path) -> AppDirs {
+        AppDirs {
+            base: base.to_path_buf(),
+            state_file: base.join("state.json"),
+            models: base.join("models"),
+            llama: base.join("llama"),
+            runtime: base.join("runtime"),
+            default_projects: base.join("projects"),
+            default_personal: base.join("personal"),
+        }
+    }
+
     #[test]
-    fn scan_honours_a_rag_scope_of_folders_and_files() {
-        let root = temp_project("scope");
+    fn renaming_changes_the_label_but_keeps_the_folder() {
+        let base = temp_project("rename");
+        let folder = base.join("Budget");
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut registry = Registry::default();
+        let dirs = test_dirs(&base);
+        let project = register(&mut registry, &dirs, &folder, None).unwrap();
+        let original_path = project.path.clone();
+
+        let renamed = rename(&mut registry, &dirs, &project.id, "House budget").unwrap();
+        assert_eq!(renamed.name, "House budget");
+        assert_eq!(renamed.path, original_path);
+        assert!(folder.exists());
+        assert_eq!(
+            ProjectPaths::new(&folder).read().unwrap().name,
+            "House budget"
+        );
+        assert_eq!(registry.find(&project.id).unwrap().name, "House budget");
+        assert!(rename(&mut registry, &dirs, &project.id, "   ").is_err());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn removing_keeps_files_unless_asked_to_delete_them() {
+        let base = temp_project("remove");
+        let folder = base.join("Notes");
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut registry = Registry::default();
+        let dirs = test_dirs(&base);
+        let project = register(&mut registry, &dirs, &folder, None).unwrap();
+
+        remove(&mut registry, &dirs, &project.id, false).unwrap();
+        assert!(registry.find(&project.id).is_none());
+        assert!(folder.join("project.json").exists());
+
+        let project = register(&mut registry, &dirs, &folder, None).unwrap();
+        remove(&mut registry, &dirs, &project.id, true).unwrap();
+        assert!(!folder.exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn scan_honours_a_rag_scope_of_folders_and_files() {        let root = temp_project("scope");
         write_file(&root.join("data").join("budget.xlsx"), "x");
         write_file(&root.join("data").join("notes.md"), "# Notes");
         write_file(&root.join("invoices").join("acme.pdf"), "%PDF");
