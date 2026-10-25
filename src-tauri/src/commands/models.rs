@@ -228,7 +228,7 @@ fn register_folder(state: &State<'_, AppState>, folder: &str) -> AppResult<()> {
         return Err(AppError::msg(format!("Not a folder: {folder}")));
     }
 
-    let folder = std::fs::canonicalize(&path).unwrap_or(path);
+    let folder = crate::util::paths::plain_canonicalize(&path).unwrap_or(path);
     let state_file = state.dirs.state_file.clone();
     let mut registry = state.registry()?;
     if !registry.settings.model_folders.contains(&folder) {

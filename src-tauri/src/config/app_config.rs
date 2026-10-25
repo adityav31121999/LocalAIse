@@ -10,6 +10,7 @@ use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
 use crate::projects::layout::ProjectTemplate;
 use crate::runtime::profile::{InferenceProfile, ProfileScope};
+use crate::util::paths::plain;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -206,10 +207,27 @@ impl Registry {
     /// A missing or unreadable registry is not an error: the user simply has
     /// no projects yet, and the file is rewritten on the next change.
     pub fn load(file: &Path) -> Self {
-        std::fs::read_to_string(file)
+        let mut registry: Self = std::fs::read_to_string(file)
             .ok()
             .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        registry.normalize();
+        registry
+    }
+
+    /// Rewrites stored paths in the Windows verbatim spelling `\\?\C:\…`,
+    /// which older versions kept, into the everyday form. From then on
+    /// everything is saved plainly, so this is a one-time cleanup per entry.
+    fn normalize(&mut self) {
+        for project in &mut self.projects {
+            project.path = plain(std::mem::take(&mut project.path));
+        }
+        self.personal_space = self.personal_space.take().map(plain);
+        for folder in &mut self.settings.model_folders {
+            *folder = plain(std::mem::take(folder));
+        }
+        self.settings.selected_model = self.settings.selected_model.take().map(plain);
+        self.settings.llama_server_path = self.settings.llama_server_path.take().map(plain);
     }
 
     pub fn save(&self, file: &Path) -> AppResult<()> {
@@ -251,6 +269,44 @@ mod tests {
 
     fn model(path: &str) -> PathBuf {
         PathBuf::from(path)
+    }
+
+    fn temp_registry_file(label: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "LocalAIse-registry-{label}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        base.join("state.json")
+    }
+
+    #[test]
+    fn loading_strips_verbatim_prefixes_saved_by_older_versions() {
+        let file = temp_registry_file("verbatim");
+        std::fs::write(
+            &file,
+            r#"{
+                "projects": [
+                    {
+                        "id": "demo-1",
+                        "name": "Demo",
+                        "path": "\\\\?\\C:\\Users\\me\\Demo",
+                        "template": "general",
+                        "internetEnabled": false
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = Registry::load(&file);
+        assert_eq!(
+            registry.projects[0].path,
+            PathBuf::from(r"C:\Users\me\Demo")
+        );
+
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
     }
 
     fn profile(context: u32) -> InferenceProfile {

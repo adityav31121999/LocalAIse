@@ -14,6 +14,7 @@ use crate::projects::layout::{
 };
 use crate::projects::templates;
 use crate::projects::{Project, SourceFile, SourceStatus};
+use crate::util::paths::plain_canonicalize;
 use crate::util::{hash, time};
 
 /// Upper bound on a single folder scan, so a huge directory cannot stall the UI.
@@ -152,7 +153,13 @@ pub fn add_folder(registry: &mut Registry, dirs: &AppDirs, folder: &Path) -> App
     register(registry, dirs, folder, None)
 }
 
-/// Creates a new folder under `parent`, applies the template, then registers it.
+/// Creates a project folder for the chosen template, applies the template,
+/// then registers it.
+///
+/// The dialog answers with the folder the project should live *in*: when
+/// that folder is empty it becomes the project itself, and only a folder
+/// that already has anything in it receives a fresh subfolder named after
+/// the template.
 pub fn create_folder(
     registry: &mut Registry,
     dirs: &AppDirs,
@@ -160,15 +167,25 @@ pub fn create_folder(
     template: ProjectTemplate,
 ) -> AppResult<Project> {
     std::fs::create_dir_all(parent)?;
-    let parent = parent
-        .canonicalize()
+    let parent = plain_canonicalize(parent)
         .map_err(|error| AppError::msg(format!("cannot open {}: {error}", parent.display())))?;
 
-    let folder = unique_folder(&parent, default_name(template));
+    let folder = if is_empty_dir(&parent) {
+        parent
+    } else {
+        unique_folder(&parent, default_name(template))
+    };
     std::fs::create_dir_all(&folder)?;
     templates::apply(template, &folder)?;
 
     register(registry, dirs, &folder, Some(template))
+}
+
+/// True when the directory exists and holds nothing at all.
+fn is_empty_dir(path: &Path) -> bool {
+    std::fs::read_dir(path)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false)
 }
 
 fn register(
@@ -177,8 +194,7 @@ fn register(
     folder: &Path,
     template_override: Option<ProjectTemplate>,
 ) -> AppResult<Project> {
-    let folder = folder
-        .canonicalize()
+    let folder = plain_canonicalize(folder)
         .map_err(|error| AppError::msg(format!("cannot open {}: {error}", folder.display())))?;
 
     if !folder.is_dir() {
@@ -752,5 +768,43 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_empty_parent_becomes_the_project_itself() {
+        let base = temp_project("empty-parent");
+        let parent = base.join("work");
+        std::fs::create_dir_all(&parent).unwrap();
+        let mut registry = Registry::default();
+        let dirs = test_dirs(&base);
+
+        let project = create_folder(&mut registry, &dirs, &parent, ProjectTemplate::General).unwrap();
+
+        let expected = plain_canonicalize(&parent).unwrap();
+        assert_eq!(project.path, expected.to_string_lossy());
+        assert_eq!(project.name, "work");
+        assert!(parent.join("project.json").exists());
+        assert!(parent.join("README.md").exists());
+        assert_eq!(registry.find(&project.id).unwrap().path, expected);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_used_parent_gets_a_subfolder_of_its_own() {
+        let base = temp_project("used-parent");
+        let parent = base.join("somewhere");
+        std::fs::create_dir_all(&parent).unwrap();
+        write_file(&parent.join("keep.txt"), "data");
+        let mut registry = Registry::default();
+        let dirs = test_dirs(&base);
+
+        let project = create_folder(&mut registry, &dirs, &parent, ProjectTemplate::General).unwrap();
+
+        assert_eq!(project.name, "New project");
+        assert!(parent.join("keep.txt").exists());
+        assert!(parent.join("New project").join("project.json").exists());
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
