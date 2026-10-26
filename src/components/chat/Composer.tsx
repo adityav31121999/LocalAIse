@@ -1,9 +1,69 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpIcon, StopIcon } from "../ui/icons";
+import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../ui/icons";
 import { NetworkIndicator } from "../layout/NetworkIndicator";
 import { ModeIndicator } from "../layout/ModeIndicator";
 import { useProjectStore } from "../../state/projectStore";
+import { formatBytes } from "../../util/format";
 import type { Project } from "../../types";
+
+/** pdf.js needs a worker URL to extract text off the main thread. Vite exposes
+ *  `?url` imports as string URLs; declare the module so TypeScript accepts it. */
+declare module "pdfjs-dist/build/pdf.worker.mjs?url";
+import * as pdfjsLib from "pdfjs-dist";
+
+/** Extensions whose contents can be read as plain text and sent to the model. */
+const TEXT_EXTENSIONS = [
+  ".md", ".txt", ".json", ".csv", ".ts", ".js", ".tsx", ".jsx",
+  ".py", ".html", ".htm", ".xml", ".yaml", ".yml", ".log", ".ini",
+  ".toml", ".cfg", ".rtf", ".pdf",
+];
+
+function isTextFile(name: string): boolean {
+  const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+  return TEXT_EXTENSIONS.includes(ext);
+}
+
+function readTextFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
+/** Extracts the text of every page of a PDF using pdf.js. */
+async function readPdfFile(file: File): Promise<string> {
+  const { default: pdfWorkerUrl } = await import(
+    "pdfjs-dist/build/pdf.worker.mjs?url"
+  );
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl as string;
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const parts: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    parts.push(
+      content.items
+        .map((item: unknown) => {
+          const obj = item as { str?: string };
+          return obj.str ?? "";
+        })
+        .join(" "),
+    );
+  }
+  return parts.join("\n");
+}
+
+/** Reads an attached file's text. Text files are read directly; PDFs are parsed with pdf.js. */
+async function readFileContent(file: File): Promise<string> {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) {
+    return readPdfFile(file);
+  }
+  return readTextFile(file);
+}
 
 interface ComposerProps {
   project: Project;
@@ -25,6 +85,8 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
   const [temperatureDisplay, setTemperatureDisplay] = useState("0.7");
   const [topPDisplay, setTopPDisplay] = useState("0.9");
   const [topKDisplay, setTopKDisplay] = useState("40");
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const setSystemPrompt = useProjectStore((state) => state.setSystemPrompt);
@@ -42,12 +104,52 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
     if (promptOpen) promptRef.current?.focus();
   }, [promptOpen]);
 
-  const canSend = value.trim().length > 0 && !streaming;
+  const canSend = (value.trim().length > 0 || attachedFiles.length > 0) && !streaming;
 
-  const submit = () => {
+  const submit = async () => {
     if (!canSend) return;
-    onSend(value);
+    let prompt = value.trim();
+    if (attachedFiles.length) {
+      const parts = await Promise.all(attachedFiles.map(readFileContent));
+      prompt =
+        prompt +
+        "\n\n---\nAttached files:\n" +
+        parts
+          .map((part, index) => `### ${attachedFiles[index].name}\n${part}`)
+          .join("\n\n---\n\n");
+    }
+    onSend(prompt);
     setValue("");
+    setAttachedFiles([]);
+    textareaRef.current?.focus();
+  };
+
+  const openAttachments = () => {
+    attachInputRef.current?.click();
+  };
+
+  const handleAttachmentsChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
+    const textFiles: File[] = [];
+    const skipped: File[] = [];
+    for (const file of files) {
+      (isTextFile(file.name) ? textFiles : skipped).push(file);
+    }
+    if (skipped.length) {
+      alert(
+        "Only text files and PDFs can be attached to a chat message.\n\n" +
+          "Skipped: " +
+          skipped.map((file) => file.name).join(", ") +
+          "\n\nAdd documents and other binaries to the Files view so they are indexed and searchable instead.",
+      );
+    }
+    setAttachedFiles((previous) => [...previous, ...textFiles]);
+  };
+
+  const removeAttachment = (file: File) => {
+    setAttachedFiles((previous) => previous.filter((item) => item !== file));
   };
 
   const openPromptEditor = () => {
@@ -130,6 +232,24 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             }
             aria-label="Ask a question about this project"
           />
+          <input
+            ref={attachInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={handleAttachmentsChange}
+            aria-label="Attach files"
+          />
+          <button
+            type="button"
+            className="composer__attach"
+            onClick={openAttachments}
+            disabled={streaming}
+            title="Attach files"
+          >
+            <PaperclipIcon size={14} />
+            <span className="sr-only">Attach files</span>
+          </button>
 
           {streaming ? (
             <button
@@ -154,6 +274,25 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             </button>
           )}
         </div>
+        {attachedFiles.length > 0 && (
+          <div className="composer__attachments">
+            <span className="composer__attachments-label">Attached files:</span>
+            {attachedFiles.map((file) => (
+              <span key={`${file.name}-${file.size}`} className="composer__attach-chip">
+                {file.name}
+                <span className="composer__attach-size">({formatBytes(file.size)})</span>
+                <button
+                  type="button"
+                  className="composer__attach-remove"
+                  onClick={() => removeAttachment(file)}
+                  aria-label={`Remove ${file.name}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="composer__foot">
           <button

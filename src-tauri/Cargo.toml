@@ -12,6 +12,18 @@ default-run = "LocalAIse"
 name = "rag_eval"
 path = "src/bin/rag_eval.rs"
 
+[[bin]]
+name = "reindex_testproj"
+path = "src/bin/reindex_testproj.rs"
+
+[[bin]]
+name = "clean_index"
+path = "src/bin/clean_index.rs"
+
+[[bin]]
+name = "search_phrases"
+path = "src/bin/search_phrases.rs"
+
 [lib]
 name = "localaise_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -54,6 +66,7 @@ flate2 = "1"
 sha2 = "0.10"
 dom_smoothie = "0.18"
 htmd = "0.1"
+pdf-extract = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sqlite-vec = "0.1"
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }

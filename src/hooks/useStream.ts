@@ -8,7 +8,7 @@
  * Returns a promise that resolves to the unsubscribe function.
  */
 
-import { isTauri } from "../api/index";
+import { isTauri, listen } from "../api/index";
 
 export interface ChatTokenEvent {
   projectId: string;
@@ -22,11 +22,5 @@ type Unsubscribe = () => void;
 export function subscribeChatTokens(onToken: (event: ChatTokenEvent) => void): Promise<Unsubscribe> {
   if (!isTauri) return Promise.resolve(() => undefined);
 
-  return import("@tauri-apps/api/event")
-    .then(({ listen }) =>
-      listen<ChatTokenEvent>("chat://token", (event) => {
-        if (event.payload) onToken(event.payload);
-      }),
-    )
-    .catch(() => () => undefined);
+  return listen<ChatTokenEvent>("chat://token", (event) => onToken(event)).catch(() => () => undefined);
 }

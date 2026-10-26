@@ -16,6 +16,20 @@ export async function invoke<T>(command: string, args?: Record<string, unknown>)
   return call<T>(command, args);
 }
 
+/** Subscribes to a Rust-emitted event and returns the unsubscribe function.
+ *
+ * Loads the Tauri event plugin lazily, through the same dynamic-import path as
+ * `invoke`, so the browser fallback never pulls the plugin in.
+ */
+export async function listen<T>(
+  event: string,
+  handler: (payload: T) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<T>(event, (e) => handler(e.payload));
+  return unlisten;
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

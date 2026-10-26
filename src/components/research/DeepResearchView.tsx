@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 
 interface ResearchEvent {
   type: string;
@@ -14,9 +12,11 @@ export function DeepResearchView() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    listen<ResearchEvent>("research:event", (e) => {
-      setEvents((prev) => [...prev, e.payload]);
-    }).then((fn) => { unlisten = fn; });
+    import("@tauri-apps/api/event")
+      .then(({ listen }) => listen<ResearchEvent>("research:event", (e) => {
+        setEvents((prev) => [...prev, e.payload]);
+      }))
+      .then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
   }, []);
 
@@ -25,6 +25,7 @@ export function DeepResearchView() {
     setEvents([]);
     setRunning(true);
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
       await invoke("run_deep_research", { question });
     } finally {
       setRunning(false);

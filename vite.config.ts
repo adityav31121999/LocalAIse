@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
+      "@": path.resolve(__dirname, "src"),
     },
   },
   clearScreen: false,
@@ -28,5 +28,15 @@ export default defineConfig({
   build: {
     target: "es2021",
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom", "react-dom/client"],
+          "vendor-zustand": ["zustand"],
+          "vendor-pdf": ["pdfjs-dist"],
+          "vendor-lucide": ["lucide-react"],
+        },
+      },
+    },
   },
 });
