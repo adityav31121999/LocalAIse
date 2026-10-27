@@ -93,7 +93,8 @@ pub async fn wait_until_ready(serving: &Serving) -> AppResult<()> {
 }
 
 /// Asks for one complete answer and returns its text.
-pub async fn complete(serving: &Serving, model: &str, messages: &[ChatMessage]) -> AppResult<String> {    let http = client(RESPONSE_TIMEOUT)?;
+pub async fn complete(serving: &Serving, model: &str, messages: &[ChatMessage]) -> AppResult<String> {
+    let http = client(RESPONSE_TIMEOUT)?;
 
     let request = ChatRequest {
         model,

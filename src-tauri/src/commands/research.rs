@@ -51,7 +51,7 @@ pub async fn analyze_document(
     };
 
     let root = PathBuf::from(&record.path);
-    let target_path = root.join(&request.file_name);
+    let target_path = crate::sandbox::paths::ensure_within(&root, std::path::Path::new(&request.file_name))?;
     let doc_text = parse_file(&target_path)
         .map_err(|e| AppError::msg(format!("Failed to read {}: {e}", request.file_name)))?;
 
@@ -88,7 +88,7 @@ pub async fn analyze_document(
         }
         "compare" => {
             let second_name = request.compare_with.as_deref().unwrap_or("");
-            let second_path = root.join(second_name);
+            let second_path = crate::sandbox::paths::ensure_within(&root, std::path::Path::new(second_name))?;
             let second_text = parse_file(&second_path)
                 .map_err(|e| AppError::msg(format!("Failed to read comparison file {second_name}: {e}")))?;
 

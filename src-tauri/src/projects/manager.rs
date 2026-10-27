@@ -480,7 +480,7 @@ pub fn set_chat_mode(
 /// Enables or disables the project's own `diary/` folder. Turning it off keeps
 /// every page on disk; the folder is simply ignored until it is turned back on.
 pub fn set_diary(
-    registry: &Registry,
+    registry: &mut Registry,
     dirs: &AppDirs,
     id: &str,
     enabled: bool,
@@ -506,7 +506,15 @@ pub fn set_diary(
         std::fs::create_dir_all(record.path.join(&file.folders.diary))?;
     }
 
-    Ok(to_project(&Context { registry, dirs }, &record))
+    let updated = ProjectRecord {
+        ..record
+    };
+    // Persist diary toggle to registry/state.json like other setters.
+    // (diary_enabled lives in project.json on disk; registry keeps the record in sync.)
+    registry.upsert(updated.clone());
+    registry.save(&dirs.state_file)?;
+
+    Ok(to_project(&Context { registry, dirs }, &updated))
 }
 
 /// Adds a folder to the project directory and records it in `project.json`.
@@ -596,6 +604,10 @@ pub fn scan_sources(project_id: &str, root: &Path) -> AppResult<Vec<SourceFile>>
 
     let mut files = Vec::new();
 
+    // Load the project index once for the whole scan instead of per file.
+    let index_db = crate::index::db::IndexDb::new(&root);
+    let project_index = index_db.load();
+
     let walker = WalkDir::new(&root)
         .follow_links(false)
         .into_iter()
@@ -624,8 +636,6 @@ pub fn scan_sources(project_id: &str, root: &Path) -> AppResult<Vec<SourceFile>>
             .map(time::to_iso)
             .unwrap_or_else(|_| time::now_iso());
 
-        let index_db = crate::index::db::IndexDb::new(&root);
-        let project_index = index_db.load();
         let status = if project_index.indexed_files.contains_key(&name) {
             SourceStatus::Indexed
         } else {

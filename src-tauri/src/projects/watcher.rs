@@ -6,12 +6,15 @@
 //! sources panel. Deletions are noticed the same way: files that sit in the
 //! index but are gone from the list have their chunks removed.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppState;
+
+static WATCHER_STOP: AtomicBool = AtomicBool::new(false);
 
 /// How often the folder scan runs. Cheap: per project it walks names and
 /// stamps only, and only parses what actually changed.
@@ -23,8 +26,15 @@ pub fn start(app: &AppHandle) {
         .name("LocalAIse-watch".into())
         .spawn(move || loop {
             std::thread::sleep(SCAN_INTERVAL);
+            if WATCHER_STOP.load(Ordering::SeqCst) {
+                break;
+            }
             watch_once(&handle);
         });
+}
+
+pub fn stop() {
+    WATCHER_STOP.store(true, Ordering::SeqCst);
 }
 
 /// One scan across all registered projects. Quietly skipped when the app is

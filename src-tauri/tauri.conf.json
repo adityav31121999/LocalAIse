@@ -31,8 +31,7 @@
     "targets": ["nsis", "appimage", "deb"],
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "resources": [
-      "../resources/llama/windows-x64/*",
-      "../resources/llama/linux-x64/*"
+      "./bundle-llama"
     ]
   }
 }

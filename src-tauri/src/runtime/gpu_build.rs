@@ -260,7 +260,8 @@ pub fn ensure_runtime(app: &AppHandle) -> AppResult<PathBuf> {
             let src = entry.path();
             if src.is_file() {
                 let dst = tmp_dir.join(entry.file_name());
-                let _ = std::fs::copy(&src, &dst);
+                std::fs::copy(&src, &dst)
+                    .map_err(|e| AppError::msg(format!("failed to stage {}: {e}", src.display())))?;
             }
         }
     }
@@ -440,6 +441,7 @@ pub async fn install(
     emit_progress(app, target, "resolving", 0, 0);
 
     let manifest = load_manifest()?;
+    let manifest_tag = manifest.tag.clone();
     let current_p = platform_prefix();
     let entry = manifest
         .entries
@@ -570,7 +572,7 @@ pub async fn install(
 
     // Success: Update runtime.json and build-info-<backend>.json
     let build_source = BuildSource {
-        tag: manifest.tag.clone(),
+        tag: manifest_tag.clone(),
         platform: entry.platform.clone(),
         backend: target.as_str().to_string(),
         installed_files: copied_files,
@@ -584,11 +586,11 @@ pub async fn install(
     let runtime_json_path = p_dir.join("runtime.json");
     let mut meta = match std::fs::read_to_string(&runtime_json_path) {
         Ok(c) => serde_json::from_str::<RuntimeMetadata>(&c).unwrap_or(RuntimeMetadata {
-            tag: manifest.tag,
+            tag: manifest_tag.clone(),
             installed_backends: Vec::new(),
         }),
         Err(_) => RuntimeMetadata {
-            tag: manifest.tag,
+            tag: manifest_tag.clone(),
             installed_backends: Vec::new(),
         },
     };
@@ -662,7 +664,12 @@ fn matches_any_glob(filename: &str, patterns: &[String]) -> bool {
     let lower_name = filename.to_lowercase();
     for pat in patterns {
         let lower_pat = pat.to_lowercase();
+        // A bare "*" must not match every filename; treat it as "no match".
+        if lower_pat == "*" {
+            continue;
+        }
         if lower_pat.ends_with('*') {
+            // "*suffix" patterns: prefix is empty, so only the suffix is checked.
             let prefix = &lower_pat[..lower_pat.len() - 1];
             if lower_name.starts_with(prefix) {
                 return true;
@@ -692,7 +699,10 @@ async fn download_with_retry(
     if dest.is_file() {
         if let Ok(computed) = compute_sha256(dest) {
             if computed.eq_ignore_ascii_case(expected_sha256) {
-                emit_progress(app, target, "downloading", dest.metadata().unwrap().len(), dest.metadata().unwrap().len());
+                let file_len = dest.metadata()
+                    .map_err(|e| AppError::msg(format!("cannot stat cached file: {e}")))?
+                    .len();
+                emit_progress(app, target, "downloading", file_len, file_len);
                 return Ok(());
             }
         }
@@ -884,5 +894,13 @@ mod tests {
         assert!(matches_any_glob("cudart64_12.dll", &["cudart64_*.dll".into()]));
         assert!(matches_any_glob("cublas64_12.dll", &["cublas*.dll".into()]));
         assert!(!matches_any_glob("vulkan-1.dll", &["ggml-cuda.dll".into()]));
+    }
+
+    #[test]
+    fn glob_suffix_and_wildcard_semantics() {
+        // "*suffix" patterns: prefix is empty, so only the suffix is checked.
+        assert!(matches_any_glob("ggml-cuda.dll", &["*cuda.dll".into()]));
+        assert!(!matches_any_glob("ggml-vulkan.dll", &["*cuda.dll".into()]));
+        assert!(!matches_any_glob("anything", &["*".into()])); // pure * should not match everything
     }
 }

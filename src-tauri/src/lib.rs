@@ -192,6 +192,7 @@ pub fn run() {
 /// model loaded in the background.
 fn on_event(app: &AppHandle, event: tauri::RunEvent) {
     if let tauri::RunEvent::Exit = event {
+        crate::projects::watcher::stop();
         if let Some(state) = app.try_state::<AppState>() {
             if let Ok(mut supervisor) = state.supervisor.lock() {
                 supervisor.stop();

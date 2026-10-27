@@ -57,6 +57,8 @@ function stageBundle(platform: string): void {
     if (statSync(src).isFile()) {
       copyFileSync(src, dst);
       count++;
+    } else if (statSync(src).isDirectory()) {
+      console.warn(`[stage-bundle] Skipping directory: ${file}`);
     }
   }
 

@@ -103,14 +103,22 @@ fn save_all_events(personal_space: &Path, events: &[CalendarEvent]) -> AppResult
     Ok(())
 }
 
+fn ics_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+     .replace(';', "\\;")
+     .replace(',', "\\,")
+     .replace('\n', "\\n")
+     .replace('\r', "")
+}
+
 fn generate_ics(events: &[CalendarEvent]) -> String {
     let mut out = String::from("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//localAIse//Personal Calendar//EN\r\n");
     for e in events {
         out.push_str("BEGIN:VEVENT\r\n");
-        out.push_str(&format!("UID:{}\r\n", e.id));
-        out.push_str(&format!("SUMMARY:{}\r\n", e.title));
+        out.push_str(&format!("UID:{}\r\n", ics_escape(&e.id)));
+        out.push_str(&format!("SUMMARY:{}\r\n", ics_escape(&e.title)));
         if let Some(ref desc) = e.description {
-            out.push_str(&format!("DESCRIPTION:{}\r\n", desc.replace('\n', "\\n")));
+            out.push_str(&format!("DESCRIPTION:{}\r\n", ics_escape(desc)));
         }
         let clean_start = e.start_at.replace(['-', ':', 'T'], "").trim().to_string();
         out.push_str(&format!("DTSTART:{}\r\n", clean_start));
@@ -119,7 +127,7 @@ fn generate_ics(events: &[CalendarEvent]) -> String {
             out.push_str(&format!("DTEND:{}\r\n", clean_end));
         }
         if let Some(ref loc) = e.location {
-            out.push_str(&format!("LOCATION:{}\r\n", loc));
+            out.push_str(&format!("LOCATION:{}\r\n", ics_escape(loc)));
         }
         out.push_str("END:VEVENT\r\n");
     }
@@ -157,7 +165,7 @@ fn parse_ics(content: &str) -> Vec<CalendarEvent> {
                     id: uid.clone(),
                     title: title.clone(),
                     description: desc.clone(),
-                    start_at: if start_at.is_empty() { "2026-10-18".to_string() } else { start_at.clone() },
+                    start_at: if start_at.is_empty() { crate::util::time::now_iso()[..10].to_string() } else { start_at.clone() },
                     end_at: end_at.clone(),
                     location: location.clone(),
                 });

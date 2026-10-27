@@ -220,8 +220,8 @@ pub fn set_project_diary(
     project_id: String,
     enabled: bool,
 ) -> AppResult<Project> {
-    let registry = state.registry()?;
-    manager::set_diary(&registry, &state.dirs, &project_id, enabled)
+    let mut registry = state.registry()?;
+    manager::set_diary(&mut registry, &state.dirs, &project_id, enabled)
 }
 
 /// Creates a user folder inside the project and records it in `project.json`.

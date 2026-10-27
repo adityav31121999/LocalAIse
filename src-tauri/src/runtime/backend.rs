@@ -167,14 +167,17 @@ fn probe_flash_attn(binary: &Path) -> Option<bool> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let help = format!("{stdout}\n{stderr}").to_lowercase();
-    if !help.contains("flash") {
+    let has = help.contains("flash-attn")
+        || help.contains("flash_attn")
+        || help.contains("flash attention");
+    // Only report a definitive answer when the flash-attention flag is actually
+    // advertised. An unrelated mention of "flash" (or no mention at all) leaves
+    // us without enough information, so treat it as unknown instead of claiming
+    // the build does not support flash attention.
+    if !has {
         return None;
     }
-    Some(
-        help.contains("flash-attn")
-            || help.contains("flash_attn")
-            || help.contains("flash attention"),
-    )
+    Some(true)
 }
 
 /// Reads a device line such as "CUDA0: NVIDIA GeForce RTX 4090 (VRAM: 24564 MiB)".

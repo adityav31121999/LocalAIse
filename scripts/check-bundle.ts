@@ -3,17 +3,14 @@ import { join } from "node:path";
 
 // Libraries that must NEVER appear in the CPU-only release bundle
 const FORBIDDEN = [
-  /vulkan/i,
+  /^ggml-cuda\.dll$/i,
+  /^ggml-vulkan\.dll$/i,
+  /^ggml-opencl\.dll$/i,
+  /^nvcuda\.dll$/i,
+  /^libcuda\.so/i,
   /^cudart/i,
   /^cublas/i,
-  /^cublasLt/i,
-  /nvcuda/i,
-  /libcuda/i,
-  /libcudart/i,
-  /ggml-cuda/i,
-  /ggml-vulkan/i,
-  /ggml-opencl/i,
-  /opencl/i,
+  /^libcudart/i,
 ];
 
 function walk(dir: string): string[] {

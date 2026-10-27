@@ -81,7 +81,6 @@ pub async fn install_gpu_build(
     let binary = gpu_build::install(&app, &dirs, target).await?;
 
     if let Ok(mut cache) = state.capabilities.lock() {
-        cache.invalidate(&binary);
         cache.clear();
     }
 
