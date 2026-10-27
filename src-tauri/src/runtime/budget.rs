@@ -234,7 +234,7 @@ pub fn recommend_cpu(
                     parallel_slots: 1,
                     use_mmap: true,
                     moe: MoeOffload::Off,
-                    thinking_budget: 0,
+                    thinking_budget: 2_048,
                     partial_load: false,
                 });
             }
@@ -295,7 +295,7 @@ fn recommend_gpu(
                 parallel_slots: 1,
                 use_mmap: true,
                 moe: MoeOffload::Off,
-                thinking_budget: 0,
+                thinking_budget: 2_048,
                 partial_load: false,
             };
 

@@ -441,16 +441,10 @@ export const DEFAULT_PROFILE: InferenceProfile = {
   parallelSlots: 1,
   useMmap: true,
   moe: { mode: "off" },
-  thinkingBudget: 0,
+  thinkingBudget: 2_048,
   partialLoad: false,
-  maxInputTokens: 0,
-  maxOutputTokens: 0,
-  agentMaxInputTokens: 0,
-  agentMaxOutputTokens: 0,
-  agentThinkingBudget: 0,
-  subagentMaxInputTokens: 0,
-  subagentMaxOutputTokens: 0,
-  subagentThinkingBudget: 0,
+  maxInputTokens: 2_048,
+  maxOutputTokens: 8_192,
 };
 
 const GIB = 1024 ** 3;
@@ -700,7 +694,7 @@ function mockRecommend(
           parallelSlots: 1,
           useMmap: true,
           moe: { mode: "off" },
-          thinkingBudget: 0,
+          thinkingBudget: 2_048,
           partialLoad: false,
           ...PROFILE_BUDGET_DEFAULTS,
         };

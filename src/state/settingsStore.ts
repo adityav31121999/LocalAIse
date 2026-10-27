@@ -75,6 +75,7 @@ interface SettingsState extends PersistedSettings {
   setThemeName(name: ThemeName): void;
   setDensity(density: Density): void;
   toggleSidebar(): void;
+  setSidebarCollapsed(collapsed: boolean): void;
   completeOnboarding(): void;
 }
 
@@ -109,6 +110,15 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
 
     toggleSidebar: () => {
       set({ sidebarCollapsed: !get().sidebarCollapsed });
+      persist();
+    },
+
+    // Used by the document viewer to get out of the way while a document is
+    // open, then restore the user's preference when it closes. Not persisted
+    // separately — it writes the same preference the toggle does.
+    setSidebarCollapsed: (sidebarCollapsed) => {
+      if (get().sidebarCollapsed === sidebarCollapsed) return;
+      set({ sidebarCollapsed });
       persist();
     },
 

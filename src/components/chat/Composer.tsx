@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../ui/icons";
-import { NetworkIndicator } from "../layout/NetworkIndicator";
-import { ModeIndicator } from "../layout/ModeIndicator";
 import { useProjectStore } from "../../state/projectStore";
+import { useNavStore } from "../../state/navStore";
 import { formatBytes } from "../../util/format";
 import type { Project } from "../../types";
 
@@ -90,8 +89,8 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const setSystemPrompt = useProjectStore((state) => state.setSystemPrompt);
-  const setInternet = useProjectStore((state) => state.setInternet);
-  const setChatMode = useProjectStore((state) => state.setChatMode);
+  const composerInsert = useNavStore((state) => state.composerInsert);
+  const consumeComposerInsert = useNavStore((state) => state.consumeComposerInsert);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -99,6 +98,23 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 180)}px`;
   }, [value]);
+
+  // "Cite in Chat" from the document viewer queues a passage here. Append it
+  // as its own block so a half-written question is never overwritten.
+  useEffect(() => {
+    if (!composerInsert) return;
+    setValue((previous) => {
+      const trimmed = previous.trimEnd();
+      return trimmed ? `${trimmed}\n\n${composerInsert}` : composerInsert;
+    });
+    consumeComposerInsert();
+    requestAnimationFrame(() => {
+      const element = textareaRef.current;
+      if (!element) return;
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+  }, [composerInsert, consumeComposerInsert]);
 
   useEffect(() => {
     if (promptOpen) promptRef.current?.focus();
@@ -308,15 +324,6 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
           >
             System prompt{project.systemPrompt ? " · custom" : ""}
           </button>
-          <span className="mono">{project.model}</span>
-          <NetworkIndicator
-            enabled={project.internetEnabled}
-            onToggle={(enabled) => void setInternet(enabled)}
-          />
-          <ModeIndicator
-            mode={project.chatMode}
-            onToggle={(mode) => void setChatMode(mode)}
-          />
           <button
             type="button"
             className={`composer__prompt-btn${samplingOpen ? " composer__prompt-btn--active" : ""}`}

@@ -127,7 +127,7 @@ export function ProjectCalendarView({ project }: { project: Project }) {
               <span style={{ color: "var(--accent-primary)", display: "inline-flex" }}>
                 <CalendarIcon size={18} />
               </span>
-              <span style={{ fontWeight: "600", fontSize: "14px" }}>Project Calendar</span>
+              <span style={{ fontWeight: "600", fontSize: "14px" }}>Journal</span>
             </div>
             <button
               type="button"
@@ -270,7 +270,7 @@ export function ProjectCalendarView({ project }: { project: Project }) {
           >
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--accent-primary)" }} />
-              <span>Diary page linked</span>
+              <span>Entry on this day</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               <span
@@ -286,7 +286,7 @@ export function ProjectCalendarView({ project }: { project: Project }) {
           </div>
         </div>
 
-        {/* Timeline of Linked Diary Pages */}
+        {/* Timeline of recent entries */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div
             style={{
@@ -297,7 +297,7 @@ export function ProjectCalendarView({ project }: { project: Project }) {
             }}
           >
             <span className="muted" style={{ fontSize: "11px", fontWeight: "600", textTransform: "uppercase" }}>
-              Linked Diary Pages ({datedPages.length})
+              Recent entries ({datedPages.length})
             </span>
           </div>
 
@@ -414,7 +414,7 @@ export function ProjectCalendarView({ project }: { project: Project }) {
               </div>
             </div>
 
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
               <DiaryEditor
                 page={activePage}
                 saveState={saveState}

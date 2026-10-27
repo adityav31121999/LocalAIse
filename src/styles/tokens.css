@@ -49,7 +49,7 @@
   /* Layout */
   --rail-w: 56px;
   --sidebar-w: 268px;
-  --topbar-h: 54px;
+  --topbar-h: 46px;
   --statusbar-h: 30px;
 
   /* Motion */
@@ -88,7 +88,7 @@
   --space-8: 26px;
   --rail-w: 48px;
   --sidebar-w: 244px;
-  --topbar-h: 46px;
+  --topbar-h: 42px;
   --statusbar-h: 26px;
 }
 
@@ -103,6 +103,6 @@
   --space-8: 40px;
   --rail-w: 64px;
   --sidebar-w: 296px;
-  --topbar-h: 62px;
+  --topbar-h: 54px;
   --statusbar-h: 34px;
 }

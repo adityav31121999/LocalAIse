@@ -80,28 +80,34 @@ pub fn read_document(
         .map_err(|e| AppError::msg(format!("Cannot read metadata: {e}")))?;
     let size_bytes = metadata.len();
     
-    // For PDFs, also return base64-encoded bytes for visual rendering
-    let file_bytes_base64 = if ext == "pdf" {
-        let bytes = std::fs::read(&target)
-            .map_err(|e| AppError::msg(format!("Cannot read PDF bytes: {e}")))?;
-        Some(BASE64_STANDARD.encode(bytes))
+    // For PDFs: one read serves both the base64 payload for the viewer and
+    // the page count below.
+    let pdf_bytes = if ext == "pdf" {
+        Some(
+            std::fs::read(&target)
+                .map_err(|e| AppError::msg(format!("Cannot read PDF bytes: {e}")))?,
+        )
     } else {
         None
     };
-    
-    // Get page count for PDFs
-    let page_count = if ext == "pdf" {
-        // Use pdf-extract to get text and estimate pages from form feeds
-        let bytes = std::fs::read(&target).ok();
-        bytes.and_then(|b| crate::ingest::parsers::pdf::parse_from_bytes(&b).ok())
-            .and_then(|text| {
-                // Rough estimate: count form feeds or page breaks
-                let count = text.matches('\u{0C}').count() + 1;
-                if count > 0 { Some(count) } else { None }
-            })
-    } else {
-        None
-    };
+    let file_bytes_base64 = pdf_bytes
+        .as_deref()
+        .map(|bytes| BASE64_STANDARD.encode(bytes));
+
+    // Page count, best effort: uncompressed PDFs (typical LaTeX output) write
+    // one plain `/Type /Page` object per page (the tree summary is
+    // `/Type /Pages`, which prefixes the same string, so subtract it).
+    // pdf-extract produces no usable page markers — counting form feeds
+    // always yielded 1 here. Object-stream/compressed PDFs hide the markers,
+    // and the viewer's pdf.js reports the true count anyway, so report
+    // nothing rather than guess.
+    let page_count = pdf_bytes.as_deref().and_then(|bytes| {
+        let raw = String::from_utf8_lossy(bytes);
+        let page_objects = raw.matches("/Type /Page").count();
+        let pages_nodes = raw.matches("/Type /Pages").count();
+        let count = page_objects.saturating_sub(pages_nodes);
+        (count > 0).then_some(count)
+    });
     
     Ok(DocumentContent {
         file_name,
@@ -115,6 +121,7 @@ pub fn read_document(
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentContent {
     file_name: String,
     file_path: String,

@@ -1,10 +1,19 @@
 /** PDF Viewer Component — renders PDF pages visually using pdf.js. */
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState, memo } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 
 /** pdf.js needs a worker URL to parse off the main thread. */
 declare module "pdfjs-dist/build/pdf.worker.mjs?url";
+
+/** pdf.js rejects a cancelled page.render() with this named error. */
+function isRenderCancelled(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { name?: string }).name === "RenderingCancelledException"
+  );
+}
 
 interface PDFViewerProps {
   /** File to render (PDF). */
@@ -24,7 +33,7 @@ interface PageError {
   message: string;
 }
 
-export function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, maxCanvasSize = 4096 }: PDFViewerProps) {
+export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, maxCanvasSize = 4096 }: PDFViewerProps) {
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(0);
@@ -34,6 +43,19 @@ export function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, ma
   const [workerReady, setWorkerReady] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const pageCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const renderTasksRef = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
+  /** True after the first successful load; later reloads of the same view
+   * keep the already-rendered pages visible instead of flashing a spinner. */
+  const loadedOnceRef = useRef(false);
+
+  // Prop mirrors, so the callbacks below can read them without being keyed
+  // on them. The load effect must only depend on the actual document input.
+  const initialPageRef = useRef(initialPage);
+  initialPageRef.current = initialPage;
+  const currentPageRef = useRef(currentPage);
+  currentPageRef.current = currentPage;
+  const onPageChangeRef = useRef(onPageChange);
+  onPageChangeRef.current = onPageChange;
 
   // Initialize pdf.js worker
   useEffect(() => {
@@ -50,27 +72,41 @@ export function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, ma
     initWorker();
   }, []);
 
-  // Load PDF document
+  // Load PDF document. Deliberately keyed on [file, workerReady] only:
+  // page navigation must not re-parse the document, and an unstable
+  // callback prop must not make this re-run via an effect dependency.
   const loadPdf = useCallback(async () => {
     if (!workerReady) return;
-    setLoading(true);
+    if (!loadedOnceRef.current) setLoading(true);
     setError(null);
     setPageErrors([]);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      // Self-contained rendering: pdf.js needs its bundled standard-font data
+      // (for documents using non-embedded base-14 fonts like Times/Helvetica —
+      // common in LaTeX PDFs) and cmaps (for CJK text). Both are vendored in
+      // public/pdfjs/ so dev and the packaged app fetch them from the frontend
+      // origin itself, never from a CDN.
+      const assetBase = `${import.meta.env.BASE_URL}pdfjs/`;
+      const doc = await pdfjsLib.getDocument({
+        data: arrayBuffer,
+        standardFontDataUrl: `${assetBase}standard_fonts/`,
+        cMapUrl: `${assetBase}cmaps/`,
+        cMapPacked: true,
+      }).promise;
       setPdf(doc);
       setTotalPages(doc.numPages);
-      if (initialPage > doc.numPages) {
-        setCurrentPage(doc.numPages);
-      }
-      onPageChange?.(currentPage, doc.numPages);
+      // Start (or re-start) at the requested page, clamped to the document.
+      const target = Math.max(1, Math.min(initialPageRef.current, doc.numPages));
+      setCurrentPage(target);
+      onPageChangeRef.current?.(target, doc.numPages);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load PDF");
     } finally {
+      loadedOnceRef.current = true;
       setLoading(false);
     }
-  }, [file, initialPage, onPageChange, currentPage, workerReady]);
+  }, [file, workerReady]);
 
   useEffect(() => {
     loadPdf();
@@ -114,11 +150,19 @@ export function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, ma
       context.imageSmoothingEnabled = true;
       context.imageSmoothingQuality = "high";
 
-      await page.render({ canvas, canvasContext: context, viewport: outputViewport }).promise;
+      const task = page.render({ canvas, canvasContext: context, viewport: outputViewport });
+      renderTasksRef.current.set(pageNum, task);
+      await task.promise;
+      if (renderTasksRef.current.get(pageNum) === task) {
+        renderTasksRef.current.delete(pageNum);
+      }
 
       // Remove this page from error list if it was previously failing
       setPageErrors((prev) => prev.filter((e) => e.page !== pageNum));
     } catch (err) {
+      // A superseded or unmounted render is expected — never report it as
+      // a page failure.
+      if (isRenderCancelled(err)) return;
       const msg = err instanceof Error ? err.message : "Unknown render error";
       console.error(`Failed to render page ${pageNum}:`, err);
       setPageErrors((prev) => {
@@ -129,13 +173,18 @@ export function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, ma
     }
   }, [pdf, scale, maxCanvasSize]);
 
-  // Render all pages when PDF loads or page changes
+  // Render all pages when the PDF loads or its scale changes
   useEffect(() => {
     if (!pdf || !containerRef.current) return;
 
     const container = containerRef.current;
     container.innerHTML = ""; // Clear previous renders
     pageCanvasRefs.current.clear();
+
+    // Races the previous pass: any render still in flight belongs to a
+    // canvas that is about to be dropped.
+    renderTasksRef.current.forEach((task) => task.cancel());
+    renderTasksRef.current.clear();
 
     const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1);
 
@@ -152,6 +201,13 @@ export function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, ma
       pageCanvasRefs.current.set(pageNum, canvas);
       await renderPage(pageNum, canvas);
     });
+
+    // Drop this pass's renders when the view changes or the component unmounts,
+    // so a slow page render cannot write into a canvas nobody displays.
+    return () => {
+      renderTasksRef.current.forEach((task) => task.cancel());
+      renderTasksRef.current.clear();
+    };
   }, [pdf, totalPages, renderPage]);
 
   // Handle page navigation
@@ -333,4 +389,4 @@ export function PDFViewer({ file, initialPage = 1, onPageChange, scale = 1.5, ma
       )}
     </div>
   );
-}
+});

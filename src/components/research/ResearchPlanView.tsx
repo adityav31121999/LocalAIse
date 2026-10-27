@@ -1,5 +1,15 @@
 import { useState } from "react";
 import { invoke, isTauri, delay } from "../../api";
+import { Markdown } from "../../util/markdown";
+import {
+  CheckIcon,
+  CopyIcon,
+  DocIcon,
+  DownloadIcon,
+  GlobeIcon,
+  ShieldIcon,
+  SparkIcon,
+} from "../ui/icons";
 import type { Project } from "../../types";
 
 export interface ResearchStep {
@@ -25,6 +35,24 @@ export interface ResearchReportResult {
   sourcesUsed: string[];
 }
 
+function downloadText(fileName: string, text: string, mime: string) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "research";
+}
+
 export function ResearchPlanView({ project }: { project: Project }) {
   const [topic, setTopic] = useState("");
   const [plan, setPlan] = useState<ResearchPlan | null>(null);
@@ -32,6 +60,9 @@ export function ResearchPlanView({ project }: { project: Project }) {
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const doneCount = plan?.steps.filter((step) => step.completed).length ?? 0;
 
   const handleGeneratePlan = async () => {
     if (!topic.trim()) return;
@@ -78,6 +109,11 @@ export function ResearchPlanView({ project }: { project: Project }) {
           plan,
         });
         setReport(res);
+        setPlan({
+          ...plan,
+          status: "completed",
+          steps: plan.steps.map((step) => ({ ...step, completed: true })),
+        });
       } else {
         await delay(1200);
         setReport({
@@ -85,6 +121,11 @@ export function ResearchPlanView({ project }: { project: Project }) {
           reportMarkdown: `# Research Report: ${plan.topic}\n\n## Executive Summary\nAnalysis generated from local sources.\n\n## Sources\n- project-notes.md`,
           savedToFile: "outputs/research-sample.md",
           sourcesUsed: ["project-notes.md"],
+        });
+        setPlan({
+          ...plan,
+          status: "completed",
+          steps: plan.steps.map((step) => ({ ...step, completed: true })),
         });
       }
     } catch (err) {
@@ -94,117 +135,288 @@ export function ResearchPlanView({ project }: { project: Project }) {
     }
   };
 
+  const toggleStep = (stepNumber: number) => {
+    setPlan((previous) =>
+      previous
+        ? {
+            ...previous,
+            steps: previous.steps.map((step) =>
+              step.stepNumber === stepNumber ? { ...step, completed: !step.completed } : step,
+            ),
+          }
+        : previous,
+    );
+  };
+
+  const renameStep = (stepNumber: number, title: string) => {
+    setPlan((previous) =>
+      previous
+        ? {
+            ...previous,
+            steps: previous.steps.map((step) =>
+              step.stepNumber === stepNumber ? { ...step, title } : step,
+            ),
+          }
+        : previous,
+    );
+  };
+
+  const flipSource = (stepNumber: number) => {
+    setPlan((previous) =>
+      previous
+        ? {
+            ...previous,
+            steps: previous.steps.map((step) =>
+              step.stepNumber === stepNumber
+                ? { ...step, sourceType: step.sourceType === "local" ? "web" : "local" }
+                : step,
+            ),
+          }
+        : previous,
+    );
+  };
+
+  const copyReport = async () => {
+    if (!report) return;
+    await navigator.clipboard.writeText(report.reportMarkdown);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  };
+
   return (
-    <div className="panel" style={{ padding: "20px", height: "100%", overflowY: "auto" }}>
-      <div style={{ marginBottom: "20px" }}>
-        <h2 style={{ fontSize: "18px", margin: "0 0 6px 0" }}>Deep Research Agent</h2>
-        <p className="muted" style={{ margin: 0, fontSize: "13px" }}>
-          Autonomous multi-step investigation: plan generation, user approval gate, search & read, and synthesized report with citations.
-        </p>
-      </div>
+    <div className="workbench workbench--research">
+      <div className="workbench__col">
+        <div className="workbench__panel">
+          <div className="workbench__title">
+            <SparkIcon size={15} />
+            Deep research
+          </div>
+          <p className="workbench__lede">
+            Plan a multi-step investigation, approve it, then let the agent search,
+            read and synthesize a cited report.
+          </p>
 
-      {/* Topic input */}
-      <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
-        <input
-          type="text"
-          placeholder="What topic or question should the agent investigate?"
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          style={{ flex: 1, padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface)", fontSize: "14px" }}
-        />
-        <button
-          className="btn btn--primary"
-          onClick={handleGeneratePlan}
-          disabled={loading || executing || !topic.trim()}
-          style={{ padding: "8px 16px" }}
-        >
-          {loading ? "Generating Plan…" : "Generate Plan"}
-        </button>
-      </div>
+          <div className="field-row">
+            <label htmlFor="research-topic">Topic or question</label>
+            <input
+              id="research-topic"
+              className="text-input"
+              type="text"
+              placeholder="What should the agent investigate?"
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !loading && topic.trim()) {
+                  void handleGeneratePlan();
+                }
+              }}
+            />
+          </div>
 
-      {error && (
-        <div style={{ padding: "12px", borderRadius: "6px", background: "rgba(255, 80, 80, 0.1)", color: "#ff6b6b", marginBottom: "16px" }}>
-          {error}
-        </div>
-      )}
-
-      {/* Proposed Plan with Approval Checkpoint */}
-      {plan && !report && (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", padding: "16px", marginBottom: "20px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <h3 style={{ fontSize: "15px", margin: 0 }}>Proposed Research Plan</h3>
-            <span className="badge">
-              {project.internetEnabled ? "🌐 Internet On" : "🔒 Local Only"}
+          <div className="scope-toggles">
+            <span className="scope-toggle" aria-pressed={project.internetEnabled}>
+              <GlobeIcon size={12} />
+              Internet {project.internetEnabled ? "on" : "off"}
+            </span>
+            <span className="scope-toggle" aria-pressed={!project.internetEnabled}>
+              <ShieldIcon size={12} />
+              Local sources
             </span>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
-            {plan.steps.map((step) => (
-              <div
-                key={step.stepNumber}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  padding: "10px",
-                  background: "var(--surface-raised)",
-                  borderRadius: "6px",
-                  fontSize: "13px",
-                }}
-              >
-                <span style={{ fontWeight: 700, width: "24px" }}>#{step.stepNumber}</span>
-                <div style={{ flex: 1 }}>
-                  <div><strong>{step.title}</strong></div>
-                  <span className="muted" style={{ fontSize: "12px" }}>
-                    Source: {step.sourceType === "web" ? "External Web" : "Local Indexed Folders"} · Query: <code>{step.query}</code>
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display: "flex", gap: "10px" }}>
+          <div className="workbench__actions">
             <button
+              type="button"
               className="btn btn--primary"
-              onClick={handleApproveAndExecute}
-              disabled={executing}
-              style={{ padding: "8px 18px" }}
+              onClick={() => void handleGeneratePlan()}
+              disabled={loading || executing || !topic.trim()}
             >
-              {executing ? "Agent Executing Steps…" : "Approve Plan & Run Agent"}
-            </button>
-            <button
-              className="btn btn--subtle"
-              onClick={() => setPlan(null)}
-              disabled={executing}
-              style={{ padding: "8px 14px" }}
-            >
-              Cancel
+              <SparkIcon size={14} />
+              {loading ? "Planning…" : "Generate plan"}
             </button>
           </div>
-        </div>
-      )}
 
-      {/* Completed Report */}
-      {report && (
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", padding: "16px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <h3 style={{ fontSize: "16px", margin: 0 }}>Final Research Synthesis</h3>
-            {report.savedToFile && (
-              <span className="badge" style={{ background: "rgba(102, 217, 181, 0.15)", color: "var(--accent)" }}>
-                Saved: {report.savedToFile}
-              </span>
+          {error ? (
+            <div className="doc-recovery">
+              <div className="doc-recovery__title">Research failed</div>
+              <p className="doc-recovery__cause">{error}</p>
+            </div>
+          ) : null}
+        </div>
+
+        {plan ? (
+          <div className="workbench__panel">
+            <div className="workbench__title">
+              <CheckIcon size={15} />
+              Plan · {doneCount}/{plan.steps.length} done
+            </div>
+            <p className="workbench__lede">
+              Edit any step before approving. Untick a step to skip it.
+            </p>
+            <div className="plan-steps">
+              {plan.steps.map((step) => (
+                <div
+                  key={step.stepNumber}
+                  className={`plan-step${step.completed ? " plan-step--done" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="plan-step__check"
+                    checked={step.completed}
+                    onChange={() => toggleStep(step.stepNumber)}
+                    aria-label={`Mark step ${step.stepNumber} complete`}
+                  />
+                  <div className="plan-step__body">
+                    <span className="plan-step__index">STEP {step.stepNumber}</span>
+                    <input
+                      className="plan-step__title"
+                      value={step.title}
+                      onChange={(event) => renameStep(step.stepNumber, event.target.value)}
+                      aria-label={`Step ${step.stepNumber} title`}
+                    />
+                    <span className="plan-step__meta">
+                      Query: <code>{step.query}</code>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="scope-toggle"
+                    aria-pressed={step.sourceType === "web"}
+                    onClick={() => flipSource(step.stepNumber)}
+                    title="Toggle between local index and web"
+                  >
+                    {step.sourceType === "web" ? <GlobeIcon size={11} /> : <ShieldIcon size={11} />}
+                    {step.sourceType === "web" ? "Web" : "Local"}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="workbench__actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => void handleApproveAndExecute()}
+                disabled={executing}
+              >
+                <SparkIcon size={14} />
+                {executing ? "Agent running…" : report ? "Run again" : "Approve & run agent"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => {
+                  setPlan(null);
+                  setReport(null);
+                  setError(null);
+                }}
+                disabled={executing}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="workbench__col">
+        <div className="workbench__panel" style={{ flex: 1 }}>
+          <div className="report-toolbar">
+            <span className="workbench__title">
+              {report ? "Final synthesis" : executing ? "Live synthesis" : "Synthesis"}
+            </span>
+            <span className="spacer" style={{ flex: 1 }} />
+            <button
+              type="button"
+              className="btn btn--subtle btn--sm"
+              onClick={() => void copyReport()}
+              disabled={!report}
+              title="Copy the report"
+            >
+              {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--subtle btn--sm"
+              onClick={() =>
+                report &&
+                downloadText(`${slugify(report.topic)}.md`, report.reportMarkdown, "text/markdown")
+              }
+              disabled={!report}
+              title="Download as Markdown"
+            >
+              <DownloadIcon size={13} />
+              .md
+            </button>
+            <button
+              type="button"
+              className="btn btn--subtle btn--sm"
+              onClick={() =>
+                report &&
+                downloadText(
+                  `${slugify(report.topic)}.json`,
+                  JSON.stringify(report, null, 2),
+                  "application/json",
+                )
+              }
+              disabled={!report}
+              title="Download as JSON"
+            >
+              <DownloadIcon size={13} />
+              .json
+            </button>
+          </div>
+
+          {report?.savedToFile ? (
+            <div className="pill pill--ok" style={{ alignSelf: "flex-start" }}>
+              <CheckIcon size={11} />
+              Saved to {report.savedToFile}
+            </div>
+          ) : null}
+
+          <div className="workbench__output synthesis">
+            {report ? (
+              <>
+                <Markdown text={report.reportMarkdown} />
+                {report.sourcesUsed.length > 0 ? (
+                  <div style={{ marginTop: "var(--space-4)" }}>
+                    <div className="diary__aside-title" style={{ marginBottom: 6 }}>
+                      Sources examined
+                    </div>
+                    <div className="cite-list">
+                      {report.sourcesUsed.map((source) => (
+                        <span key={source} className="pill">
+                          <DocIcon size={11} />
+                          {source}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : executing ? (
+              <div className="synthesis__empty">
+                <SparkIcon size={26} />
+                <strong>Agent is working through the plan</strong>
+                <span>
+                  {plan?.steps.map((step) => step.title).join(" → ") || "Searching sources…"}
+                </span>
+              </div>
+            ) : (
+              <div className="synthesis__empty">
+                <SparkIcon size={26} />
+                <strong>The synthesized report lands here</strong>
+                <span>
+                  {plan
+                    ? "Approve the plan on the left to start the agent."
+                    : "Describe a topic, generate a plan, then approve it."}
+                </span>
+              </div>
             )}
           </div>
-
-          <div style={{ fontSize: "12px", marginBottom: "12px", color: "var(--text-secondary)" }}>
-            Sources examined ({report.sourcesUsed.length}): {report.sourcesUsed.join(", ")}
-          </div>
-
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.6", fontSize: "14px" }}>
-            {report.reportMarkdown}
-          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,15 +1,19 @@
 /** Document Viewer Panel — displays document content with AI summarization. */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   SparkIcon,
   XIcon,
   CopyIcon,
   ChevronLeftIcon,
   DocIcon,
+  QuoteIcon,
+  TableIcon,
 } from "../ui/icons";
 import { readDocument, readFileBytes, summarizeDocument, saveSummaryAsMarkdown, type DocumentContent } from "../../api/document";
+import { analyzeDocument } from "../../api/analysis";
 import { useRuntimeConfig } from "../settings/runtime-config";
+import { useNavStore } from "../../state/navStore";
 import type { Project } from "../../types";
 import { PDFViewer } from "./PDFViewer";
 
@@ -31,13 +35,31 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   const [savedFile, setSavedFile] = useState<{ fileName: string; savedPath: string } | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"content" | "summary">("content");
+  const [summaryKind, setSummaryKind] = useState<"summary" | "tables" | "excerpt">("summary");
+  const [extracting, setExtracting] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [currentPage, setCurrentPage] = useState<number | null>(null);
   const [pdfBytes, setPdfBytes] = useState<string | null>(null);
+  /** Page total as rendered by pdf.js — more reliable than the extractor's
+   * estimate, so the header prefers it once the viewer has loaded. */
+  const [pdfPageTotal, setPdfPageTotal] = useState<number | null>(null);
 
   const { draft: profile } = useRuntimeConfig();
+  const insertIntoComposer = useNavStore((state) => state.insertIntoComposer);
+  const setActiveProjectTab = useNavStore((state) => state.setActiveProjectTab);
+
+  const handlePdfPageChange = useCallback(
+    (page: number, totalPages: number) => {
+      setCurrentPage(page);
+      setPdfPageTotal(totalPages);
+    },
+    [],
+  );
 
   const loadDocument = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setPdfPageTotal(null);
     try {
       console.log("Loading document:", { projectId: project.id, filePath });
       
@@ -106,6 +128,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
         profile,
       });
       setSummary(result.summary);
+      setSummaryKind("summary");
       if (onSummarize) onSummarize(result.summary);
     } catch (err) {
       setSummaryError(err instanceof Error ? err.message : "Failed to summarize document");
@@ -141,8 +164,112 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   const isPDF = ext === "pdf";
   
-  // Convert base64 to File object for PDFViewer
-  const pdfFile = pdfBytes ? base64ToFile(pdfBytes, fileName) : null;
+  // Convert base64 to File object for PDFViewer.
+  // Memoized: recreating the File object on every render would change the
+  // identity the PDFViewer keys its load effect on, so any unrelated parent
+  // render (e.g. the runtime status poll) used to make it reload and
+  // flicker the whole document.
+  // The decode is guarded: useMemo runs during render, so a throwing atob
+  // (bad base64) here would unmount the entire React tree. A failure simply
+  // yields null and is derived into a visible error below.
+  const pdfFile = useMemo(
+    () => {
+      if (!pdfBytes) return null;
+      try {
+        return base64ToFile(pdfBytes, fileName);
+      } catch (err) {
+        console.error("Failed to decode PDF bytes:", err);
+        return null;
+      }
+    },
+    [pdfBytes, fileName],
+  );
+  const pdfDecodeFailed = Boolean(pdfBytes) && pdfFile === null;
+
+  /** Queue a citation for this document in the chat composer. */
+  const handleCiteInChat = () => {
+    const location = isPDF && currentPage ? `, p. ${currentPage}` : "";
+    const excerpt = (summary ?? content?.text ?? "").replace(/\s+/g, " ").trim();
+    const lines = [`> **${fileName}**${location}`];
+    if (excerpt) {
+      lines.push(">", `> ${excerpt.slice(0, 240)}${excerpt.length > 240 ? "…" : ""}`, ">");
+    }
+    insertIntoComposer(`${lines.join("\n")}\n\n`);
+    setActiveProjectTab("chat");
+  };
+
+  /** Pull key figures and tables out through the analysis pipeline. */
+  const handleExtractTables = async () => {
+    setExtracting(true);
+    setSummaryError(null);
+    try {
+      const result = await analyzeDocument({
+        projectId: project.id,
+        action: "extract_tables",
+        fileName,
+        saveAs: `tables-${fileName.replace(/[^a-zA-Z0-9]/g, "_")}.md`,
+      });
+      setSummary(result.content);
+      setSummaryKind("tables");
+      setActiveTab("summary");
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : "Failed to extract tables");
+      setActiveTab("summary");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  /** Fallback when direct summarization fails: chunk the document via the
+   *  map-reduce analysis command instead. */
+  const handleMapReduce = async () => {
+    setRecovering(true);
+    try {
+      const result = await analyzeDocument({
+        projectId: project.id,
+        action: "summarize",
+        fileName,
+        saveAs: `summary-${fileName.replace(/[^a-zA-Z0-9]/g, "_")}.md`,
+      });
+      setSummary(result.content);
+      setSummaryKind("summary");
+      setSummaryError(null);
+      setActiveTab("summary");
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : "Map-reduce analysis failed");
+    } finally {
+      setRecovering(false);
+    }
+  };
+
+  /** Last resort: show the extracted text so the document is still readable. */
+  const handleUseExcerpt = () => {
+    const text = content?.text?.trim();
+    if (!text) return;
+    const clipped = text.length > 6000 ? `${text.slice(0, 6000)}\n\n…` : text;
+    setSummary(`## Document excerpt\n\n${clipped}`);
+    setSummaryKind("excerpt");
+    setSummaryError(null);
+    setActiveTab("summary");
+  };
+
+  // Header info: real file size from the backend, page count from pdf.js when
+  // available (falling back to the extractor's estimate). Shown as soon as
+  // either is known, even if text extraction failed entirely.
+  const displayedInfo = (() => {
+    const parts: string[] = [];
+    if (content?.sizeBytes !== undefined) {
+      parts.push(`${content.sizeBytes.toLocaleString()} bytes`);
+    } else if (pdfBytes) {
+      // Extraction failed but the viewer has the bytes — derive the size
+      // from base64 (3 bytes per 4 chars; ≈2 bytes of padding slop).
+      const approxBytes = Math.floor((pdfBytes.length * 3) / 4);
+      parts.push(`${approxBytes.toLocaleString()} bytes`);
+    }
+    const pages = isPDF ? (pdfPageTotal ?? content?.pageCount) : content?.pageCount;
+    if (pages) parts.push(`${pages} pages`);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  })();
 
   function base64ToFile(base64: string, filename: string): File {
     const byteCharacters = atob(base64);
@@ -150,8 +277,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
     for (let i = 0; i < byteCharacters.length; i++) {
       byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
-    const byteArray = new Uint8Array(byteNumbers);
-    return new File([byteArray], filename, { type: "application/pdf" });
+    return new File([new Uint8Array(byteNumbers)], filename, { type: "application/pdf" });
   }
 
   return (
@@ -181,12 +307,33 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
               {fileName}
             </div>
             <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-              {content ? `${content.sizeBytes.toLocaleString()} bytes${content.pageCount ? ` · ${content.pageCount} pages` : ""}` : "Loading…"}
+              {displayedInfo || "Loading…"}
             </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <div className="doc-toolbar">
+          <button
+            type="button"
+            className="btn btn--subtle btn--sm"
+            onClick={handleCiteInChat}
+            title="Insert a citation for this document into the chat composer"
+          >
+            <QuoteIcon size={13} />
+            <span>Cite in Chat</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn--subtle btn--sm"
+            onClick={() => void handleExtractTables()}
+            disabled={loading || extracting}
+            title="Extract key figures and tables from this document"
+          >
+            <TableIcon size={13} />
+            <span>{extracting ? "Extracting…" : "Key figures & tables"}</span>
+          </button>
+
           {!summarizing && !summary && (
             <button
               type="button"
@@ -341,7 +488,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
           }}
         >
           <SparkIcon size={12} style={{ display: "inline-block", marginRight: "4px", verticalAlign: "middle" }} />
-          Summary
+          {summaryKind === "tables" ? "Figures & tables" : summaryKind === "excerpt" ? "Excerpt" : "Summary"}
         </button>
       </div>
 
@@ -386,9 +533,28 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
           </div>
         ) : activeTab === "content" ? (
           content ? (
-            isPDF && pdfFile ? (
+            isPDF && pdfDecodeFailed ? (
+              // Bad base64 — show a controlled error instead of crashing.
+              <div style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "200px",
+                color: "#ef4444",
+                textAlign: "center",
+                padding: "24px",
+              }}>
+                <DocIcon size={32} style={{ color: "#ef4444", marginBottom: "12px" }} />
+                <h3 style={{ fontSize: "14px", fontWeight: "600", marginBottom: "8px" }}>Could not display PDF</h3>
+                <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  The document viewer could not decode the PDF file data. Text extraction still worked;
+                  see the console for details.
+                </p>
+              </div>
+            ) : isPDF && pdfFile ? (
               // Visual PDF rendering for PDF files
-              <PDFViewer file={pdfFile} />
+              <PDFViewer file={pdfFile} onPageChange={handlePdfPageChange} />
             ) : (
               // Text content for non-PDF files
               <div style={{
@@ -463,7 +629,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
               Using model context: {profile.contextTokens || "default"} tokens
             </p>
           </div>
-        ) : (
+        ) : summaryError ? null : (
           <div style={{
             display: "flex",
             flexDirection: "column",
@@ -486,16 +652,44 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
         )}
 
         {summaryError && (
-          <div style={{
-            marginTop: "16px",
-            padding: "12px",
-            background: "rgba(220, 38, 38, 0.1)",
-            border: "1px solid rgba(220, 38, 38, 0.3)",
-            borderRadius: "var(--radius-md)",
-            color: "#f87171",
-            fontSize: "12px",
-          }}>
-            Error: {summaryError}
+          <div className="doc-recovery" style={{ marginTop: 16 }}>
+            <div className="doc-recovery__title">
+              <SparkIcon size={14} />
+              Couldn’t summarize this document
+            </div>
+            <p className="doc-recovery__cause">
+              The model ran out of room or the request failed. You can summarize
+              {" "}<code>{fileName}</code>{" "}in chunks through the map-reduce
+              analysis pipeline instead, or read the extracted text directly.
+            </p>
+            <div className="doc-recovery__actions">
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => void handleMapReduce()}
+                disabled={recovering}
+              >
+                <SparkIcon size={13} />
+                {recovering ? "Running…" : "Run via Map-Reduce Analysis"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                onClick={handleUseExcerpt}
+                disabled={!content?.text}
+              >
+                <DocIcon size={13} />
+                Use document excerpt instead
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setSummaryError(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+            <div className="doc-recovery__detail">Details: {summaryError}</div>
           </div>
         )}
       </div>

@@ -132,7 +132,7 @@ export interface RuntimeStatus {
   error: string | null;
 }
 
-export type WorkspaceTab = "chat" | "files" | "calendar" | "analysis" | "research" | "diary" | "activity";
+export type WorkspaceTab = "chat" | "files" | "analysis" | "research" | "journal" | "activity";
 
 /** A diary entry. `date` is "YYYY-MM-DD" for a dated entry, or null for a page the user added. */
 export interface DiaryPage {
@@ -218,47 +218,23 @@ export interface InferenceProfile {
   /** Let llama-server shrink the context to fit memory (--fit on). */
   partialLoad: boolean;
 
-  // Token budgets per role. 0 = unlimited. Optional so an older core that
-  // does not know the fields cannot break the settings page: missing values
-  // read the defaults from `withProfileDefaults`.
+  // Token budgets shared by every role — plain chat, the tool-using agent
+  // and the subagent workers all run under the same caps. 0 = unlimited.
+  // Optional so an older core that does not know the fields cannot break the
+  // settings page: missing values read the defaults from `withProfileDefaults`.
   /** Cap on prompt tokens the model may be given. */
   maxInputTokens?: number;
   /** Cap on response tokens the model may produce. */
   maxOutputTokens?: number;
-  /** Same input cap for the tool-using agent. */
-  agentMaxInputTokens?: number;
-  /** Same output cap for the agent. */
-  agentMaxOutputTokens?: number;
-  /** Thinking budget for the agent. 0 = auto. */
-  agentThinkingBudget?: number;
-  /** Input cap for subagent/map-reduce workers. */
-  subagentMaxInputTokens?: number;
-  /** Output cap for subagent/map-reduce workers. */
-  subagentMaxOutputTokens?: number;
-  /** Thinking budget for subagent workers. 0 = auto. */
-  subagentThinkingBudget?: number;
 }
 
 /** Every token budget the settings page can edit, and its default. */
 export const PROFILE_BUDGET_DEFAULTS: Record<
-  | "maxInputTokens"
-  | "maxOutputTokens"
-  | "agentMaxInputTokens"
-  | "agentMaxOutputTokens"
-  | "agentThinkingBudget"
-  | "subagentMaxInputTokens"
-  | "subagentMaxOutputTokens"
-  | "subagentThinkingBudget",
+  "maxInputTokens" | "maxOutputTokens",
   number
 > = {
-  maxInputTokens: 0,
-  maxOutputTokens: 0,
-  agentMaxInputTokens: 0,
-  agentMaxOutputTokens: 0,
-  agentThinkingBudget: 0,
-  subagentMaxInputTokens: 0,
-  subagentMaxOutputTokens: 0,
-  subagentThinkingBudget: 0,
+  maxInputTokens: 2_048,
+  maxOutputTokens: 8_192,
 };
 
 /** Fills the optional token-budget fields a stored profile may not carry. */

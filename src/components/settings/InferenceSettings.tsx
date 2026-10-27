@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { KvCacheType, ProfileScope } from "../../types";
 import { RuntimeActions } from "./RuntimeActions";
 import { MemoryWarningAlert } from "./MemoryWarningAlert";
+import { MemoryBudgetBar } from "./MemoryBudgetBar";
 import { NumberField } from "../ui/NumberField";
 import {
   FIT_LABELS,
@@ -202,17 +203,41 @@ export function InferenceSettings() {
           <span className="field__hint">
             {draft.contextTokens === 0 ? "0 = model default" : "tokens"}
           </span>
-          {[4_096, 8_192, 16_384, 32_768].map((preset) => (
+        </div>
+        <div className="chip-row" role="group" aria-label="Context window presets">
+          {[4_096, 8_192, 16_384, 32_768]
+            .filter((preset) => declared === 0 || preset <= declared)
+            .map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                className="chip"
+                aria-pressed={draft.contextTokens === preset}
+                onClick={() => patch({ contextTokens: preset })}
+              >
+                {preset >= 1024 ? `${preset / 1024}K` : String(preset)}
+              </button>
+            ))}
+          {declared > 0 ? (
             <button
-              key={preset}
               type="button"
-              className="btn btn--ghost btn--sm"
-              aria-pressed={draft.contextTokens === preset}
-              onClick={() => patch({ contextTokens: preset })}
+              className="chip"
+              aria-pressed={draft.contextTokens === declared}
+              onClick={() => patch({ contextTokens: declared })}
+              title={`The model's own limit: ${formatTokens(declared)} tokens`}
             >
-              {preset >= 1024 ? `${preset / 1024}K` : String(preset)}
+              {formatTokens(declared)} · model max
             </button>
-          ))}
+          ) : null}
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={draft.contextTokens === 0}
+            onClick={() => patch({ contextTokens: 0 })}
+            title="Let the model use its own default context"
+          >
+            Auto
+          </button>
         </div>
 
         {/* The estimate follows the window chosen above: how much cache it
@@ -328,24 +353,24 @@ export function InferenceSettings() {
           Token budgets
         </h2>
         <p className="field__hint">
-          Caps per role, in tokens. 0 means unlimited — the model's own server settings decide.
-          The Model row also controls document summarization. The Agent row governs tool-using chat,
-          the Subagent row the map-reduce workers.
+          The same caps for every role — plain chat, the tool-using agent and the
+          subagent workers all run under one budget. 0 means unlimited: the
+          model's own server settings decide.
         </p>
         <div className="limits-table">
-          <span className="limits-table__cell--head" aria-hidden="true" />
-          <span className="limits-table__cell--head">Max input</span>
-          <span className="limits-table__cell--head">Max output</span>
+          <span className="limits-table__cell--row">All roles</span>
+          <span className="limits-table__cell--head">Max prompt</span>
+          <span className="limits-table__cell--head">Max response</span>
           <span className="limits-table__cell--head">Thinking</span>
 
-          <span className="limits-table__cell--row">Model</span>
+          <span className="limits-table__cell--row" aria-hidden="true" />
           <NumberField
             className="input"
             min={0}
             step={256}
             value={draft.maxInputTokens ?? 0}
             onChange={(n) => patch({ maxInputTokens: n })}
-            label="Max input tokens for the model (also used for summarization)"
+            label="Max prompt tokens (also used for summarization)"
           />
           <NumberField
             className="input"
@@ -353,7 +378,7 @@ export function InferenceSettings() {
             step={256}
             value={draft.maxOutputTokens ?? 0}
             onChange={(n) => patch({ maxOutputTokens: n })}
-            label="Max output tokens for the model (also used for summarization)"
+            label="Max response tokens (also used for summarization)"
           />
           <NumberField
             className="input"
@@ -361,59 +386,7 @@ export function InferenceSettings() {
             step={128}
             value={draft.thinkingBudget}
             onChange={(n) => patch({ thinkingBudget: n })}
-            label="Thinking budget for the model"
-          />
-
-          <span className="limits-table__cell--row">Agent</span>
-          <NumberField
-            className="input"
-            min={0}
-            step={256}
-            value={draft.agentMaxInputTokens ?? 0}
-            onChange={(n) => patch({ agentMaxInputTokens: n })}
-            label="Max input tokens for the agent"
-          />
-          <NumberField
-            className="input"
-            min={0}
-            step={256}
-            value={draft.agentMaxOutputTokens ?? 0}
-            onChange={(n) => patch({ agentMaxOutputTokens: n })}
-            label="Max output tokens for the agent"
-          />
-          <NumberField
-            className="input"
-            min={0}
-            step={128}
-            value={draft.agentThinkingBudget ?? 0}
-            onChange={(n) => patch({ agentThinkingBudget: n })}
-            label="Thinking budget for the agent"
-          />
-
-          <span className="limits-table__cell--row">Subagent</span>
-          <NumberField
-            className="input"
-            min={0}
-            step={256}
-            value={draft.subagentMaxInputTokens ?? 0}
-            onChange={(n) => patch({ subagentMaxInputTokens: n })}
-            label="Max input tokens for the subagent"
-          />
-          <NumberField
-            className="input"
-            min={0}
-            step={256}
-            value={draft.subagentMaxOutputTokens ?? 0}
-            onChange={(n) => patch({ subagentMaxOutputTokens: n })}
-            label="Max output tokens for the subagent"
-          />
-          <NumberField
-            className="input"
-            min={0}
-            step={128}
-            value={draft.subagentThinkingBudget ?? 0}
-            onChange={(n) => patch({ subagentThinkingBudget: n })}
-            label="Thinking budget for the subagent"
+            label="Thinking budget"
           />
         </div>
       </section>
@@ -566,40 +539,44 @@ export function InferenceSettings() {
           {estimate ? deviceLabel(estimate.device) : "the selected device"}.
         </p>
         {estimate?.modelShapeKnown ? (
-          <div className="memory-table">
-            <span className="memory-table__key">Model weights</span>
-            <span className="memory-table__value">{estimate.modelFileGb.toFixed(2)} GB</span>
+          <>
+            <MemoryBudgetBar estimate={estimate} />
+            <details className="memory-details">
+              <summary />
+              <div className="memory-table">
+                <span className="memory-table__key">Model weights</span>
+                <span className="memory-table__value">{estimate.modelFileGb.toFixed(2)} GB</span>
 
-            <span className="memory-table__key">
-              KV cache ({kvLabel(draft.kvType)}, {formatTokens(runtimeContext)} tokens)
-            </span>
-            <span className="memory-table__value">{estimate.kvCacheGb.toFixed(2)} GB</span>
+                <span className="memory-table__key">
+                  KV cache ({kvLabel(draft.kvType)}, {formatTokens(runtimeContext)} tokens)
+                </span>
+                <span className="memory-table__value">{estimate.kvCacheGb.toFixed(2)} GB</span>
 
-            <span className="memory-table__key">Runtime overhead</span>
-            <span className="memory-table__value">{estimate.runtimeOverheadGb.toFixed(2)} GB</span>
+                <span className="memory-table__key">Runtime overhead</span>
+                <span className="memory-table__value">{estimate.runtimeOverheadGb.toFixed(2)} GB</span>
 
-            <span className="memory-table__key">Estimated need</span>
-            <span className="memory-table__value memory-table__value--strong">
-              {onGpu
-                ? `${estimate.vramNeededGb.toFixed(2)} GB VRAM + ${estimate.ramNeededGb.toFixed(2)} GB RAM`
-                : `${estimate.ramNeededGb.toFixed(2)} GB`}
-            </span>
+                <span className="memory-table__key">Estimated need</span>
+                <span className="memory-table__value memory-table__value--strong">
+                  {onGpu
+                    ? `${estimate.vramNeededGb.toFixed(2)} GB VRAM + ${estimate.ramNeededGb.toFixed(2)} GB RAM`
+                    : `${estimate.ramNeededGb.toFixed(2)} GB`}
+                </span>
 
-            <span className="memory-table__key">Device budget</span>
-            <span className="memory-table__value">
-              {onGpu && estimate.vramKnown
-                ? `${estimate.vramBudgetGb.toFixed(2)} GB VRAM · ${estimate.ramBudgetGb.toFixed(2)} GB RAM`
-                : `${estimate.ramBudgetGb.toFixed(2)} GB`}
-            </span>
+                <span className="memory-table__key">Device budget</span>
+                <span className="memory-table__value">
+                  {onGpu && estimate.vramKnown
+                    ? `${estimate.vramBudgetGb.toFixed(2)} GB VRAM · ${estimate.ramBudgetGb.toFixed(2)} GB RAM`
+                    : `${estimate.ramBudgetGb.toFixed(2)} GB`}
+                </span>
 
-            <span className="memory-table__key">Free right now</span>
-            <span className="memory-table__value">
-              {estimate.ramAvailableGb.toFixed(2)} GB RAM
-              {onGpu && estimate.vramKnown
-                ? " · VRAM not measured live"
-                : undefined}
-            </span>
-          </div>
+                <span className="memory-table__key">Free right now</span>
+                <span className="memory-table__value">
+                  {estimate.ramAvailableGb.toFixed(2)} GB RAM
+                  {onGpu && estimate.vramKnown ? " · VRAM not measured live" : undefined}
+                </span>
+              </div>
+            </details>
+          </>
         ) : (
           <p className="muted">
             {estimate

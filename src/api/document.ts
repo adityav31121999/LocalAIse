@@ -29,6 +29,12 @@ export interface SummarizationResult {
   };
 }
 
+/** In-flight read_document calls, so concurrent requests for the same file —
+ * React StrictMode remounts, double clicks — share one backend parse instead
+ * of extracting the text twice. Entries live only while a call is running,
+ * so a later change + reopen always gets a fresh read. */
+const inflightDocumentReads = new Map<string, Promise<DocumentContent>>();
+
 /** Read a document file and extract its text content. */
 export async function readDocument(
   projectId: string,
@@ -39,21 +45,27 @@ export async function readDocument(
     return readDocumentMock(projectId, filePath);
   }
 
-  // In Tauri, try the real command with a timeout, fall back to mock on any failure
-  try {
+  const key = `${projectId}:${filePath}`;
+  const existing = inflightDocumentReads.get(key);
+  if (existing) return existing;
+
+  const pending = (async () => {
+    // In Tauri, call the real command and let errors propagate.PDF text
+    // extraction can legitimately take seconds, so there is deliberately no
+    // timeout race with a mock fallback here: a slow parse silently swapped in
+    // mock metadata (hardcoded page count, text.length as size) and made the
+    // viewer show wrong "750 bytes · 5 pages" style headers. Genuine failures
+    // are handled by DocumentViewer (it still loads the file bytes for visual
+    // rendering).
     const { invoke: call } = await import("@tauri-apps/api/core");
-    
-    // Add a 2 second timeout to prevent hanging
-    const result = await Promise.race([
-      call<DocumentContent>("read_document", { projectId, filePath }),
-      new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error("Tauri invoke timeout")), 2000)
-      ),
-    ]);
-    return result;
-  } catch (e) {
-    console.warn("read_document Tauri command failed, using mock:", e);
-    return readDocumentMock(projectId, filePath);
+    return call<DocumentContent>("read_document", { projectId, filePath });
+  })();
+
+  inflightDocumentReads.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    inflightDocumentReads.delete(key);
   }
 }
 
@@ -125,7 +137,7 @@ export async function summarizeDocument(
   const inputTokens = Math.min(request.profile.maxInputTokens || 4096, 2000);
   const outputTokens = Math.min(request.profile.maxOutputTokens || 1024, 500);
 
-  const mockSummary = `# Summary: ${request.filePath.split("/").pop()}\n\n## Overview\n\nThis document covers the core concepts and implementation details of LocalAIse, a local-first AI workspace application.\n\n## Key Points\n\n1. **Privacy-First Architecture**: All data processing occurs locally on the user's machine. No documents or queries leave the device.\n\n2. **Local Inference**: Uses llama.cpp for running language models locally with support for GPU acceleration.\n\n3. **Document Indexing**: Files in the project folder are parsed and indexed for retrieval-augmented generation (RAG).\n\n4. **Flexible Model Configuration**: Users can configure context windows, KV cache quantization, and token budgets per role (model, agent, subagent).\n\n5. **Project-Based Workspaces**: Each project maintains its own document index, chat history, and settings.\n\n## Technical Details\n\n- Context window: configurable up to model limits\n- KV cache types: f16, Q8, Q5, Q4 for memory optimization\n- Supports CPU and GPU (CUDA/Metal/Vulkan) inference\n- Memory estimates calculated live based on model and hardware\n\n## Conclusion\n\nLocalAIse provides a complete local AI workspace suitable for sensitive documents and offline work.`;
+  const mockSummary = `# Summary: ${request.filePath.split("/").pop()}\n\n## Overview\n\nThis document covers the core concepts and implementation details of LocalAIse, a local-first AI workspace application.\n\n## Key Points\n\n1. **Privacy-First Architecture**: All data processing occurs locally on the user's machine. No documents or queries leave the device.\n\n2. **Local Inference**: Uses llama.cpp for running language models locally with support for GPU acceleration.\n\n3. **Document Indexing**: Files in the project folder are parsed and indexed for retrieval-augmented generation (RAG).\n\n4. **Flexible Model Configuration**: Users can configure context windows, KV cache quantization, and shared token budgets.\n\n5. **Project-Based Workspaces**: Each project maintains its own document index, chat history, and settings.\n\n## Technical Details\n\n- Context window: configurable up to model limits\n- KV cache types: f16, Q8, Q5, Q4 for memory optimization\n- Supports CPU and GPU (CUDA/Metal/Vulkan) inference\n- Memory estimates calculated live based on model and hardware\n\n## Conclusion\n\nLocalAIse provides a complete local AI workspace suitable for sensitive documents and offline work.`;
 
   return {
     summary: mockSummary,

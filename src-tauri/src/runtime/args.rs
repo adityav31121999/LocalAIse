@@ -277,8 +277,9 @@ mod tests {
         assert_eq!(budget.as_deref(), Some("2048"));
 
         // Auto: no flag, llama-server keeps its unrestricted default.
-        let auto = build_launch(Path::new("m.gguf"), None, 8080, "key", &InferenceProfile::desktop_default())
-            .unwrap();
+        let mut auto_profile = InferenceProfile::desktop_default();
+        auto_profile.thinking_budget = 0;
+        let auto = build_launch(Path::new("m.gguf"), None, 8080, "key", &auto_profile).unwrap();
         assert!(!auto.args.contains(&"--reasoning-budget".to_string()));
     }
 

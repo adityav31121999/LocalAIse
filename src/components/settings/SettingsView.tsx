@@ -11,7 +11,8 @@ import { InferenceSettings } from "./InferenceSettings";
 import { HardwareSettings } from "./HardwareSettings";
 import { RuntimeConfigProvider } from "./runtime-config";
 import { ModelsPanel } from "../models/ModelsPanel";
-import { SettingsIcon } from "../ui/icons";
+import { ChevronLeftIcon, SettingsIcon } from "../ui/icons";
+import { useNavStore } from "../../state/navStore";
 
 type SettingsTab = "appearance" | "model-runtime";
 
@@ -33,9 +34,23 @@ const TAB_META: { id: SettingsTab; label: string; title: string; subtitle: strin
 export function SettingsView() {
   const [tab, setTab] = useState<SettingsTab>("appearance");
   const active = TAB_META.find((item) => item.id === tab) ?? TAB_META[0];
+  const showHome = useNavStore((state) => state.showHome);
 
   return (
     <div className="settings">
+      <header className="settings__bar">
+        <button
+          type="button"
+          className="icon-btn icon-btn--sm"
+          onClick={showHome}
+          title="Back to work directories"
+        >
+          <ChevronLeftIcon size={16} />
+          <span className="sr-only">Back</span>
+        </button>
+        <span className="settings__bar-title">Settings</span>
+      </header>
+
       <div className="settings__inner">
         <span className="settings__eyebrow">
           <SettingsIcon size={13} />

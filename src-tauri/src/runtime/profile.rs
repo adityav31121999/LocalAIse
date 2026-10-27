@@ -300,7 +300,7 @@ impl InferenceProfile {
             parallel_slots: 1,
             use_mmap: true,
             moe: MoeOffload::Off,
-            thinking_budget: 0,
+            thinking_budget: 2_048,
             partial_load: false,
         }
     }
@@ -531,7 +531,7 @@ mod tests {
         }"#;
         let profile: InferenceProfile = serde_json::from_str(wire)
             .unwrap_or_else(|error| panic!("older profile rejected: {error}"));
-        assert_eq!(profile.thinking_budget, 0);
+        assert_eq!(profile.thinking_budget, 2_048);
         assert!(!profile.partial_load);
         // The defaults the container falls back to are the desktop defaults,
         // not zeros — a zero batch size would fail validation on load.

@@ -17,6 +17,7 @@ interface ProjectState {
   openProject(projectId: string): Promise<void>;
   closeProject(): void;
   setInternet(enabled: boolean): Promise<void>;
+  setProjectInternet(projectId: string, enabled: boolean): Promise<void>;
   setSystemPrompt(prompt: string | null): Promise<void>;
   setChatMode(mode: ChatMode): Promise<void>;
   setDiary(enabled: boolean): Promise<void>;
@@ -82,6 +83,16 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     try {
       const project = await projectsApi.setProjectInternet(projectId, enabled);
       set((state) => ({ projects: replaceProject(state.projects, project) }));
+    } catch (error) {
+      set({ error: message(error) });
+    }
+  },
+
+  /** Sets the network policy of one project by id (the home dashboard). */
+  setProjectInternet: async (projectId, enabled) => {
+    try {
+      const project = await projectsApi.setProjectInternet(projectId, enabled);
+      set((state) => ({ projects: replaceProject(state.projects, project), error: null }));
     } catch (error) {
       set({ error: message(error) });
     }

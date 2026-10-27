@@ -17,6 +17,12 @@ interface NavState {
   // Document viewer state
   openDocument: { projectId: string; filePath: string; fileName: string } | null;
   setOpenDocument(doc: { projectId: string; filePath: string; fileName: string } | null): void;
+
+  // A passage queued for the chat composer (e.g. "Cite in Chat" from the
+  // document viewer). The composer appends it and clears the slot.
+  composerInsert: string | null;
+  insertIntoComposer(text: string): void;
+  consumeComposerInsert(): void;
 }
 
 export const useNavStore = create<NavState>()((set, get) => ({
@@ -47,4 +53,8 @@ export const useNavStore = create<NavState>()((set, get) => ({
 
   openDocument: null,
   setOpenDocument: (doc) => set({ openDocument: doc }),
+
+  composerInsert: null,
+  insertIntoComposer: (text) => set({ composerInsert: text }),
+  consumeComposerInsert: () => set({ composerInsert: null }),
 }));

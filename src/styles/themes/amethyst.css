@@ -5,45 +5,47 @@
 [data-theme="amethyst"][data-mode="dark"] {
   color-scheme: dark;
 
-  --background: #150f1d;
-  --background-elevated: #1d1527;
-  --surface: #23192f;
-  --surface-2: #2b2039;
-  --surface-hover: #352845;
-  --border: #382b48;
-  --border-strong: #4d3d62;
+  /* Neutral deep slate with a warm purple undertone: keeps the theme's
+     identity without the saturated plum background that tired the eyes. */
+  --background: #0f0d15;
+  --background-elevated: #14121c;
+  --surface: #171422;
+  --surface-2: #1e1a2b;
+  --surface-hover: #262134;
+  --border: #2b2539;
+  --border-strong: #3d3552;
 
-  --text: #ece4f6;
-  --text-secondary: #c2b3d6;
-  --text-muted: #9b8bb0;
-  --text-faint: #7b6b8f;
+  --text: #ece9f5;
+  --text-secondary: #c3bad8;
+  --text-muted: #988cae;
+  --text-faint: #786c8d;
 
-  --accent-primary: #c9a6ff;
-  --accent-primary-strong: #b68bf7;
-  --accent-primary-contrast: #1b0f2b;
-  --accent-primary-soft: rgba(201, 166, 255, 0.15);
+  --accent-primary: #bfa4f5;
+  --accent-primary-strong: #a98ceb;
+  --accent-primary-contrast: #17101f;
+  --accent-primary-soft: rgba(191, 164, 245, 0.13);
 
   --accent-research: #7fc6f5;
-  --accent-research-soft: rgba(127, 198, 245, 0.15);
+  --accent-research-soft: rgba(127, 198, 245, 0.13);
 
-  --accent-ai: #f2a3e0;
-  --accent-ai-soft: rgba(242, 163, 224, 0.15);
+  --accent-ai: #eda6dc;
+  --accent-ai-soft: rgba(237, 166, 220, 0.13);
 
-  --accent-attention: #f3c273;
-  --accent-attention-soft: rgba(243, 194, 115, 0.15);
+  --accent-attention: #efc07a;
+  --accent-attention-soft: rgba(239, 192, 122, 0.13);
 
-  --accent-success: #85d6a6;
-  --accent-success-soft: rgba(133, 214, 166, 0.15);
+  --accent-success: #84d3a4;
+  --accent-success-soft: rgba(132, 211, 164, 0.13);
 
-  --accent-danger: #f08a99;
-  --accent-danger-soft: rgba(240, 138, 153, 0.15);
+  --accent-danger: #ec8a96;
+  --accent-danger-soft: rgba(236, 138, 150, 0.13);
 
-  --focus: rgba(201, 166, 255, 0.55);
+  --focus: rgba(191, 164, 245, 0.5);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.42);
   --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
-  --scrollbar: #362946;
+  --scrollbar: #322b42;
 
-  --reading-surface: #221829;
+  --reading-surface: #191524;
 }
 
 [data-theme="amethyst"][data-mode="light"] {

@@ -1,9 +1,14 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { PlusIcon, SparkIcon, TrashIcon } from "../ui/icons";
+import { NetworkIndicator } from "../layout/NetworkIndicator";
+import { ModeIndicator } from "../layout/ModeIndicator";
+import { PanelErrorBoundary } from "../ui/PanelErrorBoundary";
 import { useChatStore } from "../../state/chatStore";
 import { useNavStore } from "../../state/navStore";
+import { useProjectStore } from "../../state/projectStore";
+import { useSettingsStore } from "../../state/settingsStore";
 import { chatLabel, chatNumber } from "../../util/format";
 import type { ChatMessage, ChatSummary, Project, ProjectTemplate } from "../../types";
 import { DocumentViewer } from "../files/DocumentViewer";
@@ -40,6 +45,8 @@ export function ChatView({ project }: { project: Project }) {
   const openChat = useChatStore((state) => state.openChat);
   const newChat = useChatStore((state) => state.newChat);
   const removeChat = useChatStore((state) => state.removeChat);
+  const setInternet = useProjectStore((state) => state.setInternet);
+  const setChatMode = useProjectStore((state) => state.setChatMode);
 
   const openDocument = useNavStore((state) => state.openDocument);
   const setOpenDocument = useNavStore((state) => state.setOpenDocument);
@@ -68,6 +75,59 @@ export function ChatView({ project }: { project: Project }) {
   }, [activeChatId, storedChats, project.id, openChat]);
 
   const isDocumentOpen = openDocument?.projectId === project.id;
+
+  // When a document opens the explorer is in the way: remember whether the
+  // user had it open, collapse it, then restore their preference on close.
+  const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
+  const setSidebarCollapsed = useSettingsStore((state) => state.setSidebarCollapsed);
+  const hadSidebarOpen = useRef(false);
+  const wasDocumentOpen = useRef(false);
+
+  useEffect(() => {
+    if (isDocumentOpen && !wasDocumentOpen.current) {
+      // Only on the open transition, so manually reopening the explorer while
+      // reading a document is not immediately undone.
+      if (!sidebarCollapsed) {
+        hadSidebarOpen.current = true;
+        setSidebarCollapsed(true);
+      }
+    } else if (!isDocumentOpen && wasDocumentOpen.current) {
+      if (hadSidebarOpen.current) {
+        hadSidebarOpen.current = false;
+        setSidebarCollapsed(false);
+      }
+    }
+    wasDocumentOpen.current = isDocumentOpen;
+  }, [isDocumentOpen, sidebarCollapsed, setSidebarCollapsed]);
+
+  // Width of the document pane, as a percentage of the split area. Dragging
+  // the splitter clamps it so neither side can be squeezed out of existence.
+  const [docWidth, setDocWidth] = useState(46);
+  const [dragging, setDragging] = useState(false);
+  const paneRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dragging) return;
+    document.body.classList.add("chat-resizing");
+    const handleMove = (event: PointerEvent) => {
+      const pane = paneRef.current;
+      if (!pane) return;
+      const rect = pane.getBoundingClientRect();
+      if (rect.width === 0) return;
+      const next = ((rect.right - event.clientX) / rect.width) * 100;
+      setDocWidth(Math.min(68, Math.max(28, next)));
+    };
+    const stop = () => setDragging(false);
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => {
+      document.body.classList.remove("chat-resizing");
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [dragging]);
 
   const handleCloseDocument = () => {
     setOpenDocument(null);
@@ -149,6 +209,18 @@ export function ChatView({ project }: { project: Project }) {
 
         <span className="project-header__spacer" />
 
+        <span className="mono chat__bar-model" title="Model used for this conversation">
+          {project.model}
+        </span>
+        <NetworkIndicator
+          enabled={project.internetEnabled}
+          onToggle={(enabled) => void setInternet(enabled)}
+        />
+        <ModeIndicator
+          mode={project.chatMode}
+          onToggle={(mode) => void setChatMode(mode)}
+        />
+
         <button
           type="button"
           className="thinking-toggle"
@@ -189,15 +261,15 @@ export function ChatView({ project }: { project: Project }) {
         </button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+      <div className="chat__pane" ref={paneRef}>
         {/* Main chat area */}
-        <div style={{
-          flex: isDocumentOpen ? 1 : "1 1 0%",
-          display: "flex",
-          flexDirection: "column",
-          minWidth: 0,
-          borderRight: isDocumentOpen ? "1px solid var(--border)" : "none",
-        }}>
+        <div
+          className="chat__pane-main"
+          style={{
+            flex: isDocumentOpen ? "1 1 0%" : "1 1 100%",
+            borderRight: isDocumentOpen ? undefined : "none",
+          }}
+        >
           {renderChatContent()}
 
           <Composer
@@ -210,21 +282,37 @@ export function ChatView({ project }: { project: Project }) {
 
         {/* Document viewer panel */}
         {isDocumentOpen && openDocument && (
-          <div style={{
-            width: "50%",
-            minWidth: "380px",
-            maxWidth: "600px",
-            display: "flex",
-            flexDirection: "column",
-            background: "var(--background)",
-          }}>
-            <DocumentViewer
-              project={project}
-              filePath={openDocument.filePath}
-              fileName={openDocument.fileName}
-              onClose={handleCloseDocument}
+          <>
+            <div
+              className="chat__splitter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize document panel"
+              aria-valuenow={Math.round(docWidth)}
+              aria-valuemin={28}
+              aria-valuemax={68}
+              data-dragging={dragging}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDoubleClick={() => setDocWidth(46)}
+              title="Drag to resize · double-click to reset"
             />
-          </div>
+            <div
+              className="chat__pane-doc"
+              style={{ flex: `0 0 ${docWidth}%`, width: `${docWidth}%` }}
+            >
+              <PanelErrorBoundary label="document viewer">
+                <DocumentViewer
+                  project={project}
+                  filePath={openDocument.filePath}
+                  fileName={openDocument.fileName}
+                  onClose={handleCloseDocument}
+                />
+              </PanelErrorBoundary>
+            </div>
+          </>
         )}
       </div>
     </div>

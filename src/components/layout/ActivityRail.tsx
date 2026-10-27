@@ -1,18 +1,28 @@
-import { CalendarIcon, FolderIcon, HomeIcon, ShieldIcon, ThemeIcon, ModelIcon } from "../ui/icons";
+import {
+  FolderIcon,
+  HomeIcon,
+  ModelIcon,
+  SettingsIcon,
+  ThemeIcon,
+} from "../ui/icons";
 import { useProjectStore, selectActiveProject } from "../../state/projectStore";
 import { useNavStore } from "../../state/navStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useRuntimeStore } from "../../state/runtimeStore";
 
+/**
+ * The app-level rail. It owns navigation that exists outside any one project:
+ * home, the open project, appearance, model & hardware, and settings. Views
+ * that belong to a project live in the project header instead.
+ */
 export function ActivityRail() {
   const view = useNavStore((state) => state.view);
   const showHome = useNavStore((state) => state.showHome);
+  const showSettings = useNavStore((state) => state.showSettings);
   const showThemeSettings = useNavStore((state) => state.showThemeSettings);
   const closeThemeSettings = useNavStore((state) => state.closeThemeSettings);
   const showModelConfig = useNavStore((state) => state.showModelConfig);
   const closeModelConfig = useNavStore((state) => state.closeModelConfig);
-  const activeProjectTab = useNavStore((state) => state.activeProjectTab);
-  const setActiveProjectTab = useNavStore((state) => state.setActiveProjectTab);
 
   const projects = useProjectStore((state) => state.projects);
   const project = useProjectStore(selectActiveProject);
@@ -31,78 +41,49 @@ export function ActivityRail() {
   };
 
   const handleProjectClick = () => {
-    if (project) {
-      if (activeProjectTab === "calendar") {
-        setActiveProjectTab("chat");
-      }
-      showHome();
-    } else if (projects.length > 0) {
-      void openProject(projects[0].id);
-    } else {
-      showHome();
-    }
+    if (project) showHome();
+    else if (projects.length > 0) void openProject(projects[0].id);
+    else showHome();
   };
 
-  const handleCalendarClick = () => {
-    if (project) {
-      showHome();
-      setActiveProjectTab("calendar");
-    }
-  };
+  const modelDotColor = !hasModel
+    ? "var(--accent-attention)"
+    : isModelLoading
+      ? "var(--accent-research)"
+      : isModelReady
+        ? "var(--accent-success)"
+        : "var(--text-faint)";
 
-  // Shared button styles for theme/model settings
-  const settingsButtonStyle = {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    border: "none",
-    background: "transparent",
-    color: "#94A3B8", // slate-400
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    transition: "background-color 150ms ease, color 150ms ease",
-  } as React.CSSProperties;
-
-  const getActiveAccent = (type: "theme" | "model") => {
-    if (type === "theme") return "#67C7F5"; // sky-300
-    return "#45D6A0"; // emerald-400
-  };
-
-  const getStatusColor = () => {
-    if (!hasModel) return "#FBBF24"; // amber-400
-    if (isModelLoading) return "#67C7F5"; // sky-300 (spinner color)
-    if (isModelReady) return "#45D6A0"; // emerald-400
-    return "#94A3B8"; // slate-400
-  };
+  const modelDotTitle = !hasModel
+    ? "No model loaded"
+    : isModelLoading
+      ? "Model loading…"
+      : isModelReady
+        ? "Model ready"
+        : "Model not ready";
 
   return (
     <nav className="rail" aria-label="Primary navigation">
       <div className="rail__brand" title="localAIse — private, local-first workspace">
-        <ShieldIcon size={18} />
+        <ShieldMark />
       </div>
 
-      {/* 3 buttons on top: Home, Project, Calendar (while project is open) */}
       <div className="rail__nav">
-        {/* 1. Home button */}
         <button
           type="button"
           className="rail__item"
           aria-current={view === "home" && project == null}
           onClick={handleHomeClick}
-          title="Home — Work directories"
+          title="Home — work directories"
         >
           <HomeIcon size={18} />
           <span className="sr-only">Home</span>
         </button>
 
-        {/* 2. Project button */}
         <button
           type="button"
           className="rail__item"
-          aria-current={view === "home" && project != null && activeProjectTab !== "calendar"}
+          aria-current={view === "home" && project != null}
           onClick={handleProjectClick}
           title={
             project
@@ -115,159 +96,75 @@ export function ActivityRail() {
           <FolderIcon size={18} />
           <span className="sr-only">Project</span>
         </button>
-
-        {/* 3. Calendar button (only appears while project is open) */}
-        {project && (
-          <button
-            type="button"
-            className="rail__item"
-            aria-current={view === "home" && activeProjectTab === "calendar"}
-            onClick={handleCalendarClick}
-            title={`Project Calendar & Linked Diary — ${project.name}`}
-          >
-            <CalendarIcon size={18} />
-            <span className="sr-only">Calendar</span>
-          </button>
-        )}
       </div>
 
-      {/* 2 buttons on bottom: Theme, Model settings (IDE-style technical controls) */}
       <div className="rail__settings">
-        {/* Theme Settings Button — split circle appearance icon */}
         <button
           type="button"
-          style={{
-            ...settingsButtonStyle,
-            color: view === "theme-settings" ? getActiveAccent("theme") : "#94A3B8",
-            backgroundColor: view === "theme-settings" ? "rgba(103, 199, 245, 0.12)" : "transparent",
-          }}
-          onMouseEnter={(e) => {
-            if (view !== "theme-settings") {
-              e.currentTarget.style.color = "#E2E8F0";
-              e.currentTarget.style.backgroundColor = "#1E293B";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (view !== "theme-settings") {
-              e.currentTarget.style.color = "#94A3B8";
-              e.currentTarget.style.backgroundColor = "transparent";
-            }
-          }}
+          className="rail__item"
+          aria-current={view === "settings"}
+          onClick={showSettings}
+          title="Settings — appearance, models and runtime"
+        >
+          <SettingsIcon size={18} />
+          <span className="sr-only">Settings</span>
+        </button>
+
+        <button
+          type="button"
+          className="rail__item"
           aria-current={view === "theme-settings"}
           onClick={() => {
-            if (view === "theme-settings") {
-              closeThemeSettings();
-            } else {
-              showThemeSettings();
-            }
+            if (view === "theme-settings") closeThemeSettings();
+            else showThemeSettings();
           }}
-          title={`Theme settings (${themeName})`}
-          aria-label="Theme settings"
+          title={`Appearance (${themeName})`}
         >
-          <ThemeIcon size={16} />
-          {view === "theme-settings" && (
-            <span
-              style={{
-                position: "absolute",
-                left: 0,
-                top: "50%",
-                transform: "translateY(-50%)",
-                width: 2,
-                height: "60%",
-                background: getActiveAccent("theme"),
-                borderRadius: "0 2px 2px 0",
-              }}
-              aria-hidden="true"
-            />
-          )}
+          <ThemeIcon size={18} />
+          <span className="sr-only">Appearance</span>
         </button>
 
-        {/* Model Configuration Button — neural chip with status dot */}
         <button
           type="button"
-          style={{
-            ...settingsButtonStyle,
-            color: view === "model-config" ? getActiveAccent("model") : "#94A3B8",
-            backgroundColor: view === "model-config" ? "rgba(69, 214, 160, 0.12)" : "transparent",
-          }}
-          onMouseEnter={(e) => {
-            if (view !== "model-config") {
-              e.currentTarget.style.color = "#E2E8F0";
-              e.currentTarget.style.backgroundColor = "#1E293B";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (view !== "model-config") {
-              e.currentTarget.style.color = "#94A3B8";
-              e.currentTarget.style.backgroundColor = "transparent";
-            }
-          }}
+          className="rail__item"
           aria-current={view === "model-config"}
           onClick={() => {
-            if (view === "model-config") {
-              closeModelConfig();
-            } else {
-              showModelConfig();
-            }
+            if (view === "model-config") closeModelConfig();
+            else showModelConfig();
           }}
-          title={`Model settings (${runtimeStatus.model || "Local model"}${isModelReady ? " · Ready" : isModelLoading ? " · Loading" : hasModel ? "" : " · Not loaded"})`}
-          aria-label="Model configuration"
+          title={`Model & hardware (${runtimeStatus.model || "no model"} · ${modelDotTitle})`}
         >
-          <ModelIcon size={16} />
-          {/* Status indicator dot / spinner */}
+          <ModelIcon size={18} />
           <span
-            style={{
-              position: "absolute",
-              bottom: 4,
-              right: 4,
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: getStatusColor(),
-              boxShadow: "0 0 0 1px rgba(0,0,0,0.2)",
-              animation: isModelLoading ? "rail-spin 1s linear infinite" : "none",
-            }}
-            title={!hasModel ? "No model loaded" : isModelLoading ? "Model loading…" : isModelReady ? "Model ready" : "Model not ready"}
+            className="rail__status"
+            style={{ background: modelDotColor }}
+            title={modelDotTitle}
             aria-hidden="true"
           >
-            {isModelLoading && (
-              <span
-                style={{
-                  display: "block",
-                  width: "100%",
-                  height: "100%",
-                  border: "1.5px solid currentColor",
-                  borderTopColor: "transparent",
-                  borderRadius: "50%",
-                  animation: "rail-spin 0.7s linear infinite",
-                }}
-              />
-            )}
+            {isModelLoading && <span className="rail__status-spin" />}
           </span>
-          {view === "model-config" && (
-            <span
-              style={{
-                position: "absolute",
-                left: 0,
-                top: "50%",
-                transform: "translateY(-50%)",
-                width: 2,
-                height: "60%",
-                background: getActiveAccent("model"),
-                borderRadius: "0 2px 2px 0",
-              }}
-              aria-hidden="true"
-            />
-          )}
+          <span className="sr-only">Model &amp; hardware</span>
         </button>
-
-        {/* Keyframes for loading spinner */}
-        <style dangerouslySetInnerHTML={{ __html: `
-          @keyframes rail-spin {
-            to { transform: rotate(360deg); }
-          }
-        ` }} />
       </div>
     </nav>
+  );
+}
+
+function ShieldMark() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 3l7 3v6c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
   );
 }

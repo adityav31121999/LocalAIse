@@ -284,6 +284,90 @@ export function XIcon(props: IconProps) {
   );
 }
 
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M6 9l6 6 6-6" />
+    </Base>
+  );
+}
+
+/** A vertical kebab menu: the compact home for secondary card actions. */
+export function MoreIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none" />
+    </Base>
+  );
+}
+
+/** A quote mark, used for citing a passage in chat. */
+export function QuoteIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M9 7H5.5A1.5 1.5 0 0 0 4 8.5V12a1.5 1.5 0 0 0 1.5 1.5H8v1.5A2.5 2.5 0 0 1 5.5 17.5" />
+      <path d="M19 7h-3.5A1.5 1.5 0 0 0 14 8.5V12a1.5 1.5 0 0 0 1.5 1.5H18v1.5a2.5 2.5 0 0 1-2.5 2.5" />
+    </Base>
+  );
+}
+
+export function TableIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M3 15h18M9 4v16M15 4v16" />
+    </Base>
+  );
+}
+
+export function DownloadIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M12 3v12M7 10l5 5 5-5" />
+      <path d="M4 19h16" />
+    </Base>
+  );
+}
+
+export function HistoryIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+      <path d="M3 4v4h4" />
+      <path d="M12 8v4.5l3 1.8" />
+    </Base>
+  );
+}
+
+export function WidthIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M4 4v16M20 4v16" />
+      <path d="M8 12h8M8 12l2-2M8 12l2 2M16 12l-2-2M16 12l-2 2" />
+    </Base>
+  );
+}
+
+export function CheckIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M4.5 12.5l4.5 4.5L19.5 6.5" />
+    </Base>
+  );
+}
+
+export function LayersIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M12 3l9 4.5-9 4.5-9-4.5z" />
+      <path d="M3 12.5L12 17l9-4.5" />
+      <path d="M3 17L12 21.5 21 17" />
+    </Base>
+  );
+}
+
 export function HomeIcon(props: IconProps) {
   return (
     <Base {...props}>
