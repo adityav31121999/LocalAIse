@@ -5,7 +5,7 @@
  * so everything is visible at once.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { InferenceSettings } from "./InferenceSettings";
 import { HardwareSettings } from "./HardwareSettings";
@@ -32,9 +32,15 @@ const TAB_META: { id: SettingsTab; label: string; title: string; subtitle: strin
 ];
 
 export function SettingsView() {
-  const [tab, setTab] = useState<SettingsTab>("appearance");
+  const settingsTab = useNavStore((state) => state.settingsTab);
+  const [tab, setTab] = useState<SettingsTab>(settingsTab);
   const active = TAB_META.find((item) => item.id === tab) ?? TAB_META[0];
   const showHome = useNavStore((state) => state.showHome);
+
+  // Sync with navStore if it changes externally
+  useEffect(() => {
+    setTab(settingsTab);
+  }, [settingsTab]);
 
   return (
     <div className="settings">

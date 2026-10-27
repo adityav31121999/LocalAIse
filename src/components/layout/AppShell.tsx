@@ -3,9 +3,7 @@ import { ActivityRail } from "./ActivityRail";
 import { NetworkIndicator } from "./NetworkIndicator";
 import { useProjectStore, selectActiveProject } from "../../state/projectStore";
 import { useRuntimeStore } from "../../state/runtimeStore";
-import { useSettingsStore } from "../../state/settingsStore";
 import { useNavStore } from "../../state/navStore";
-import { MonitorIcon, MoonIcon, SunIcon } from "../ui/icons";
 import { runtimeLabel } from "../../util/format";
 
 function StatusBar() {
@@ -13,19 +11,16 @@ function StatusBar() {
   const sources = useProjectStore((state) => state.sources);
   const projectCount = useProjectStore((state) => state.projects.length);
   const project = useProjectStore(selectActiveProject);
-  const colorMode = useSettingsStore((state) => state.colorMode);
-  const cycleColorMode = useSettingsStore((state) => state.cycleColorMode);
   const view = useNavStore((state) => state.view);
 
   const indexed = sources.filter((file) => file.status === "indexed").length;
-  const ThemeIcon = colorMode === "light" ? SunIcon : colorMode === "dark" ? MoonIcon : MonitorIcon;
   const context = runtime.profile?.contextTokens ?? 0;
 
   const scopeLabel =
     view === "settings"
-      ? "Appearance · stored on this machine"
+      ? "Appearance \u00b7 stored on this machine"
       : view === "diary"
-        ? "Personal space · stored on this machine"
+        ? "Personal space \u00b7 stored on this machine"
         : project
           ? `Indexed ${indexed}/${sources.length} sources`
           : `${projectCount} work directories`;
@@ -51,16 +46,6 @@ function StatusBar() {
       <span className="statusbar__spacer" />
 
       {project ? <NetworkIndicator enabled={project.internetEnabled} /> : null}
-
-      <button
-        type="button"
-        className="statusbar__item statusbar__button"
-        onClick={cycleColorMode}
-        title="Switch between system, dark and light appearance"
-      >
-        <ThemeIcon size={13} />
-        {colorMode === "system" ? "System theme" : colorMode === "dark" ? "Dark" : "Light"}
-      </button>
     </footer>
   );
 }

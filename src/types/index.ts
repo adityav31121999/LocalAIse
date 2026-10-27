@@ -179,7 +179,7 @@ export interface PersonalSearchResult {
   snippet: string;
 }
 
-export type AppView = "home" | "diary" | "settings" | "theme-settings" | "model-config" | "deep-research";
+export type AppView = "home" | "diary" | "settings" | "deep-research";
 
 /** Inference profile — mirrors the Rust InferenceProfile struct. */
 export type KvCacheType = "f16" | "q8_0" | "q5_1" | "q4_0";

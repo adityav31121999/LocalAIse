@@ -1,18 +1,18 @@
 import { create } from "zustand";
 import type { AppView, WorkspaceTab } from "../types";
 
+type SettingsTab = "appearance" | "model-runtime";
+
 interface NavState {
   view: AppView;
   previousView: AppView;
   activeProjectTab: WorkspaceTab;
+  settingsTab: SettingsTab;
   setActiveProjectTab(tab: WorkspaceTab): void;
   showHome(): void;
   showDiary(): void;
-  showSettings(): void;
-  showThemeSettings(): void;
-  closeThemeSettings(): void;
-  showModelConfig(): void;
-  closeModelConfig(): void;
+  showSettings(tab?: SettingsTab): void;
+  showDeepResearch(): void;
 
   // Document viewer state
   openDocument: { projectId: string; filePath: string; fileName: string } | null;
@@ -25,31 +25,16 @@ interface NavState {
   consumeComposerInsert(): void;
 }
 
-export const useNavStore = create<NavState>()((set, get) => ({
+export const useNavStore = create<NavState>()((set) => ({
   view: "home",
   previousView: "home",
   activeProjectTab: "chat",
+  settingsTab: "appearance",
   setActiveProjectTab: (tab) => set({ activeProjectTab: tab }),
   showHome: () => set({ view: "home", previousView: "home" }),
   showDiary: () => set({ view: "diary", previousView: "home" }),
-  showSettings: () => set({ view: "settings", previousView: "home" }),
+  showSettings: (tab = "appearance") => set({ view: "settings", previousView: "home", settingsTab: tab }),
   showDeepResearch: () => set({ view: "deep-research", previousView: "home" }),
-  showThemeSettings: () => {
-    const current = get().view;
-    set({
-      view: "theme-settings",
-      previousView: current !== "theme-settings" ? current : get().previousView,
-    });
-  },
-  closeThemeSettings: () => set({ view: get().previousView }),
-  showModelConfig: () => {
-    const current = get().view;
-    set({
-      view: "model-config",
-      previousView: current !== "model-config" ? current : get().previousView,
-    });
-  },
-  closeModelConfig: () => set({ view: get().previousView }),
 
   openDocument: null,
   setOpenDocument: (doc) => set({ openDocument: doc }),

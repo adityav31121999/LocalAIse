@@ -42,7 +42,7 @@ export function HomeDashboard() {
   const setProjectInternet = useProjectStore((state) => state.setProjectInternet);
   const runtime = useRuntimeStore((state) => state.status);
   const showDiary = useNavStore((state) => state.showDiary);
-  const showModelConfig = useNavStore((state) => state.showModelConfig);
+  const showSettings = useNavStore((state) => state.showSettings);
 
   const [query, setQuery] = useState("");
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
@@ -224,7 +224,7 @@ export function HomeDashboard() {
             <button
               type="button"
               className="btn btn--ghost btn--sm metric__action"
-              onClick={showModelConfig}
+              onClick={() => showSettings("model-runtime")}
               title="Change the model and its runtime settings"
             >
               Change

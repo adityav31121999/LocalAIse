@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import type { KvCacheType, ProfileScope } from "../../types";
-import { RuntimeActions } from "./RuntimeActions";
+
 import { MemoryWarningAlert } from "./MemoryWarningAlert";
 import { MemoryBudgetBar } from "./MemoryBudgetBar";
 import { NumberField } from "../ui/NumberField";
@@ -585,8 +585,6 @@ export function InferenceSettings() {
           </p>
         )}
       </section>
-
-      <RuntimeActions />
     </div>
   );
 }

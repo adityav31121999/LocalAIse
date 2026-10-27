@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Private, local-first AI workspace for folders you own."
 authors = ["localAIse"]
 edition = "2021"
-license = "Apache-2.0"
+license = "MIT"
 rust-version = "1.77"
 default-run = "LocalAIse"
 
