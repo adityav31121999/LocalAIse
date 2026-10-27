@@ -11,6 +11,7 @@ import {
   PlusIcon,
   FolderPlusIcon,
   FilePlusIcon,
+  SparkIcon,
 } from "../ui/icons";
 import {
   listDirectory,
@@ -22,6 +23,7 @@ import {
 } from "../../api/files";
 import { isTauri } from "../../api";
 import { useProjectEvents } from "../../hooks/useProjectEvents";
+import { useNavStore } from "../../state/navStore";
 import { formatBytes, formatRelativeTime, fileExtension } from "../../util/format";
 import type { DirectoryEntry, Project } from "../../types";
 
@@ -133,6 +135,8 @@ function getSamplePreview(name: string, isDir: boolean, project: Project): strin
 }
 
 export function DirectoryView({ project }: { project: Project }) {
+  const setOpenDocument = useNavStore((state) => state.setOpenDocument);
+  const setActiveProjectTab = useNavStore((state) => state.setActiveProjectTab);
   const [currentPath, setCurrentPath] = useState<string>("");
   const [history, setHistory] = useState<string[]>([""]);
   const [historyIdx, setHistoryIdx] = useState<number>(0);
@@ -846,14 +850,27 @@ export function DirectoryView({ project }: { project: Project }) {
                       <td style={{ padding: "8px 16px", textAlign: "right" }}>
                         <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }} onClick={(e) => e.stopPropagation()}>
                           {!entry.isDir && (
-                            <button
-                              type="button"
-                              className="icon-btn icon-btn--sm"
-                              onClick={() => setPreviewModal(entry)}
-                              title="Preview"
-                            >
-                              <DocIcon size={13} />
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn--sm"
+                                onClick={() => setPreviewModal(entry)}
+                                title="Preview"
+                              >
+                                <DocIcon size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn--sm"
+                                onClick={() => {
+                                  setActiveProjectTab("chat");
+                                  setOpenDocument({ projectId: project.id, filePath: entry.path, fileName: entry.name });
+                                }}
+                                title="Open in Viewer"
+                              >
+                                <SparkIcon size={13} />
+                              </button>
+                            </>
                           )}
                           {isProtected ? (
                             <span
@@ -921,7 +938,10 @@ export function DirectoryView({ project }: { project: Project }) {
                     onClick={() => setSelectedEntry(entry)}
                     onDoubleClick={() => {
                       if (entry.isDir) navigateTo(entry.path);
-                      else setPreviewModal(entry);
+                      else {
+                        setActiveProjectTab("chat");
+                        setOpenDocument({ projectId: project.id, filePath: entry.path, fileName: entry.name });
+                      }
                     }}
                     style={{
                       display: "flex",
@@ -1078,13 +1098,25 @@ export function DirectoryView({ project }: { project: Project }) {
                   Preview
                 </span>
                 {!selectedEntry.isDir && (
-                  <button
-                    type="button"
-                    onClick={() => setPreviewModal(selectedEntry)}
-                    style={{ fontSize: "11px", color: "var(--accent-primary)", cursor: "pointer" }}
-                  >
-                    Open Modal ↗
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModal(selectedEntry)}
+                      style={{ fontSize: "11px", color: "var(--accent-primary)", cursor: "pointer", marginRight: "6px" }}
+                    >
+                      Open Modal ↗
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveProjectTab("chat");
+                        setOpenDocument({ projectId: project.id, filePath: selectedEntry.path, fileName: selectedEntry.name });
+                      }}
+                      style={{ fontSize: "11px", color: "var(--accent-primary)", cursor: "pointer" }}
+                    >
+                      Open in Viewer ↗
+                    </button>
+                  </>
                 )}
               </div>
               <div
@@ -1118,6 +1150,18 @@ export function DirectoryView({ project }: { project: Project }) {
               >
                 {selectedEntry.isDir ? "Open Folder" : "Preview Document"}
               </button>
+              {!selectedEntry.isDir && (
+                <button
+                  type="button"
+                  className="btn btn--subtle btn--sm"
+                  onClick={() => {
+                    setActiveProjectTab("chat");
+                    setOpenDocument({ projectId: project.id, filePath: selectedEntry.path, fileName: selectedEntry.name });
+                  }}
+                >
+                  Open in Viewer
+                </button>
+              )}
               {isProtectedRootEntry(selectedEntry, currentPath) ? (
                 <span className="muted" style={{ fontSize: "12px", lineHeight: 1.5 }}>
                   This folder is managed by the app. Create or delete files inside it

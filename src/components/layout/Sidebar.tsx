@@ -11,6 +11,7 @@ import {
 } from "../ui/icons";
 import { useProjectStore } from "../../state/projectStore";
 import { useProjectEvents } from "../../hooks/useProjectEvents";
+import { useNavStore } from "../../state/navStore";
 import {
   listDirectory,
   createEntry,
@@ -72,6 +73,7 @@ interface TreeNodeItemProps {
   onToggleFolder(path: string): void;
   selectedPath: string | null;
   onSelectPath(path: string): void;
+  onOpenDocument(doc: { projectId: string; filePath: string; fileName: string }): void;
   sourcesMap: Map<string, SourceFile>;
   onNewFile(parent: string): void;
   onNewFolder(parent: string): void;
@@ -91,6 +93,7 @@ function TreeNodeItem({
   onToggleFolder,
   selectedPath,
   onSelectPath,
+  onOpenDocument,
   sourcesMap,
   onNewFile,
   onNewFolder,
@@ -264,6 +267,7 @@ function TreeNodeItem({
                   onToggleFolder={onToggleFolder}
                   selectedPath={selectedPath}
                   onSelectPath={onSelectPath}
+                  onOpenDocument={onOpenDocument}
                   sourcesMap={sourcesMap}
                   onNewFile={onNewFile}
                   onNewFolder={onNewFolder}
@@ -285,6 +289,7 @@ function TreeNodeItem({
       className={`ide-tree-row ${isSelected ? "ide-tree-row--active" : ""}`}
       style={{ paddingLeft: `${depth * 14 + 20}px` }}
       onClick={() => onSelectPath(path)}
+      onDoubleClick={() => onOpenDocument({ projectId: project.id, filePath: path, fileName: name })}
       title={`${path} (${formatBytes(sizeBytes || source?.sizeBytes || 0)})`}
     >
       <span style={{ color: fileMeta.color, display: "inline-flex", flexShrink: 0 }}>
@@ -360,6 +365,13 @@ export function Sidebar({ project }: { project: Project }) {
     outputs: true,
   });
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const setOpenDocument = useNavStore((state) => state.setOpenDocument);
+  const setActiveProjectTab = useNavStore((state) => state.setActiveProjectTab);
+
+  const handleOpenDocument = (doc: { projectId: string; filePath: string; fileName: string }) => {
+    setActiveProjectTab("chat");
+    setOpenDocument(doc);
+  };
 
   // Modals
   const [modalType, setModalType] = useState<"folder" | "file" | "rename" | "delete" | null>(null);
@@ -656,6 +668,7 @@ export function Sidebar({ project }: { project: Project }) {
                   onToggleFolder={handleToggleFolder}
                   selectedPath={selectedPath}
                   onSelectPath={setSelectedPath}
+                  onOpenDocument={handleOpenDocument}
                   sourcesMap={sourcesMap}
                   onNewFile={openNewFile}
                   onNewFolder={openNewFolder}
@@ -675,7 +688,16 @@ export function Sidebar({ project }: { project: Project }) {
               sources
                 .filter((f) => !query || f.name.toLowerCase().includes(query.toLowerCase()))
                 .map((file) => (
-                  <div className="file-row" key={file.id} title={file.name}>
+                  <div
+                    className="file-row"
+                    key={file.id}
+                    title={file.name}
+                    onDoubleClick={() => {
+                      setActiveProjectTab("chat");
+                      setOpenDocument({ projectId: project.id, filePath: file.name, fileName: file.name });
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
                     <span className="file-row__icon">
                       <DocIcon size={15} />
                     </span>

@@ -3,8 +3,10 @@ import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { PlusIcon, SparkIcon, TrashIcon } from "../ui/icons";
 import { useChatStore } from "../../state/chatStore";
+import { useNavStore } from "../../state/navStore";
 import { chatLabel, chatNumber } from "../../util/format";
 import type { ChatMessage, ChatSummary, Project, ProjectTemplate } from "../../types";
+import { DocumentViewer } from "../files/DocumentViewer";
 
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_CHATS: ChatSummary[] = [];
@@ -29,13 +31,6 @@ export function ChatView({ project }: { project: Project }) {
   const messages = useChatStore((state) => state.byProject[project.id]) ?? NO_MESSAGES;
   const storedChats = useChatStore((state) => state.chats[project.id]) ?? NO_CHATS;
   const activeChatId = useChatStore((state) => state.activeChat[project.id]);
-  // Numbered files read in file order, so Chat 1, Chat 2, Chat 3 stay in the
-  // order the sessions were created rather than jumping to the last edited.
-  const chats = useMemo(
-    () => [...storedChats].sort((a, b) => chatNumber(a.id) - chatNumber(b.id)),
-    [storedChats],
-  );
-  const activeChat = chats.find((chat) => chat.id === activeChatId);
   const streaming = useChatStore((state) => state.streamingProjectId === project.id);
   const showThinking = useChatStore((state) => state.showThinking);
   const setShowThinking = useChatStore((state) => state.setShowThinking);
@@ -45,6 +40,17 @@ export function ChatView({ project }: { project: Project }) {
   const openChat = useChatStore((state) => state.openChat);
   const newChat = useChatStore((state) => state.newChat);
   const removeChat = useChatStore((state) => state.removeChat);
+
+  const openDocument = useNavStore((state) => state.openDocument);
+  const setOpenDocument = useNavStore((state) => state.setOpenDocument);
+
+  // Numbered files read in file order, so Chat 1, Chat 2, Chat 3 stay in the
+  // order the sessions were created rather than jumping to the last edited.
+  const chats = useMemo(
+    () => [...storedChats].sort((a, b) => chatNumber(a.id) - chatNumber(b.id)),
+    [storedChats],
+  );
+  const activeChat = chats.find((chat) => chat.id === activeChatId);
 
   useEffect(() => {
     void load(project.id);
@@ -61,9 +67,49 @@ export function ChatView({ project }: { project: Project }) {
     }
   }, [activeChatId, storedChats, project.id, openChat]);
 
+  const isDocumentOpen = openDocument?.projectId === project.id;
+
+  const handleCloseDocument = () => {
+    setOpenDocument(null);
+  };
+
+  const renderChatContent = () => {
+    if (messages.length === 0) {
+      return (
+        <div className="chat__scroll">
+          <div className="chat-empty">
+            <SparkIcon size={22} />
+            <h2 className="chat-empty__title">Ask {project.name} a question</h2>
+            <p className="chat-empty__text">
+              Answers are written by a model running on this machine, grounded in the{" "}
+              {project.sourceCount} sources inside this folder. Every claim links back to the file it
+              came from, and each conversation is saved as JSON in <code>chats/</code>.
+            </p>
+            <div className="suggestions">
+              {SUGGESTIONS[project.template].map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  className="suggestion"
+                  onClick={() => void send(project.id, suggestion)}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <MessageList messages={messages} streaming={streaming} showThinking={showThinking} />
+    );
+  };
+
   return (
-    <div className="chat">
-      <div className="chat__bar">
+    <div className="chat" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div className="chat__bar" style={{ flexShrink: 0 }}>
         <label className="chat__picker">
           <span className="sr-only">Saved chats</span>
           <select
@@ -143,40 +189,44 @@ export function ChatView({ project }: { project: Project }) {
         </button>
       </div>
 
-      {messages.length === 0 ? (
-        <div className="chat__scroll">
-          <div className="chat-empty">
-            <SparkIcon size={22} />
-            <h2 className="chat-empty__title">Ask {project.name} a question</h2>
-            <p className="chat-empty__text">
-              Answers are written by a model running on this machine, grounded in the{" "}
-              {project.sourceCount} sources inside this folder. Every claim links back to the file it
-              came from, and each conversation is saved as JSON in <code>chats/</code>.
-            </p>
-            <div className="suggestions">
-              {SUGGESTIONS[project.template].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  className="suggestion"
-                  onClick={() => void send(project.id, suggestion)}
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <MessageList messages={messages} streaming={streaming} showThinking={showThinking} />
-      )}
+      <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+        {/* Main chat area */}
+        <div style={{
+          flex: isDocumentOpen ? 1 : "1 1 0%",
+          display: "flex",
+          flexDirection: "column",
+          minWidth: 0,
+          borderRight: isDocumentOpen ? "1px solid var(--border)" : "none",
+        }}>
+          {renderChatContent()}
 
-      <Composer
-        project={project}
-        streaming={streaming}
-        onSend={(text) => void send(project.id, text)}
-        onStop={stop}
-      />
+          <Composer
+            project={project}
+            streaming={streaming}
+            onSend={(text) => void send(project.id, text)}
+            onStop={stop}
+          />
+        </div>
+
+        {/* Document viewer panel */}
+        {isDocumentOpen && openDocument && (
+          <div style={{
+            width: "50%",
+            minWidth: "380px",
+            maxWidth: "600px",
+            display: "flex",
+            flexDirection: "column",
+            background: "var(--background)",
+          }}>
+            <DocumentViewer
+              project={project}
+              filePath={openDocument.filePath}
+              fileName={openDocument.fileName}
+              onClose={handleCloseDocument}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
+use crate::error::{AppError, AppResult};
 use crate::tools::ToolResult;
+use crate::sandbox::paths::ensure_within;
 
 /// Read a file relative to the project root. Returns its text content.
 pub fn read_file(project_root: &Path, rel_path: &str) -> ToolResult {
@@ -21,6 +23,21 @@ pub fn read_file(project_root: &Path, rel_path: &str) -> ToolResult {
     match std::fs::read_to_string(&target) {
         Ok(content) => ToolResult::ok("read_file", content),
         Err(e) => ToolResult::err("read_file", format!("Cannot read {rel_path}: {e}")),
+    }
+}
+
+/// Read a file relative to the project root as raw bytes.
+/// Used for binary files like PDFs that need visual rendering.
+pub fn read_file_bytes(project_root: &Path, rel_path: &str) -> AppResult<Vec<u8>> {
+    if rel_path.is_empty() {
+        return Err(AppError::msg("path argument is required"));
+    }
+
+    let target = ensure_within(project_root, Path::new(rel_path))?;
+
+    match std::fs::read(&target) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => Err(AppError::msg(format!("Cannot read {rel_path}: {e}"))),
     }
 }
 

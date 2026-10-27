@@ -8,7 +8,10 @@ use tauri_plugin_dialog::DialogExt;
 use crate::error::{AppError, AppResult};
 use crate::projects::files;
 use crate::projects::DirectoryEntry;
+use crate::tools::files as tool_files;
 use crate::AppState;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 
 fn project_root(state: &State<'_, AppState>, project_id: &str) -> AppResult<PathBuf> {
     let registry = state.registry()?;
@@ -100,4 +103,17 @@ pub fn delete_project_entry(
 ) -> AppResult<()> {
     let root = project_root(&state, &project_id)?;
     files::delete(&root, &path)
+}
+
+/// Reads a file as raw bytes (for binary files like PDFs).
+/// Returns base64-encoded data.
+#[tauri::command]
+pub fn read_project_file_bytes(
+    state: State<'_, AppState>,
+    project_id: String,
+    path: String,
+) -> AppResult<String> {
+    let root = project_root(&state, &project_id)?;
+    let bytes = tool_files::read_file_bytes(&root, &path)?;
+    Ok(BASE64_STANDARD.encode(bytes))
 }

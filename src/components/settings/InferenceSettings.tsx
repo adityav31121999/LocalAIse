@@ -329,7 +329,8 @@ export function InferenceSettings() {
         </h2>
         <p className="field__hint">
           Caps per role, in tokens. 0 means unlimited — the model's own server settings decide.
-          The agent row governs tool-using chat, the subagent row the map-reduce workers.
+          The Model row also controls document summarization. The Agent row governs tool-using chat,
+          the Subagent row the map-reduce workers.
         </p>
         <div className="limits-table">
           <span className="limits-table__cell--head" aria-hidden="true" />
@@ -344,7 +345,7 @@ export function InferenceSettings() {
             step={256}
             value={draft.maxInputTokens ?? 0}
             onChange={(n) => patch({ maxInputTokens: n })}
-            label="Max input tokens for the model"
+            label="Max input tokens for the model (also used for summarization)"
           />
           <NumberField
             className="input"
@@ -352,7 +353,7 @@ export function InferenceSettings() {
             step={256}
             value={draft.maxOutputTokens ?? 0}
             onChange={(n) => patch({ maxOutputTokens: n })}
-            label="Max output tokens for the model"
+            label="Max output tokens for the model (also used for summarization)"
           />
           <NumberField
             className="input"

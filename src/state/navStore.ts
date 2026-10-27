@@ -13,6 +13,10 @@ interface NavState {
   closeThemeSettings(): void;
   showModelConfig(): void;
   closeModelConfig(): void;
+
+  // Document viewer state
+  openDocument: { projectId: string; filePath: string; fileName: string } | null;
+  setOpenDocument(doc: { projectId: string; filePath: string; fileName: string } | null): void;
 }
 
 export const useNavStore = create<NavState>()((set, get) => ({
@@ -40,4 +44,7 @@ export const useNavStore = create<NavState>()((set, get) => ({
     });
   },
   closeModelConfig: () => set({ view: get().previousView }),
+
+  openDocument: null,
+  setOpenDocument: (doc) => set({ openDocument: doc }),
 }));

@@ -13,6 +13,8 @@ use crate::projects::layout::{ChatMode, ProjectPaths, ProjectTemplate};
 use crate::projects::manager::{self, Context};
 use crate::projects::{Project, SourceFile};
 use crate::AppState;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 
 #[tauri::command]
 pub fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
@@ -21,6 +23,106 @@ pub fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
         registry: &registry,
         dirs: &state.dirs,
     }))
+}
+
+/// Reads a document file and extracts its text content.
+/// For PDFs, also returns base64-encoded bytes for visual rendering.
+#[tauri::command]
+pub fn read_document(
+    state: State<'_, AppState>,
+    project_id: String,
+    file_path: String,
+) -> AppResult<DocumentContent> {
+    let registry = state.registry()?;
+    let record = registry
+        .find(&project_id)
+        .ok_or_else(|| AppError::UnknownProject(project_id.clone()))?;
+    let root = PathBuf::from(&record.path);
+    
+    // Resolve path within project
+    let target = crate::sandbox::paths::ensure_within(&root, std::path::Path::new(&file_path))?;
+    
+    if !target.exists() {
+        return Err(AppError::msg(format!("File not found: {file_path}")));
+    }
+    
+    let ext = target.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    
+    let file_name = target.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&file_path)
+        .to_string();
+    
+    let mime_type = match ext.as_str() {
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc" => "application/msword",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        _ => "application/octet-stream",
+    };
+    
+    // Extract text content
+    let text = if ext == "pdf" {
+        crate::ingest::parsers::pdf::parse(&target)
+            .map_err(|e| AppError::msg(format!("Failed to parse PDF: {e}")))?
+    } else {
+        std::fs::read_to_string(&target)
+            .map_err(|e| AppError::msg(format!("Cannot read {file_path}: {e}")))?
+    };
+    
+    let metadata = std::fs::metadata(&target)
+        .map_err(|e| AppError::msg(format!("Cannot read metadata: {e}")))?;
+    let size_bytes = metadata.len();
+    
+    // For PDFs, also return base64-encoded bytes for visual rendering
+    let file_bytes_base64 = if ext == "pdf" {
+        let bytes = std::fs::read(&target)
+            .map_err(|e| AppError::msg(format!("Cannot read PDF bytes: {e}")))?;
+        Some(BASE64_STANDARD.encode(bytes))
+    } else {
+        None
+    };
+    
+    // Get page count for PDFs
+    let page_count = if ext == "pdf" {
+        // Use pdf-extract to get text and estimate pages from form feeds
+        let bytes = std::fs::read(&target).ok();
+        bytes.and_then(|b| crate::ingest::parsers::pdf::parse_from_bytes(&b).ok())
+            .and_then(|text| {
+                // Rough estimate: count form feeds or page breaks
+                let count = text.matches('\u{0C}').count() + 1;
+                if count > 0 { Some(count) } else { None }
+            })
+    } else {
+        None
+    };
+    
+    Ok(DocumentContent {
+        file_name,
+        file_path,
+        mime_type: mime_type.to_string(),
+        text,
+        page_count,
+        size_bytes,
+        file_bytes_base64,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct DocumentContent {
+    file_name: String,
+    file_path: String,
+    mime_type: String,
+    text: String,
+    page_count: Option<usize>,
+    size_bytes: u64,
+    file_bytes_base64: Option<String>,
 }
 
 #[tauri::command]

@@ -67,6 +67,7 @@ sha2 = "0.10"
 dom_smoothie = "0.18"
 htmd = "0.1"
 pdf-extract = "0.12"
+base64 = "0.22"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sqlite-vec = "0.1"
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }

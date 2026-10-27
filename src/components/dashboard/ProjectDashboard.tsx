@@ -12,6 +12,7 @@ import { ProjectCalendarView } from "../calendar/ProjectCalendarView";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useNavStore } from "../../state/navStore";
+import { RuntimeConfigProvider } from "../settings/runtime-config";
 import type { Project } from "../../types";
 
 export function ProjectDashboard({ project }: { project: Project }) {
@@ -43,21 +44,23 @@ export function ProjectDashboard({ project }: { project: Project }) {
         />
       }
     >
-      {tab === "chat" ? (
-        <ChatView project={project} />
-      ) : tab === "files" ? (
-        <DirectoryView project={project} />
-      ) : tab === "analysis" ? (
-        <ReportView project={project} />
-      ) : tab === "research" ? (
-        <ResearchPlanView project={project} />
-      ) : tab === "calendar" ? (
-        <ProjectCalendarView project={project} />
-      ) : tab === "diary" ? (
-        <ProjectDiary project={project} />
-      ) : (
-        <ActivityLog project={project} />
-      )}
+      <RuntimeConfigProvider active={true}>
+        {tab === "chat" ? (
+          <ChatView project={project} />
+        ) : tab === "files" ? (
+          <DirectoryView project={project} />
+        ) : tab === "analysis" ? (
+          <ReportView project={project} />
+        ) : tab === "research" ? (
+          <ResearchPlanView project={project} />
+        ) : tab === "calendar" ? (
+          <ProjectCalendarView project={project} />
+        ) : tab === "diary" ? (
+          <ProjectDiary project={project} />
+        ) : (
+          <ActivityLog project={project} />
+        )}
+      </RuntimeConfigProvider>
     </WorkspaceLayout>
   );
 }
