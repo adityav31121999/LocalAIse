@@ -2,6 +2,7 @@
 /node_modules/
 /resources/
 /src-tauri/bundle-llama/
+!/src-tauri/bundle-llama/.gitkeep
 
 # Build output
 /dist/
