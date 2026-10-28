@@ -37,6 +37,9 @@ jobs:
           npm ci
           npx tsx scripts/fetch-llama-server.ts windows-x64 cpu
 
+      - name: Stage bundle for Windows
+        run: npx tsx scripts/stage-bundle.ts windows-x64
+
       - name: Build Tauri app (Windows)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -86,6 +89,9 @@ jobs:
         run: |
           npm ci
           npx tsx scripts/fetch-llama-server.ts linux-x64 cpu
+
+      - name: Stage bundle for Linux
+        run: npx tsx scripts/stage-bundle.ts linux-x64
 
       - name: Build Tauri app (Linux)
         uses: tauri-apps/tauri-action@v0
