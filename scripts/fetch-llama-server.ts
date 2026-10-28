@@ -81,6 +81,9 @@ const BASE_FLAGS = [
   "-DLLAMA_BUILD_TESTS=OFF",
   "-DLLAMA_BUILD_EXAMPLES=OFF",
   "-DGGML_CCACHE=ON",
+];
+
+const WINDOWS_FLAGS = [
   "-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /MP /wd4221 /wd4514 /wd4548",
   "-DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /MP /wd4221 /wd4514 /wd4548",
   "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
@@ -145,9 +148,9 @@ function main(): void {
   }
 
   const CHECKSUMS = join(ROOT, "resources", "llama", "checksums.json");
-  if (!existsSync(CHECKOUT)) {
+  if (!existsSync(join(CHECKOUT, "CMakeLists.txt"))) {
     throw new Error(
-      "vendor/llama.cpp is missing. Check out the pinned tag first:\n" +
+      "vendor/llama.cpp is missing or incomplete. Move the incomplete directory aside, then check out the pinned tag:\n" +
         `git clone --depth 1 --branch ${PINNED_TAG} https://github.com/ggml-org/llama.cpp vendor/llama.cpp`,
     );
   }
@@ -158,12 +161,16 @@ function main(): void {
   mkdirSync(outDir, { recursive: true });
   mkdirSync(buildDir, { recursive: true });
 
-  const flags = [...BASE_FLAGS, ...gpuFlags(backend)];
+  const flags = [
+    ...BASE_FLAGS,
+    ...(platform === "windows-x64" ? WINDOWS_FLAGS : []),
+    ...gpuFlags(backend),
+  ];
   run(`cmake -B ${buildDirFor(backend)} ${flags.join(" ")}`, CHECKOUT);
-  run(
-    `cmake --build ${buildDirFor(backend)} --config Release --target llama-server -- /p:NoWarn=MSB8027`,
-    CHECKOUT,
-  );
+  const buildCommand =
+    `cmake --build ${buildDirFor(backend)} --config Release --target llama-server` +
+    (platform === "windows-x64" ? " -- /p:NoWarn=MSB8027" : "");
+  run(buildCommand, CHECKOUT);
 
   const exeName = platform === "windows-x64" ? "llama-server.exe" : "llama-server";
   const built = [
