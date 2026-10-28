@@ -190,6 +190,17 @@ function main(): void {
   }
   if (platform === "linux-x64") chmodSync(join(outDir, exeName), 0o755);
 
+  // Also copy to Tauri bundle resource directory (src-tauri/bundle-llama/<platform>)
+  const tauriBundleDir = join(ROOT, "src-tauri", "bundle-llama", platform);
+  mkdirSync(tauriBundleDir, { recursive: true });
+  for (const file of readdirSync(builtDir)) {
+    const src = join(builtDir, file);
+    if (statSync(src).isFile()) {
+      copyFileSync(src, join(tauriBundleDir, file));
+    }
+  }
+  if (platform === "linux-x64") chmodSync(join(tauriBundleDir, exeName), 0o755);
+
   // Update the checksum ledger for the files in the platform folder.
   // All files are recorded under the flat platform key.
   let checksums: Record<string, string> = {};
