@@ -32,6 +32,9 @@ jobs:
         run: |
           choco install -y cmake ninja
 
+      - name: Clone llama.cpp (pinned tag)
+        run: git clone --depth 1 --branch b11678 https://github.com/ggml-org/llama.cpp vendor/llama.cpp
+
       - name: Build llama-server for Windows (CPU)
         run: |
           npm ci
@@ -84,6 +87,9 @@ jobs:
             pkg-config \
             libgtk-3-dev \
             libayatana-appindicator3-dev
+
+      - name: Clone llama.cpp (pinned tag)
+        run: git clone --depth 1 --branch b11678 https://github.com/ggml-org/llama.cpp vendor/llama.cpp
 
       - name: Build llama-server for Linux (CPU)
         run: |
