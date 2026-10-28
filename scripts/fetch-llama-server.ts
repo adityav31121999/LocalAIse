@@ -80,6 +80,10 @@ const BASE_FLAGS = [
   "-DGGML_CPU_ALL_VARIANTS=ON",
   "-DLLAMA_BUILD_TESTS=OFF",
   "-DLLAMA_BUILD_EXAMPLES=OFF",
+  "-DGGML_CCACHE=ON",
+  "-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /MP /wd4221 /wd4514 /wd4548",
+  "-DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /MP /wd4221 /wd4514 /wd4548",
+  "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
 ];
 
 type Backend = "cpu" | "vulkan" | "cuda" | "opencl";
@@ -157,7 +161,7 @@ function main(): void {
   const flags = [...BASE_FLAGS, ...gpuFlags(backend)];
   run(`cmake -B ${buildDirFor(backend)} ${flags.join(" ")}`, CHECKOUT);
   run(
-    `cmake --build ${buildDirFor(backend)} --config Release --target llama-server`,
+    `cmake --build ${buildDirFor(backend)} --config Release --target llama-server -- /p:NoWarn=MSB8027`,
     CHECKOUT,
   );
 
