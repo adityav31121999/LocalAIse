@@ -191,19 +191,67 @@ Onboarding is gated by `localStorage["LocalAIse.settings"].onboardingComplete` i
 
 ## Building installers
 
+### Windows (MSVC)
+
 ```bash
-# Frontend typecheck + production bundle
+# 1. Build the CPU llama-server for Windows
+npm run fetch-llama-server:win
+
+# 2. Frontend typecheck + production bundle
 npm run build
 
-# Optional: confirm no GPU libraries leaked into the frontend bundle
+# 3. Optional: confirm no GPU libraries leaked into the frontend bundle
 npm run check-bundle
 
-# Stage only the CPU llama-server files for packaging
+# 4. Stage only the CPU llama-server files for packaging
 npx tsx scripts/stage-bundle.ts
 
-# Build desktop installers (NSIS / AppImage / DEB)
-npm run tauri build
+# 5. Build desktop installer (NSIS)
+npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis
 ```
+
+Or use the convenience script:
+
+```bash
+npm run build:windows
+```
+
+### Linux (GNU / Ubuntu)
+
+```bash
+# 1. Build the CPU llama-server for Linux
+npm run fetch-llama-server:linux
+
+# 2. Frontend typecheck + production bundle
+npm run build
+
+# 3. Optional: confirm no GPU libraries leaked into the frontend bundle
+npm run check-bundle
+
+# 4. Stage only the CPU llama-server files for packaging
+npx tsx scripts/stage-bundle.ts
+
+# 5. Build desktop installers (AppImage / DEB)
+npm run tauri build -- --target x86_64-unknown-linux-gnu --bundles appimage,deb
+```
+
+Or use the convenience script:
+
+```bash
+npm run build:linux
+```
+
+### Cross-platform notes
+
+- **llama-server binaries are platform-specific** and must be built on the target platform (or in CI).
+- The `fetch-llama-server` script downloads the pinned llama.cpp source and builds locally using CMake.
+- For GPU backends (CUDA/Vulkan), run with the backend argument:
+  ```bash
+  # Windows CUDA
+  npm run fetch-llama-server -- windows-x64 cuda
+  # Linux Vulkan
+  npm run fetch-llama-server -- linux-x64 vulkan
+  ```
 
 Artifacts land in `src-tauri/target/release/bundle/`. Verify the runtime binaries against the
 recorded SHA-256 ledger at any time:
@@ -225,6 +273,10 @@ npm run verify-binaries
 | `npm run preview` | Serve the production frontend locally |
 | `npm run tauri <args>` | Tauri CLI (e.g. `npm run tauri build`) |
 | `npm run fetch-llama-server [-- platform backend]` | Build llama-server into `resources/llama/` |
+| `npm run fetch-llama-server:win` | Build llama-server for Windows (CPU) |
+| `npm run fetch-llama-server:linux` | Build llama-server for Linux (CPU) |
+| `npm run build:windows` | Build Windows installer (NSIS) |
+| `npm run build:linux` | Build Linux installers (AppImage, DEB) |
 | `npm run verify-binaries [-- --update]` | Verify/fix the bundle checksum ledger |
 | `npm run check-bundle [dir]` | Fail if GPU libraries are present in a bundle |
 

@@ -11,10 +11,14 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "fetch-llama-server": "npx tsx scripts/fetch-llama-server.ts",
+    "fetch-llama-server:win": "npx tsx scripts/fetch-llama-server.ts windows-x64 cpu",
+    "fetch-llama-server:linux": "npx tsx scripts/fetch-llama-server.ts linux-x64 cpu",
     "verify-binaries": "npx tsx scripts/verify-binaries.ts",
     "check-bundle": "npx tsx scripts/check-bundle.ts",
     "tauri": "tauri",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "build:windows": "npm run fetch-llama-server:win && npm run build && tauri build --target x86_64-pc-windows-msvc --bundles nsis",
+    "build:linux": "npm run fetch-llama-server:linux && npm run build && tauri build --target x86_64-unknown-linux-gnu --bundles appimage,deb"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
