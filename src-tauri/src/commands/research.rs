@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use crate::ingest::parsers::parse_file;
 use crate::models::registry as models;
 use crate::projects::layout::ProjectPaths;
-use crate::runtime::client;
+use crate::runtime::client::{self, SamplingParams};
 use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,14 +77,14 @@ pub async fn analyze_document(
                 client::message("system", "You are an expert at extracting structured tables from text."),
                 client::message("user", crate::agent::prompts::extract_tables_prompt(&doc_text)),
             ];
-            client::complete(&serving, &model_label, &messages).await?
+            client::complete(&serving, &model_label, &messages, SamplingParams::default()).await?
         }
         "flag_inconsistencies" => {
             let messages = vec![
                 client::message("system", "You are a meticulous fact and logic auditor."),
                 client::message("user", crate::agent::prompts::flag_inconsistencies_prompt(&doc_text)),
             ];
-            client::complete(&serving, &model_label, &messages).await?
+            client::complete(&serving, &model_label, &messages, SamplingParams::default()).await?
         }
         "compare" => {
             let second_name = request.compare_with.as_deref().unwrap_or("");
@@ -104,7 +104,7 @@ pub async fn analyze_document(
                     ),
                 ),
             ];
-            client::complete(&serving, &model_label, &messages).await?
+            client::complete(&serving, &model_label, &messages, SamplingParams::default()).await?
         }
         other => return Err(AppError::msg(format!("Unknown document analysis action: {other}"))),
     };

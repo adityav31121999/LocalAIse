@@ -39,13 +39,14 @@ const inflightDocumentReads = new Map<string, Promise<DocumentContent>>();
 export async function readDocument(
   projectId: string,
   filePath: string,
+  extractText?: boolean,
 ): Promise<DocumentContent> {
   // In browser dev mode, always use mock
   if (!isTauri) {
     return readDocumentMock(projectId, filePath);
   }
 
-  const key = `${projectId}:${filePath}`;
+  const key = `${projectId}:${filePath}:${extractText ?? false}`;
   const existing = inflightDocumentReads.get(key);
   if (existing) return existing;
 
@@ -58,7 +59,7 @@ export async function readDocument(
     // are handled by DocumentViewer (it still loads the file bytes for visual
     // rendering).
     const { invoke: call } = await import("@tauri-apps/api/core");
-    return call<DocumentContent>("read_document", { projectId, filePath });
+    return call<DocumentContent>("read_document", { projectId, filePath, extract_text: extractText });
   })();
 
   inflightDocumentReads.set(key, pending);

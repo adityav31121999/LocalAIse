@@ -31,7 +31,7 @@ interface ChatState {
   /** Starts a blank conversation with a completely fresh cache. */
   newChat(projectId: string): void;
   removeChat(projectId: string, chatId: string): Promise<void>;
-  send(projectId: string, content: string): Promise<void>;
+  send(projectId: string, content: string, sessionId: string | null, sampling?: { temperature: number; top_p: number; top_k: number }): Promise<void>;
   stop(): void;
   setShowThinking(show: boolean): void;
 }
@@ -146,11 +146,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     });
   },
 
-  send: async (projectId, content) => {
+  send: async (projectId, content, sessionId: string | null, sampling?: { temperature: number; top_p: number; top_k: number }) => {
     const prompt = content.trim();
     if (!prompt || get().streamingProjectId) return;
 
-    const sessionId = get().activeChat[projectId] ?? null;
+    const chatSessionId = sessionId ?? get().activeChat[projectId] ?? null;
     const userMessage: ChatMessage = {
       id: newId(),
       role: "user",
@@ -203,7 +203,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               reasoning: (message.reasoning ?? "") + delta,
             })),
         },
-        sessionId,
+        chatSessionId,
+        sampling,
       );
       patchAnswer((message) => ({
         ...message,

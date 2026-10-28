@@ -151,7 +151,7 @@ export function ChatView({ project }: { project: Project }) {
                   key={suggestion}
                   type="button"
                   className="suggestion"
-                  onClick={() => void send(project.id, suggestion)}
+                  onClick={() => void send(project.id, suggestion, activeChatId)}
                 >
                   {suggestion}
                 </button>
@@ -275,7 +275,7 @@ export function ChatView({ project }: { project: Project }) {
           <Composer
             project={project}
             streaming={streaming}
-            onSend={(text) => void send(project.id, text)}
+            onSend={(text, sampling) => void send(project.id, text, activeChatId, sampling)}
             onStop={stop}
           />
         </div>

@@ -16,6 +16,18 @@ pub async fn fetch_url(
     internet_enabled: bool,
     purpose: &str,
 ) -> AppResult<String> {
+    fetch_raw_url(project_root, url, internet_enabled, purpose)
+        .await
+        .map(|html| clean_html(&html))
+}
+
+/// Fetches raw HTML without stripping tags (for parsing).
+pub async fn fetch_raw_url(
+    project_root: &Path,
+    url: &str,
+    internet_enabled: bool,
+    purpose: &str,
+) -> AppResult<String> {
     if !internet_enabled {
         return Err(AppError::msg(
             "Internet access is disabled for this project. Enable the internet toggle to fetch web sources.",
@@ -54,8 +66,7 @@ pub async fn fetch_url(
         &format!("{url} ({purpose})"),
     );
 
-    // Strip HTML tags for clean text extraction
-    Ok(clean_html(&html))
+    Ok(html)
 }
 
 fn clean_html(html: &str) -> String {

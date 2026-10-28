@@ -1,5 +1,5 @@
 use crate::error::AppResult;
-use crate::runtime::client;
+use crate::runtime::client::{self, SamplingParams};
 use crate::runtime::Serving;
 
 const CHUNK_CHAR_LIMIT: usize = 3_000;
@@ -18,7 +18,7 @@ pub async fn map_reduce_summarize(
             client::message("system", "You are an analytical assistant summarizing documents."),
             client::message("user", super::prompts::summarize_prompt(full_text)),
         ];
-        return client::complete(serving, model_label, &messages).await;
+        return client::complete(serving, model_label, &messages, SamplingParams::default()).await;
     }
 
     // Split into chunks for Map step
@@ -46,7 +46,7 @@ pub async fn map_reduce_summarize(
             client::message("system", "You are a concise document section summarizer."),
             client::message("user", super::prompts::map_chunk_prompt(chunk)),
         ];
-        if let Ok(summary) = client::complete(serving, model_label, &messages).await {
+        if let Ok(summary) = client::complete(serving, model_label, &messages, SamplingParams::default()).await {
             intermediate_summaries.push(format!("--- Section {} ---\n{}", i + 1, summary.trim()));
         }
     }
@@ -58,5 +58,5 @@ pub async fn map_reduce_summarize(
         client::message("user", super::prompts::reduce_summaries_prompt(&combined)),
     ];
 
-    client::complete(serving, model_label, &reduce_messages).await
+    client::complete(serving, model_label, &reduce_messages, SamplingParams::default()).await
 }

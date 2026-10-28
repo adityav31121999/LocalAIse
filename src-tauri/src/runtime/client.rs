@@ -32,12 +32,36 @@ pub fn message(role: &'static str, content: impl Into<String>) -> ChatMessage {
     }
 }
 
+/// Sampling parameters for LLM inference.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct SamplingParams {
+    pub temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<i32>,
+}
+
+impl Default for SamplingParams {
+    fn default() -> Self {
+        Self {
+            temperature: 0.2,
+            top_p: None,
+            top_k: None,
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
     messages: &'a [ChatMessage],
     stream: bool,
     temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_k: Option<i32>,
     /// `false` starts a chat with no KV-cache reuse at all; `None` lets
     /// llama-server reuse the longest matching prompt prefix.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,14 +117,21 @@ pub async fn wait_until_ready(serving: &Serving) -> AppResult<()> {
 }
 
 /// Asks for one complete answer and returns its text.
-pub async fn complete(serving: &Serving, model: &str, messages: &[ChatMessage]) -> AppResult<String> {
+pub async fn complete(
+    serving: &Serving,
+    model: &str,
+    messages: &[ChatMessage],
+    sampling: SamplingParams,
+) -> AppResult<String> {
     let http = client(RESPONSE_TIMEOUT)?;
 
     let request = ChatRequest {
         model,
         messages,
         stream: false,
-        temperature: 0.2,
+        temperature: sampling.temperature,
+        top_p: sampling.top_p,
+        top_k: sampling.top_k,
         cache_prompt: None,
     };
 
@@ -173,11 +204,16 @@ pub struct StreamedCompletion {
 ///
 /// `reuse_cache` is `false` for the first turn of a new chat, which tells
 /// llama-server to build the answer from a completely fresh cache.
+///
+/// `allow_empty` controls whether an empty answer is treated as an error (default false).
+/// When true, returns empty content instead of rejecting it.
 pub async fn complete_stream(
     serving: &Serving,
     model: &str,
     messages: &[ChatMessage],
     reuse_cache: bool,
+    sampling: SamplingParams,
+    allow_empty: bool,
     mut on_delta: impl FnMut(&str),
     mut on_reasoning: impl FnMut(&str),
 ) -> AppResult<StreamedCompletion> {
@@ -187,7 +223,9 @@ pub async fn complete_stream(
         model,
         messages,
         stream: true,
-        temperature: 0.2,
+        temperature: sampling.temperature,
+        top_p: sampling.top_p,
+        top_k: sampling.top_k,
         cache_prompt: if reuse_cache { None } else { Some(false) },
     };
 
@@ -259,9 +297,16 @@ pub async fn complete_stream(
 
     drop(stream);
     if full.trim().is_empty() {
-        Err(AppError::ServerRejected(
-            "the model returned an empty answer".to_string(),
-        ))
+        if allow_empty {
+            Ok(StreamedCompletion {
+                content: String::new(),
+                reasoning,
+            })
+        } else {
+            Err(AppError::ServerRejected(
+                "the model returned an empty answer".to_string(),
+            ))
+        }
     } else {
         Ok(StreamedCompletion {
             content: full,

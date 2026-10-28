@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use super::plan::ResearchPlan;
 use crate::error::AppResult;
-use crate::runtime::client;
+use crate::runtime::client::{self, SamplingParams};
 use crate::runtime::Serving;
+use crate::tools::ToolResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,24 +50,40 @@ pub async fn execute_research(
             step.completed = true;
             collected_context.push(step_findings);
         } else if step.source_type == "web" && internet_enabled {
-            // If internet is permitted, simulate web search & fetch
-            let clean_slug = step.query.replace(|c: char| !c.is_alphanumeric(), "_");
-            let simulated_url = format!("https://en.wikipedia.org/wiki/{clean_slug}");
-            let fetch_result = crate::network::gate::fetch_url(
-                project_root,
-                &simulated_url,
-                true,
-                &format!("Research step: {}", step.title),
-            )
-            .await;
-
-            let content = match fetch_result {
-                Ok(text) => {
-                    let preview = if text.len() > 1000 { format!("{}…", &text[..1000]) } else { text };
-                    sources_used.push(simulated_url.clone());
-                    format!("Web source ({}):\n{}", simulated_url, preview)
+            // Real web search using DuckDuckGo Lite + fetch top results
+            let search_result = crate::tools::web_search::search(project_root, &step.query, true).await;
+            
+            let content = match search_result {
+                ToolResult { error: Some(e), .. } => {
+                    format!("Web search failed: {}", e)
                 }
-                Err(e) => format!("Web search note: {}", e),
+                ToolResult { output, .. } => {
+                    // The search result now contains formatted text with URLs
+                    // We also need to fetch the actual content from top URLs
+                    // Parse the search output to extract URLs
+                    let urls = extract_urls_from_search_output(&output);
+                    
+                    let mut fetched_contents = Vec::new();
+                    for (i, url) in urls.iter().take(3).enumerate() {
+                        let fetch_result = crate::tools::web_fetch::fetch(project_root, url, true).await;
+                        match fetch_result {
+                            ToolResult { error: Some(e), .. } => {
+                                fetched_contents.push(format!("[Source {}] {} (fetch failed: {})", i + 1, url, e));
+                            }
+                            ToolResult { output: fetch_output, .. } => {
+                                sources_used.push(url.clone());
+                                fetched_contents.push(format!("[Source {}] {}\n{}", i + 1, url, fetch_output));
+                            }
+                        }
+                    }
+                    
+                    if fetched_contents.is_empty() {
+                        format!("Web search results (no content fetched):\n{}", output)
+                    } else {
+                        format!("Web search results:\n{}\n\n---\nFetched content:\n{}", 
+                            output, fetched_contents.join("\n\n---\n\n"))
+                    }
+                }
             };
 
             step.findings = Some(content.clone());
@@ -89,7 +106,7 @@ pub async fn execute_research(
         client::message("user", prompt),
     ];
 
-    let report_markdown = client::complete(serving, model_label, &messages).await?;
+    let report_markdown = client::complete(serving, model_label, &messages, SamplingParams::default()).await?;
     plan.status = "completed".to_string();
 
     // Save report to outputs/
@@ -105,4 +122,23 @@ pub async fn execute_research(
         saved_to_file: Some(format!("outputs/{filename}")),
         sources_used,
     })
+}
+
+/// Extract URLs from the formatted search output.
+/// The output format is: "N. [Title](URL)\n   Snippet"
+fn extract_urls_from_search_output(output: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    for line in output.lines() {
+        // Look for markdown link pattern: [Title](URL)
+        if let Some(start) = line.find("](") {
+            let url_start = start + 2;
+            if let Some(end) = line[url_start..].find(')') {
+                let url = &line[url_start..url_start + end];
+                if url.starts_with("http") {
+                    urls.push(url.to_string());
+                }
+            }
+        }
+    }
+    urls
 }

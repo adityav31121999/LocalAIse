@@ -10,7 +10,7 @@ use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
 use crate::models::registry as models;
 use crate::projects::layout::{
-    ChatMode, ProjectFile, ProjectFolders, ProjectPaths, ProjectTemplate, RESERVED_DIRS, STATE_DIR,
+    ChatMode, ProjectChatSettings, ProjectFile, ProjectFolders, ProjectPaths, ProjectTemplate, RESERVED_DIRS, STATE_DIR,
 };
 use crate::projects::templates;
 use crate::projects::{Project, SourceFile, SourceStatus};
@@ -261,6 +261,7 @@ fn register(
         folders: folders.clone(),
         diary_enabled,
         rag_paths: rag_paths.clone(),
+        chat_settings: ProjectChatSettings::default(),
     })?;
     paths.ensure_structure(&folders, diary_enabled)?;
 
@@ -272,6 +273,7 @@ fn register(
         internet_enabled,
         system_prompt,
         chat_mode,
+        chat_settings: ProjectChatSettings::default(),
         last_opened_at: Some(time::now_iso()),
     };
 

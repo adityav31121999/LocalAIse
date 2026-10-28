@@ -84,6 +84,25 @@ impl Default for ProjectFolders {
     }
 }
 
+/// Per-project chat configuration overrides.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProjectChatSettings {
+    /// Maximum tool rounds the agent may run in one turn. Default: 6.
+    #[serde(default = "default_max_tool_steps")]
+    pub max_tool_steps: u32,
+    /// How many previous turns to replay to the model. Default: 12.
+    #[serde(default = "default_history_limit")]
+    pub history_limit: usize,
+    /// How many source chunks to retrieve for RAG context. Default: 4.
+    #[serde(default = "default_retrieval_limit")]
+    pub retrieval_limit: usize,
+}
+
+fn default_max_tool_steps() -> u32 { 6 }
+fn default_history_limit() -> usize { 12 }
+fn default_retrieval_limit() -> usize { 4 }
+
 /// Contents of `<project>/project.json` - the manifest that manages the whole
 /// project directory.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -110,6 +129,9 @@ pub struct ProjectFile {
     /// base may read. Empty means: everything outside the app's own folders.
     #[serde(default)]
     pub rag_paths: Vec<String>,
+    /// Per-project chat settings (tool steps, history, retrieval limits).
+    #[serde(default)]
+    pub chat_settings: ProjectChatSettings,
 }
 
 impl ProjectFile {
@@ -124,6 +146,7 @@ impl ProjectFile {
             folders: ProjectFolders::default(),
             diary_enabled: false,
             rag_paths: Vec::new(),
+            chat_settings: ProjectChatSettings::default(),
         }
     }
 }

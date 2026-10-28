@@ -18,16 +18,11 @@ use crate::models::registry as models;
 use crate::projects::chats::{self, ChatSession, StoredMessage};
 use crate::projects::layout::{ChatMode, ProjectPaths};
 use crate::retrieval::citations::Citation;
-use crate::runtime::client;
+use crate::runtime::client::{self, SamplingParams};
 use crate::util::{hash, time};
 use crate::AppState;
 
-/// How many source chunks a cited answer uses.
-const RETRIEVAL_LIMIT: usize = 4;
-
-/// How many earlier turns are replayed to the model, so long chats keep a
-/// bounded prompt.
-const HISTORY_LIMIT: usize = 12;
+// Default constants are defined in ProjectChatSettings::default()
 
 /// A chat turn: the streamed answer plus the citations it was built on.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -50,11 +45,22 @@ pub async fn chat_send(
     // `None` starts a new chat; a saved id continues that conversation.
     session_id: Option<String>,
     prompt: String,
+    // Optional sampling parameters; if not provided, defaults are used.
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    top_k: Option<i32>,
 ) -> AppResult<ChatStreamResult> {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
         return Err(AppError::msg("Type a question first."));
     }
+
+    // Build sampling params from provided values, using defaults when not specified.
+    let sampling = SamplingParams {
+        temperature: temperature.unwrap_or(0.2).clamp(0.0, 2.0),
+        top_p: top_p.map(|v| v.clamp(0.0, 1.0)),
+        top_k: top_k.map(|v| v.max(0)),
+    };
 
     let (record, settings) = {
         let registry = state.registry()?;
@@ -84,10 +90,15 @@ pub async fn chat_send(
         session.title = chats::first_line_title(Some(&prompt));
     }
 
+    // Read project-specific limits (fall back to defaults)
+    let retrieval_limit = record.chat_settings.retrieval_limit;
+    let history_limit = record.chat_settings.history_limit;
+    let max_tool_steps = record.chat_settings.max_tool_steps;
+
     // 2. Retrieve relevant source context from indexed project sources.
     let index_db = crate::index::db::IndexDb::new(&record.path);
     let project_index = index_db.load();
-    let scored_chunks = crate::retrieval::search::search_chunks(&project_index, &prompt, RETRIEVAL_LIMIT);
+    let scored_chunks = crate::retrieval::search::search_chunks(&project_index, &prompt, retrieval_limit);
     let citations = crate::retrieval::search::format_citations(&scored_chunks);
 
     let mut context_block = String::new();
@@ -119,14 +130,14 @@ pub async fn chat_send(
     // In agent mode the built-in prompt gains the tool rules; the custom
     // prompt the user set still leads the model's voice and behaviour.
     let system = if record.chat_mode == ChatMode::Agent {
-        agent_chat::instructions(&system, record.internet_enabled)
+        agent_chat::instructions(&system, record.internet_enabled, !scored_chunks.is_empty())
     } else {
         system
     };
 
     // 3. Replay the tail of the conversation, then ask the new question.
     let mut messages = vec![client::message("system", system.clone())];
-    let history_start = session.messages.len().saturating_sub(HISTORY_LIMIT);
+    let history_start = session.messages.len().saturating_sub(history_limit);
     for turn in &session.messages[history_start..] {
         let role = if turn.role == "assistant" { "assistant" } else { "user" };
         messages.push(client::message(role, turn.content.clone()));
@@ -225,6 +236,8 @@ pub async fn chat_send(
             &record.path,
             &personal_space,
             record.internet_enabled,
+            sampling,
+            max_tool_steps,
             |delta| emit(false, delta),
         )
         .await?;
@@ -236,6 +249,8 @@ pub async fn chat_send(
             &messages,
             // A brand-new chat never reuses another conversation's cache.
             !fresh,
+            sampling,
+            false, // allow_empty: reject empty answers (default behavior)
             |delta| emit(false, delta),
             |delta| emit(true, delta),
         )

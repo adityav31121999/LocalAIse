@@ -31,11 +31,18 @@ function chunkText(text: string): string[] {
  * events) as the model generates them; the invoke call still resolves with
  * the complete message and citations, which stays the source of truth.
  */
+export interface SamplingParams {
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+}
+
 export async function streamChat(
   projectId: string,
   prompt: string,
   handlers: ChatStreamHandlers,
   sessionId: string | null,
+  sampling?: SamplingParams,
 ): Promise<ChatStreamResult> {
   if (isTauri) {
     let streamed = "";
@@ -55,6 +62,9 @@ export async function streamChat(
         projectId,
         sessionId,
         prompt,
+        temperature: sampling?.temperature,
+        top_p: sampling?.top_p,
+        top_k: sampling?.top_k,
       });
       if (handlers.signal.aborted) {
         return { ...result, content: streamed, reasoning };

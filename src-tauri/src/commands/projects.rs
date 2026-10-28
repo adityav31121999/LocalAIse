@@ -27,11 +27,13 @@ pub fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
 
 /// Reads a document file and extracts its text content.
 /// For PDFs, also returns base64-encoded bytes for visual rendering.
+/// If `extract_text` is false (default), only returns bytes for PDFs without text extraction.
 #[tauri::command]
 pub fn read_document(
     state: State<'_, AppState>,
     project_id: String,
     file_path: String,
+    extract_text: Option<bool>,
 ) -> AppResult<DocumentContent> {
     let registry = state.registry()?;
     let record = registry
@@ -67,13 +69,19 @@ pub fn read_document(
         _ => "application/octet-stream",
     };
     
-    // Extract text content
-    let text = if ext == "pdf" {
-        crate::ingest::parsers::pdf::parse(&target)
-            .map_err(|e| AppError::msg(format!("Failed to parse PDF: {e}")))?
+    // Extract text content only if requested (default false for PDFs to avoid unsolicited parsing)
+    let should_extract_text = extract_text.unwrap_or(false) || ext != "pdf";
+    let text = if should_extract_text {
+        if ext == "pdf" {
+            crate::ingest::parsers::pdf::parse(&target)
+                .map_err(|e| AppError::msg(format!("Failed to parse PDF: {e}")))?
+        } else {
+            std::fs::read_to_string(&target)
+                .map_err(|e| AppError::msg(format!("Cannot read {file_path}: {e}")))?
+        }
     } else {
-        std::fs::read_to_string(&target)
-            .map_err(|e| AppError::msg(format!("Cannot read {file_path}: {e}")))?
+        // For PDFs without text extraction, return empty string
+        String::new()
     };
     
     let metadata = std::fs::metadata(&target)

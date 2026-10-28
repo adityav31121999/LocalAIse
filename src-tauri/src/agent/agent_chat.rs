@@ -30,11 +30,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::{AppError, AppResult};
-use crate::runtime::Serving;
+use crate::runtime::{client::SamplingParams, Serving};
 use crate::tools;
-
-/// How many tool rounds one chat turn may run before the agent has to answer.
-const MAX_TOOL_STEPS: i32 = 6;
 
 /// Tool notes and answers are clipped, so one tool call cannot flood a line
 /// of the transcript.
@@ -54,7 +51,7 @@ pub struct HistoryTurn {
 
 /// The chat system prompt of agent mode: the project's own prompt plus the
 /// ground rules. Tool calling is native, so this only describes when to act.
-pub fn instructions(base: &str, internet_enabled: bool) -> String {
+pub fn instructions(base: &str, internet_enabled: bool, has_rag_context: bool) -> String {
     let mut text = String::from(base.trim());
     text.push_str(
         "\n\nAGENT RULES: You are in agent mode on this private, local folder. \
@@ -64,6 +61,15 @@ the diary and calendar tools when the question touches the user's days. \
 write_file only when the user asked for something to be written. Cite files by \
 their relative path. Answer in plain prose; keep tool calls to one at a time.",
     );
+
+    if has_rag_context {
+        text.push_str(
+            "\n\nRelevant context from the project's indexed sources has been \
+prepended to this conversation. Use that information first before calling \
+search_local. Only call search_local if you need additional information not \
+covered by the provided context."
+        );
+    }
 
     text.push_str(if internet_enabled {
         " The internet toggle is on, so web_search and web_fetch are available \
@@ -290,7 +296,7 @@ answer the question.",
 }
 
 /// The chat agent turn. Runs as long as the model keeps calling tools, bound
-/// by `MAX_TOOL_STEPS`.
+/// by `max_tool_steps`.
 ///
 /// `deliver` receives exactly the text the user should see, in order — streamed
 /// answer text plus one short note per tool call.
@@ -303,6 +309,8 @@ pub async fn run(
     project_root: &Path,
     personal_space: &Path,
     internet_enabled: bool,
+    sampling: SamplingParams,
+    max_tool_steps: u32,
     mut deliver: impl FnMut(&str),
 ) -> AppResult<AgentTurn> {
     let mut memory = SimpleMemory::new();
@@ -326,17 +334,23 @@ pub async fn run(
         .with_model(model_label);
 
     let tools = build_tools(project_root, personal_space, internet_enabled);
+    let mut options = ChainCallOptions::new()
+        .with_temperature(sampling.temperature);
+    if let Some(top_p) = sampling.top_p {
+        options = options.with_top_p(top_p);
+    }
+    if let Some(top_k) = sampling.top_k {
+        options = options.with_top_k(top_k as usize);
+    }
     let agent = OpenAiToolAgentBuilder::new()
         .prefix(system)
         .tools(&tools)
-        // `new()` sends no cap and no temperature; the server's own settings
-        // decide the length, the same as plain chat mode does.
-        .options(ChainCallOptions::new())
+        .options(options)
         .build(llm)
         .map_err(|error| AppError::msg(format!("could not start the agent: {error}")))?;
 
     let executor = AgentExecutor::from_agent(agent)
-        .with_max_iterations(MAX_TOOL_STEPS)
+        .with_max_iterations(max_tool_steps as i32)
         .with_memory(memory.into());
 
     let mut content = String::new();
@@ -407,12 +421,12 @@ mod tests {
 
     #[test]
     fn agent_rules_arrive_after_the_project_prompt() {
-        let text = instructions("You are localAIse for “Budget”.", false);
+        let text = instructions("You are localAIse for “Budget”.", false, false);
         assert!(text.starts_with("You are localAIse"));
         assert!(text.contains("AGENT RULES"));
         assert!(text.contains("internet toggle is off"));
         assert!(!text.contains("web tools are available when the folders"));
-        let with_web = instructions("base", true);
+        let with_web = instructions("base", true, false);
         assert!(with_web.contains("web_search and web_fetch are available"));
     }
 

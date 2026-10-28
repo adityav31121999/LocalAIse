@@ -67,7 +67,7 @@ async function readFileContent(file: File): Promise<string> {
 interface ComposerProps {
   project: Project;
   streaming: boolean;
-  onSend(text: string): void;
+  onSend(text: string, sampling: { temperature: number; top_p: number; top_k: number }): void;
   onStop(): void;
 }
 
@@ -134,7 +134,7 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
           .map((part, index) => `### ${attachedFiles[index].name}\n${part}`)
           .join("\n\n---\n\n");
     }
-    onSend(prompt);
+    onSend(prompt, { temperature, top_p: topP, top_k: topK });
     setValue("");
     setAttachedFiles([]);
     textareaRef.current?.focus();
