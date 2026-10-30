@@ -334,3 +334,69 @@ fn pick_folder(app: &AppHandle, title: &str) -> AppResult<Option<PathBuf>> {
         .map(Some)
         .map_err(|error| AppError::msg(format!("that location cannot be read: {error}")))
 }
+
+/// Attaches a file to the project by copying it to the project's data folder.
+/// Returns the relative path from the project root.
+#[tauri::command]
+pub fn attach_file_to_project(
+    state: State<'_, AppState>,
+    project_id: String,
+    file_name: String,
+    file_bytes_base64: String,
+) -> AppResult<String> {
+    let registry = state.registry()?;
+    let record = registry
+        .find(&project_id)
+        .ok_or_else(|| AppError::UnknownProject(project_id.clone()))?;
+    let root = PathBuf::from(&record.path);
+    
+    // Decode base64
+    let file_bytes = BASE64_STANDARD.decode(&file_bytes_base64)
+        .map_err(|e| AppError::msg(format!("Invalid base64: {e}")))?;
+    
+    // Determine the data folder
+    let paths = ProjectPaths::new(root.clone());
+    let data_dir = paths.data_dir();
+    
+    // Ensure data directory exists
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| AppError::msg(format!("Failed to create data directory: {e}")))?;
+    
+    // Generate unique file name if needed
+    let mut target_path = data_dir.join(&file_name);
+    let mut counter = 1;
+    // Extract stem and extension before the loop to avoid borrow issues
+    let stem = file_name
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(&file_name)
+        .to_string();
+    let ext = file_name
+        .rsplit_once('.')
+        .map(|(_, e)| e)
+        .unwrap_or("")
+        .to_string();
+    
+    while target_path.exists() {
+        let new_name = if ext.is_empty() {
+            format!("{}_{}", stem, counter)
+        } else {
+            format!("{}_{}.{}", stem, counter, ext)
+        };
+        target_path = data_dir.join(new_name);
+        counter += 1;
+    }
+    
+    // Write the file
+    std::fs::write(&target_path, &file_bytes)
+        .map_err(|e| AppError::msg(format!("Failed to write file: {e}")))?;
+    
+    // Return relative path from project root
+    let relative_path = target_path
+        .strip_prefix(&root)
+        .map_err(|_| AppError::msg("Failed to compute relative path"))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    
+    Ok(relative_path)
+}

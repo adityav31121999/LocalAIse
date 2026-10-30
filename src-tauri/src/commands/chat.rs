@@ -9,15 +9,21 @@
 //! folder, so a conversation survives a restart. A brand-new chat is answered
 //! from a completely fresh cache.
 
+use std::fs;
+use std::path::Path;
+
 use tauri::{AppHandle, Emitter, State};
 
 use crate::agent::agent_chat;
 use crate::activity::log as activity;
 use crate::error::{AppError, AppResult};
+use crate::ingest::pipeline::ingest_file;
+use crate::index::db::IndexDb;
 use crate::models::registry as models;
 use crate::projects::chats::{self, ChatSession, StoredMessage};
 use crate::projects::layout::{ChatMode, ProjectPaths};
 use crate::retrieval::citations::Citation;
+use crate::retrieval::search::search_chunks;
 use crate::runtime::client::{self, SamplingParams};
 use crate::util::{hash, time};
 use crate::AppState;
@@ -37,6 +43,10 @@ pub struct ChatStreamResult {
     pub citations: Vec<Citation>,
 }
 
+/// Threshold for deciding whether to read a file fully or index it for RAG.
+/// Files smaller than this are read in full; larger files are indexed.
+const ATTACHMENT_FULL_READ_THRESHOLD: u64 = 10_000; // 10 KB
+
 #[tauri::command]
 pub async fn chat_send(
     app: AppHandle,
@@ -45,6 +55,8 @@ pub async fn chat_send(
     // `None` starts a new chat; a saved id continues that conversation.
     session_id: Option<String>,
     prompt: String,
+    // Optional file paths attached to this message (relative to project root).
+    attached_files: Option<Vec<String>>,
     // Optional sampling parameters; if not provided, defaults are used.
     temperature: Option<f32>,
     top_p: Option<f32>,
@@ -95,11 +107,72 @@ pub async fn chat_send(
     let history_limit = record.chat_settings.history_limit;
     let max_tool_steps = record.chat_settings.max_tool_steps;
 
-    // 2. Retrieve relevant source context from indexed project sources.
-    let index_db = crate::index::db::IndexDb::new(&record.path);
+    // 2. Process attached files: read small files fully, index large files for RAG.
+    let mut attached_context = String::new();
+    let mut attached_citations: Vec<Citation> = Vec::new();
+    if let Some(files) = attached_files {
+        let project_root = &record.path;
+        let index_db = IndexDb::new(project_root);
+        
+        for (_idx, file_rel) in files.iter().enumerate() {
+            let file_path = project_root.join(file_rel);
+            
+            // Get file size to decide strategy
+            let file_size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+            
+            if file_size <= ATTACHMENT_FULL_READ_THRESHOLD {
+                // Small file: read full content and add directly to context
+                if let Ok(content) = fs::read_to_string(&file_path) {
+                    if !content.trim().is_empty() {
+                        attached_context.push_str(&format!(
+                            "\n\n--- Attached file: {} ---\n{}",
+                            file_rel, content
+                        ));
+                        attached_citations.push(Citation {
+                            index: attached_citations.len() + 1,
+                            file_name: file_rel.clone(),
+                            page: None,
+                            passage: Some(if content.len() > 200 {
+                                format!("{}…", &content[..200])
+                            } else {
+                                content.clone()
+                            }),
+                        });
+                    }
+                }
+            } else {
+                // Large file: ingest into index for RAG retrieval
+                let file_rel_path = Path::new(file_rel);
+                match ingest_file(project_root, file_rel_path) {
+                    Ok(chunks) => {
+                        // Get file modification time for index stamp
+                        let file_stamp = fs::metadata(&file_path)
+                            .and_then(|m| m.modified())
+                            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string())
+                            .unwrap_or_default();
+                        
+                        if let Err(e) = index_db.insert_chunks(file_rel, &file_stamp, chunks) {
+                            eprintln!("Failed to index attached file {}: {}", file_rel, e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to ingest attached file {}: {}", file_rel, e);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Retrieve relevant source context from indexed project sources (includes newly indexed attached files).
+    let index_db = IndexDb::new(&record.path);
     let project_index = index_db.load();
-    let scored_chunks = crate::retrieval::search::search_chunks(&project_index, &prompt, retrieval_limit);
-    let citations = crate::retrieval::search::format_citations(&scored_chunks);
+    let scored_chunks = search_chunks(&project_index, &prompt, retrieval_limit);
+    let mut citations = crate::retrieval::search::format_citations(&scored_chunks);
+    // Merge attached file citations (adjust indices to continue after RAG citations)
+    for mut c in attached_citations {
+        c.index = citations.len() + 1;
+        citations.push(c);
+    }
 
     let mut context_block = String::new();
     if !scored_chunks.is_empty() {
@@ -112,6 +185,11 @@ pub async fn chat_send(
                 sc.chunk.content
             ));
         }
+    }
+    // Append attached file context (full content for small files)
+    if !attached_context.is_empty() {
+        context_block.push_str("\n\nContext from attached files:\n");
+        context_block.push_str(&attached_context);
     }
 
     let user_prompt = if context_block.is_empty() {

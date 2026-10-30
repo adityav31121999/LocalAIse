@@ -43,6 +43,7 @@ export async function streamChat(
   handlers: ChatStreamHandlers,
   sessionId: string | null,
   sampling?: SamplingParams,
+  attachedFiles?: string[],
 ): Promise<ChatStreamResult> {
   if (isTauri) {
     let streamed = "";
@@ -62,6 +63,7 @@ export async function streamChat(
         projectId,
         sessionId,
         prompt,
+        attached_files: attachedFiles,
         temperature: sampling?.temperature,
         top_p: sampling?.top_p,
         top_k: sampling?.top_k,

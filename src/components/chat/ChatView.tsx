@@ -275,7 +275,7 @@ export function ChatView({ project }: { project: Project }) {
           <Composer
             project={project}
             streaming={streaming}
-            onSend={(text, sampling) => void send(project.id, text, activeChatId, sampling)}
+            onSend={(text, sampling, attachedFiles) => void send(project.id, text, activeChatId, sampling, attachedFiles)}
             onStop={stop}
           />
         </div>

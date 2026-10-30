@@ -55,6 +55,7 @@ import {
   runtimeCapabilities,
   runtimeProfile,
   runtimeStatus,
+  isModelReasoning,
 } from "../../api/models";
 import type { HardwareReport } from "../../api/models";
 import { useProjectStore } from "../../state/projectStore";
@@ -249,11 +250,28 @@ export function RuntimeConfigProvider({
       runtimeCapabilities().catch(() => null),
       runtimeStatus().catch(() => null),
     ]);
+    const previousModel = modelPath;
     setModelPath(model);
     if (report) setHardware(report);
     setServerBinary(binary);
     if (caps) setCapabilities(caps);
     if (state) setStatus(state);
+
+    // Auto-set thinking budget based on model type
+    if (model && model !== previousModel) {
+      const reasoning = await isModelReasoning(model).catch(() => false);
+      if (!reasoning) {
+        // Non-reasoning model: disable thinking budget
+        setDraft((current) => ({ ...current, thinkingBudget: 0 }));
+      } else {
+        // Reasoning model: ensure thinking budget is enabled (use default if 0)
+        setDraft((current) =>
+          current.thinkingBudget === 0
+            ? { ...current, thinkingBudget: PROFILE_BUDGET_DEFAULTS.maxOutputTokens ?? 2048 }
+            : current
+        );
+      }
+    }
 
     const stored = await runtimeProfile(model, projectId).catch(() => null);
     if (stored) {

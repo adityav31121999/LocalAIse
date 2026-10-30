@@ -16,7 +16,8 @@ use crate::config::app_config::Settings;
 use crate::config::validation::{ValidationContext, ValidationReport};
 use crate::error::{AppError, AppResult};
 use crate::models::registry as models;
-use crate::models::shape::read_shape;
+use crate::models::naming::is_reasoning_model;
+use crate::models::shape::{read_shape, read_meta};
 use crate::runtime::backend::{self, ServerCapabilities};
 use crate::runtime::budget::{self, FitLevel, ModelShape};
 use crate::runtime::profile::{ComputeDevice, InferenceProfile, KvCacheType, ProfileScope};
@@ -802,6 +803,24 @@ pub async fn get_server_binary(state: State<'_, AppState>) -> AppResult<Option<S
         backend::resolve_server(&state.dirs, &settings)
             .map(|path| path.to_string_lossy().into_owned()),
     )
+}
+
+/// Check if the selected model (or a given model path) is a reasoning/thinking model.
+/// Returns true for models that natively produce reasoning traces (Qwen3, DeepSeek-R1, QwQ, Nemotron, etc.).
+#[tauri::command]
+pub fn is_model_reasoning(state: State<'_, AppState>, model_path: Option<String>) -> AppResult<bool> {
+    let settings = state.registry()?.settings.clone();
+    let model = model_path
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+        .or_else(|| models::selected(&state.dirs, &settings));
+
+    let Some(path) = model else {
+        return Ok(false);
+    };
+
+    let meta = read_meta(&path);
+    Ok(is_reasoning_model(&meta.name, &meta.architecture))
 }
 
 /// Lets the user pick their own llama-server build. Needed together with GPU

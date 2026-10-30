@@ -36,11 +36,9 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"content" | "summary">("content");
   const [summaryKind, setSummaryKind] = useState<"summary" | "tables" | "excerpt">("summary");
-  const [extracting, setExtracting] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [currentPage, setCurrentPage] = useState<number | null>(null);
   const [pdfBytes, setPdfBytes] = useState<string | null>(null);
-  const [textExtracted, setTextExtracted] = useState(false);
   /** Page total as rendered by pdf.js — more reliable than the extractor's
    * estimate, so the header prefers it once the viewer has loaded. */
   const [pdfPageTotal, setPdfPageTotal] = useState<number | null>(null);
@@ -56,22 +54,6 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
     },
     [],
   );
-
-  /** Extract text content from the document (for PDFs, this triggers pdf-extract). */
-  const handleExtractText = async () => {
-    if (!content) return;
-    setExtracting(true);
-    try {
-      const doc = await readDocument(project.id, filePath, true);
-      setContent(doc);
-      setTextExtracted(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to extract text";
-      setSummaryError(msg);
-    } finally {
-      setExtracting(false);
-    }
-  };
 
   const loadDocument = useCallback(async () => {
     setLoading(true);
@@ -218,7 +200,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
 
   /** Pull key figures and tables out through the analysis pipeline. */
   const handleExtractTables = async () => {
-    setExtracting(true);
+    setSummarizing(true);
     setSummaryError(null);
     try {
       const result = await analyzeDocument({
@@ -234,7 +216,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
       setSummaryError(err instanceof Error ? err.message : "Failed to extract tables");
       setActiveTab("summary");
     } finally {
-      setExtracting(false);
+      setSummarizing(false);
     }
   };
 
@@ -331,41 +313,12 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
         </div>
 
         <div className="doc-toolbar">
-          {/* Extract Text button for PDFs when text not yet extracted */}
-          {isPDF && !textExtracted && !extracting && (
-            <button
-              type="button"
-              className="btn btn--primary btn--sm"
-              onClick={handleExtractText}
-              disabled={loading}
-              title="Extract text content from this PDF"
-            >
-              <SparkIcon size={13} />
-              <span>Extract Text</span>
-            </button>
-          )}
-          {isPDF && extracting && (
-            <button type="button" className="btn btn--primary btn--sm" disabled>
-              <div
-                style={{
-                  width: "13px",
-                  height: "13px",
-                  borderRadius: "50%",
-                  border: "2px solid var(--border-strong)",
-                  borderTopColor: "var(--accent-primary)",
-                  animation: "spin 0.7s linear infinite",
-                }}
-              />
-              <span>Extracting…</span>
-            </button>
-          )}
-
           <button
             type="button"
             className="btn btn--subtle btn--sm"
             onClick={handleCiteInChat}
-            disabled={isPDF && !textExtracted}
-            title={isPDF && !textExtracted ? "Extract text first to cite" : "Insert a citation for this document into the chat composer"}
+            disabled={isPDF && !content}
+            title={isPDF && !content ? "Load document first to cite" : "Insert a citation for this document into the chat composer"}
           >
             <QuoteIcon size={13} />
             <span>Cite in Chat</span>
@@ -375,11 +328,11 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
             type="button"
             className="btn btn--subtle btn--sm"
             onClick={() => void handleExtractTables()}
-            disabled={loading || extracting || (isPDF && !textExtracted)}
-            title={isPDF && !textExtracted ? "Extract text first" : "Extract key figures and tables from this document"}
+            disabled={loading || (isPDF && !content)}
+            title={isPDF && !content ? "Load document first" : "Extract key figures and tables from this document"}
           >
             <TableIcon size={13} />
-            <span>{extracting ? "Extracting…" : "Key figures & tables"}</span>
+            <span>{loading ? "Loading…" : "Key figures & tables"}</span>
           </button>
 
           {!summarizing && !summary && (
@@ -387,8 +340,8 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
               type="button"
               className="btn btn--primary btn--sm"
               onClick={handleSummarize}
-              disabled={loading || !content || (isPDF && !textExtracted)}
-              title={isPDF && !textExtracted ? "Extract text first to summarize" : "Generate AI summary"}
+              disabled={loading || !content || (isPDF && !content)}
+              title={isPDF && !content ? "Load document first to summarize" : "Generate AI summary"}
             >
               <SparkIcon size={13} />
               <span>Summarize</span>
@@ -472,8 +425,8 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
               type="button"
               className="btn btn--subtle btn--sm"
               onClick={handleCopyContent}
-              disabled={isPDF && !textExtracted}
-              title={isPDF && !textExtracted ? "Extract text first to copy" : "Copy document text"}
+              disabled={isPDF && !content}
+              title={isPDF && !content ? "Load document first to copy" : "Copy document text"}
             >
               <CopyIcon size={13} />
             </button>
@@ -603,45 +556,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
               </div>
             ) : isPDF && pdfFile ? (
               // Visual PDF rendering for PDF files
-              <>
-                {!textExtracted && (
-                  <div style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "24px",
-                    textAlign: "center",
-                    borderBottom: "1px solid var(--border)",
-                    marginBottom: "16px",
-                  }}>
-                    <SparkIcon size={32} style={{ color: "var(--accent-primary)", marginBottom: "12px", opacity: 0.7 }} />
-                    <h3 style={{ fontSize: "14px", fontWeight: "600", marginBottom: "8px" }}>Text not extracted</h3>
-                    <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "16px", maxWidth: "400px" }}>
-                      PDF text extraction is opt-in for privacy and performance. Click "Extract Text" in the toolbar to parse the document content for citing, copying, and summarization.
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn--primary btn--sm"
-                      onClick={handleExtractText}
-                      disabled={extracting}
-                    >
-                      {extracting ? (
-                        <>
-                          <div style={{ width: "13px", height: "13px", borderRadius: "50%", border: "2px solid var(--border-strong)", borderTopColor: "var(--accent-primary)", animation: "spin 0.7s linear infinite", marginRight: "8px" }} />
-                          Extracting…
-                        </>
-                      ) : (
-                        <>
-                          <SparkIcon size={13} style={{ marginRight: "8px" }} />
-                          Extract Text
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
-                <PDFViewer file={pdfFile} onPageChange={handlePdfPageChange} />
-              </>
+              <PDFViewer file={pdfFile} onPageChange={handlePdfPageChange} />
             ) : (
               // Text content for non-PDF files
               <div style={{

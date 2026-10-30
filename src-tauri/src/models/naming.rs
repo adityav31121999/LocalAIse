@@ -74,6 +74,52 @@ pub fn params_billion_from_name(name: &str) -> Option<f32> {
     best
 }
 
+/// Returns true if the model name/architecture suggests it supports reasoning/thinking.
+/// These models natively produce reasoning traces (chain-of-thought).
+pub fn is_reasoning_model(name: &str, architecture: &str) -> bool {
+    let normalized_name = normalize(name);
+    let normalized_arch = normalize(architecture);
+
+    // Known reasoning model families (by architecture prefix or name patterns)
+    const REASONING_ARCHITECTURES: &[&str] = &[
+        "qwen3",      // Qwen3 supports thinking mode
+        "deepseek",   // DeepSeek R1, etc.
+        "qwq",        // QwQ
+        "nemotron",   // Nemotron 3 Ultra
+        "marco",      // Marco-o1
+        "skywork",    // Skywork-o1
+    ];
+
+    const REASONING_NAME_PATTERNS: &[&str] = &[
+        "r1",
+        "reasoning",
+        "thinking",
+        "cot",
+        "o1",
+        "qwq",
+        "qwen3",
+        "deepseekr1",
+        "nemotron3ultra",
+        "marcoo1",
+    ];
+
+    // Check architecture
+    for arch in REASONING_ARCHITECTURES {
+        if normalized_arch.contains(arch) {
+            return true;
+        }
+    }
+
+    // Check name patterns
+    for pattern in REASONING_NAME_PATTERNS {
+        if normalized_name.contains(pattern) {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +149,31 @@ mod tests {
     fn normalization_drops_separators() {
         assert_eq!(normalize("granite-4.2-3b"), "granite423b");
         assert_eq!(normalize("Granite_4_2_3B"), "granite423b");
+    }
+
+    #[test]
+    fn detects_reasoning_models_by_architecture() {
+        assert!(is_reasoning_model("qwen3-8b", "qwen3"));
+        assert!(is_reasoning_model("deepseek-r1", "deepseek"));
+        assert!(is_reasoning_model("qwq-32b", "qwq"));
+        assert!(is_reasoning_model("nemotron-3-ultra", "nemotron"));
+    }
+
+    #[test]
+    fn detects_reasoning_models_by_name_patterns() {
+        assert!(is_reasoning_model("my-model-r1", "llama"));
+        assert!(is_reasoning_model("qwen3-custom", "llama"));
+        assert!(is_reasoning_model("deepseek-r1-distill", "llama"));
+        assert!(is_reasoning_model("qwq-test", "llama"));
+    }
+
+    #[test]
+    fn non_reasoning_models_return_false() {
+        assert!(!is_reasoning_model("llama-3.1-8b", "llama"));
+        assert!(!is_reasoning_model("qwen2.5-7b", "qwen2"));
+        assert!(!is_reasoning_model("gemma-7b", "gemma"));
+        assert!(!is_reasoning_model("granite-4.2-3b", "granite"));
+        assert!(!is_reasoning_model("phi-3.5", "phi"));
+        assert!(!is_reasoning_model("mistral-7b", "mistral"));
     }
 }

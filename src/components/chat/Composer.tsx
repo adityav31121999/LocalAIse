@@ -3,12 +3,45 @@ import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../ui/icons";
 import { useProjectStore } from "../../state/projectStore";
 import { useNavStore } from "../../state/navStore";
 import { formatBytes } from "../../util/format";
+import { invoke } from "@tauri-apps/api/core";
 import type { Project } from "../../types";
 
-/** pdf.js needs a worker URL to extract text off the main thread. Vite exposes
- *  `?url` imports as string URLs; declare the module so TypeScript accepts it. */
-declare module "pdfjs-dist/build/pdf.worker.mjs?url";
-import * as pdfjsLib from "pdfjs-dist";
+/** Default system prompt for chat mode (mirrors the Rust `system_prompt` function). */
+function defaultChatSystemPrompt(projectName: string): string {
+  return (
+    `You are localAIse, a private assistant that works only inside the folder “${projectName}”. ` +
+    `The files in that folder never leave this machine. Answer in clear, plain prose, and say ` +
+    `when you are not sure instead of guessing.`
+  );
+}
+
+/** Default system prompt for agent mode (mirrors the Rust `agent_chat::instructions` function). */
+function defaultAgentSystemPrompt(projectName: string, internetEnabled: boolean, hasRagContext: boolean): string {
+  let text = defaultChatSystemPrompt(projectName);
+  text +=
+    "\n\nAGENT RULES: You are in agent mode on this private, local folder. " +
+    "Before answering, you may act with the offered tools: read files, list folders " +
+    "or search the project's indexed sources when the answer needs them, and use " +
+    "the diary and calendar tools when the question touches the user's days. " +
+    "write_file only when the user asked for something to be written. Cite files by " +
+    "their relative path. Answer in plain prose; keep tool calls to one at a time.";
+
+  if (hasRagContext) {
+    text +=
+      "\n\nRelevant context from the project's indexed sources has been " +
+      "prepended to this conversation. Use that information first before calling " +
+      "search_local. Only call search_local if you need additional information not " +
+      "covered by the provided context.";
+  }
+
+  text += internetEnabled
+    ? " The internet toggle is on, so web_search and web_fetch are available " +
+      "when the folders cannot answer the question."
+    : " The internet toggle is off, so the web tools are unavailable; say so " +
+      "rather than guessing at the web.";
+
+  return text;
+}
 
 /** Extensions whose contents can be read as plain text and sent to the model. */
 const TEXT_EXTENSIONS = [
@@ -22,52 +55,25 @@ function isTextFile(name: string): boolean {
   return TEXT_EXTENSIONS.includes(ext);
 }
 
-function readTextFile(file: File): Promise<string> {
+/** Converts a File to base64 string. */
+function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : String(reader.result ?? ""));
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove data URL prefix (e.g., "data:text/plain;base64,")
+      const base64 = result.split(",")[1] ?? result;
+      resolve(base64);
+    };
     reader.onerror = () => reject(reader.error);
-    reader.readAsText(file);
+    reader.readAsDataURL(file);
   });
-}
-
-/** Extracts the text of every page of a PDF using pdf.js. */
-async function readPdfFile(file: File): Promise<string> {
-  const { default: pdfWorkerUrl } = await import(
-    "pdfjs-dist/build/pdf.worker.mjs?url"
-  );
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl as string;
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const parts: string[] = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    parts.push(
-      content.items
-        .map((item: unknown) => {
-          const obj = item as { str?: string };
-          return obj.str ?? "";
-        })
-        .join(" "),
-    );
-  }
-  return parts.join("\n");
-}
-
-/** Reads an attached file's text. Text files are read directly; PDFs are parsed with pdf.js. */
-async function readFileContent(file: File): Promise<string> {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".pdf")) {
-    return readPdfFile(file);
-  }
-  return readTextFile(file);
 }
 
 interface ComposerProps {
   project: Project;
   streaming: boolean;
-  onSend(text: string, sampling: { temperature: number; top_p: number; top_k: number }): void;
+  onSend(text: string, sampling: { temperature: number; top_p: number; top_k: number }, attachedFiles?: string[]): void;
   onStop(): void;
 }
 
@@ -85,6 +91,7 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
   const [topPDisplay, setTopPDisplay] = useState("0.9");
   const [topKDisplay, setTopKDisplay] = useState("40");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -120,21 +127,38 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
     if (promptOpen) promptRef.current?.focus();
   }, [promptOpen]);
 
-  const canSend = (value.trim().length > 0 || attachedFiles.length > 0) && !streaming;
+  const canSend = (value.trim().length > 0 || attachedFiles.length > 0) && !streaming && !uploadingAttachments;
 
   const submit = async () => {
     if (!canSend) return;
-    let prompt = value.trim();
-    if (attachedFiles.length) {
-      const parts = await Promise.all(attachedFiles.map(readFileContent));
-      prompt =
-        prompt +
-        "\n\n---\nAttached files:\n" +
-        parts
-          .map((part, index) => `### ${attachedFiles[index].name}\n${part}`)
-          .join("\n\n---\n\n");
+    
+    let attachedFilePaths: string[] = [];
+    
+    // Upload attached files to project first
+    if (attachedFiles.length > 0) {
+      setUploadingAttachments(true);
+      try {
+        const uploadPromises = attachedFiles.map(async (file) => {
+          const base64 = await fileToBase64(file);
+          const path = await invoke<string>("attach_file_to_project", {
+            projectId: project.id,
+            fileName: file.name,
+            fileBytesBase64: base64,
+          });
+          return path;
+        });
+        attachedFilePaths = await Promise.all(uploadPromises);
+      } catch (error) {
+        console.error("Failed to attach files:", error);
+        alert("Failed to attach files. Please try again.");
+        setUploadingAttachments(false);
+        return;
+      }
+      setUploadingAttachments(false);
     }
-    onSend(prompt, { temperature, top_p: topP, top_k: topK });
+    
+    const prompt = value.trim();
+    onSend(prompt, { temperature, top_p: topP, top_k: topK }, attachedFilePaths);
     setValue("");
     setAttachedFiles([]);
     textareaRef.current?.focus();
@@ -184,6 +208,14 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
     setPromptOpen(false);
   };
 
+  /** Returns the default system prompt for the current chat mode. */
+  const getDefaultPrompt = () => {
+    if (project.chatMode === "agent") {
+      return defaultAgentSystemPrompt(project.name, project.internetEnabled, project.sourceCount > 0);
+    }
+    return defaultChatSystemPrompt(project.name);
+  };
+
   return (
     <div className="composer">
       <div className="composer__inner">
@@ -192,7 +224,7 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             <div className="composer__prompt-head">
               <span className="composer__prompt-title">System prompt · {project.name}</span>
               <span className="composer__prompt-state">
-                {project.systemPrompt ? "custom" : "default"}
+                {project.systemPrompt ? "custom" : `default (${project.chatMode})`}
               </span>
             </div>
             <textarea
@@ -207,12 +239,12 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
                   savePrompt();
                 }
               }}
-              placeholder="Tell the model how to behave. Left empty, the built-in project prompt is used."
+              placeholder={project.systemPrompt ? "" : getDefaultPrompt()}
               aria-label={`System prompt for ${project.name}`}
             />
             <div className="composer__prompt-foot">
               <span className="composer__prompt-hint">
-                Saved with this project · Ctrl+Enter to save
+                Saved with this project · Ctrl+Enter to save · Shows {project.chatMode} mode default
               </span>
               <button
                 type="button"

@@ -18,12 +18,13 @@ pub const PROJECT_FILE: &str = "project.json";
 pub const OUTPUTS_DIR: &str = "outputs";
 pub const CHATS_DIR: &str = "chats";
 pub const DATA_DIR: &str = "data";
+pub const SUMMARY_DIR: &str = "summary";
 pub const DIARY_DIR: &str = "diary";
 pub const ACTIVITY_FILE: &str = "activity.log";
 
 /// Folder names the app manages. Users cannot create projects folders with
 /// these names, and the knowledge base never reads inside them.
-pub const RESERVED_DIRS: [&str; 3] = [CHATS_DIR, DIARY_DIR, OUTPUTS_DIR];
+pub const RESERVED_DIRS: [&str; 4] = [CHATS_DIR, DIARY_DIR, OUTPUTS_DIR, SUMMARY_DIR];
 
 /// How the assistant answers in this project's chat.
 ///
@@ -64,6 +65,8 @@ pub struct ProjectFolders {
     pub chats: String,
     /// The user's source files; the knowledge base reads here first.
     pub data: String,
+    /// AI-generated summaries of source documents (inside data/).
+    pub summary: String,
     /// One Markdown page per date, when the project keeps its own diary.
     pub diary: String,
     /// Files the assistant produces for the user.
@@ -77,6 +80,7 @@ impl Default for ProjectFolders {
         Self {
             chats: CHATS_DIR.to_string(),
             data: DATA_DIR.to_string(),
+            summary: SUMMARY_DIR.to_string(),
             diary: DIARY_DIR.to_string(),
             outputs: OUTPUTS_DIR.to_string(),
             custom: Vec::new(),
@@ -195,6 +199,10 @@ impl ProjectPaths {
         self.root.join(DATA_DIR)
     }
 
+    pub fn summary_dir(&self) -> PathBuf {
+        self.root.join(SUMMARY_DIR)
+    }
+
     pub fn diary_dir(&self) -> PathBuf {
         self.root.join(DIARY_DIR)
     }
@@ -203,7 +211,7 @@ impl ProjectPaths {
     /// anything that already exists. New and re-registered projects both call
     /// this, so an older project gains the structure on next open.
     pub fn ensure_structure(&self, folders: &ProjectFolders, diary_enabled: bool) -> AppResult<()> {
-        for name in [&folders.chats, &folders.data, &folders.outputs] {
+        for name in [&folders.chats, &folders.data, &folders.summary, &folders.outputs] {
             if !name.is_empty() {
                 std::fs::create_dir_all(self.root.join(name))?;
             }

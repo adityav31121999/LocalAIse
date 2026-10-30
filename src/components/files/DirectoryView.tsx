@@ -32,7 +32,7 @@ type SortField = "name" | "size" | "date" | "type";
 type SortDirection = "asc" | "desc";
 
 /** Top-level folders the app owns; the backend refuses to move or delete them. */
-const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs"]);
+const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs", "summary"]);
 
 function isProtectedRootEntry(entry: DirectoryEntry, currentPath: string): boolean {
   return currentPath === "" && entry.isDir && PROTECTED_ROOT_DIRS.has(entry.name.toLowerCase());

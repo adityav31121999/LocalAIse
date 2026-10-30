@@ -34,7 +34,7 @@ const STATUS_LABEL: Record<SourceStatus, string> = {
 };
 
 /** Top-level folders the app owns; the backend refuses to move or delete them. */
-const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs"]);
+const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs", "summary"]);
 
 function getFileIconColor(name: string): { color: string; label: string } {
   const ext = fileExtension(name).toLowerCase();
@@ -362,6 +362,7 @@ export function Sidebar({ project }: { project: Project }) {
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
     invoices: true,
     data: true,
+    summary: true,
     outputs: true,
   });
   const [selectedPath, setSelectedPath] = useState<string | null>(null);

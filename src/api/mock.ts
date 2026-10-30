@@ -158,7 +158,7 @@ interface MockNode {
 
 const mockTrees: Record<string, MockNode[]> = {};
 
-const MOCK_RESERVED = ["chats", "data", "diary", "outputs", ".localaise"];
+const MOCK_RESERVED = ["chats", "data", "diary", "outputs", "summary", ".localaise"];
 const MOCK_STATE_DIR = ".LocalAIse";
 const MOCK_PROJECT_FILE = "project.json";
 
@@ -191,7 +191,7 @@ function seedMockTree(projectId: string): MockNode[] {
     }
   };
 
-  ["chats", "data", "diary", "outputs"].forEach(addDir);
+  ["chats", "data", "diary", "outputs", "summary"].forEach(addDir);
 
   for (const file of listMockSources(projectId)) {
     addDir(mockParent(file.name));

@@ -362,6 +362,16 @@ export async function pickServerBinary(): Promise<string | null> {
   return null;
 }
 
+/** Checks if the selected model (or a given model path) is a reasoning/thinking model. */
+export async function isModelReasoning(modelPath?: string | null): Promise<boolean> {
+  if (isTauri) return invoke<boolean>("is_model_reasoning", { modelPath });
+  await delay(60);
+  // Mock: check name patterns for reasoning models
+  const path = modelPath ?? mockSelectedPath ?? "";
+  const name = path.split("\\").pop()?.split("/").pop()?.toLowerCase() ?? "";
+  return /(qwen3|deepseek|r1|reasoning|thinking|qwq|nemotron|marco|skywork)/.test(name);
+}
+
 /** What one llama.cpp GPU backend build looks like on this machine. */
 export interface GpuBuildStatus {
   /** "vulkan", "cuda" or "opencl". */

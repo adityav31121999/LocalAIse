@@ -117,3 +117,24 @@ pub fn read_project_file_bytes(
     let bytes = tool_files::read_file_bytes(&root, &path)?;
     Ok(BASE64_STANDARD.encode(bytes))
 }
+
+/// Writes content to a file in the project folder.
+/// Unlike the agent's write_file tool, this does NOT enforce outputs/ prefix.
+/// Used for saving AI summaries to data/summary/.
+#[tauri::command]
+pub fn write_file_content(
+    state: State<'_, AppState>,
+    project_id: String,
+    file_path: String,
+    content: String,
+) -> AppResult<()> {
+    let root = project_root(&state, &project_id)?;
+    let target = crate::sandbox::paths::ensure_within(&root, std::path::Path::new(&file_path))?;
+
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(&target, content)?;
+    Ok(())
+}

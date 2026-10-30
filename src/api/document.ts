@@ -159,9 +159,6 @@ export async function saveSummaryAsMarkdown(
   const dotIndex = sourceName.lastIndexOf(".");
   const stem = dotIndex > 0 ? sourceName.slice(0, dotIndex) : sourceName;
   const mdFileName = `${stem}.md`;
-  const parentDir = sourceFilePath.includes("/")
-    ? sourceFilePath.slice(0, sourceFilePath.lastIndexOf("/"))
-    : "";
 
   const markdownContent = `# AI Summary\n\n**Source:** ${sourceName}\n**Generated:** ${new Date().toISOString()}\n\n---\n\n${summary}`;
 
@@ -169,7 +166,7 @@ export async function saveSummaryAsMarkdown(
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("write_file_content", {
       projectId,
-      filePath: parentDir ? `${parentDir}/${mdFileName}` : mdFileName,
+      file_path: `data/summary/${mdFileName}`,
       content: markdownContent,
     });
   } else {
@@ -177,7 +174,7 @@ export async function saveSummaryAsMarkdown(
     // Browser mock: store in localStorage for persistence simulation
     try {
       const existing = JSON.parse(localStorage.getItem("localaise_summaries") ?? "{}");
-      existing[`${projectId}:${mdFileName}`] = {
+      existing[`${projectId}:data/summary/${mdFileName}`] = {
         content: markdownContent,
         savedAt: new Date().toISOString(),
       };
@@ -188,7 +185,7 @@ export async function saveSummaryAsMarkdown(
   }
 
   return {
-    savedPath: parentDir ? `${parentDir}/${mdFileName}` : mdFileName,
+    savedPath: `data/summary/${mdFileName}`,
     fileName: mdFileName,
   };
 }
