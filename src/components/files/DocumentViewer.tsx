@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   SparkIcon,
   XIcon,
-  CopyIcon,
   ChevronLeftIcon,
   DocIcon,
   QuoteIcon,
@@ -12,10 +11,12 @@ import {
 } from "../ui/icons";
 import { readDocument, readFileBytes, summarizeDocument, saveSummaryAsMarkdown, type DocumentContent } from "../../api/document";
 import { analyzeDocument } from "../../api/analysis";
+import { MarkdownPreview } from "./MarkdownPreview";
 import { useRuntimeConfig } from "../settings/runtime-config";
 import { useNavStore } from "../../state/navStore";
 import type { Project } from "../../types";
 import { PDFViewer } from "./PDFViewer";
+import { listen } from "../../api";
 
 interface DocumentViewerProps {
   project: Project;
@@ -32,20 +33,25 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savedFile, setSavedFile] = useState<{ fileName: string; savedPath: string } | null>(null);
+  const [recovering, setRecovering] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"content" | "summary">("content");
   const [summaryKind, setSummaryKind] = useState<"summary" | "tables" | "excerpt">("summary");
-  const [recovering, setRecovering] = useState(false);
   const [currentPage, setCurrentPage] = useState<number | null>(null);
   const [pdfBytes, setPdfBytes] = useState<string | null>(null);
   /** Page total as rendered by pdf.js — more reliable than the extractor's
    * estimate, so the header prefers it once the viewer has loaded. */
   const [pdfPageTotal, setPdfPageTotal] = useState<number | null>(null);
+  /** Track summarization phase: "extracting" | "summarizing" | "idle" */
+  const [summarizePhase, setSummarizePhase] = useState<"extracting" | "summarizing" | "idle">("idle");
 
   const { draft: profile } = useRuntimeConfig();
   const insertIntoComposer = useNavStore((state) => state.insertIntoComposer);
   const setActiveProjectTab = useNavStore((state) => state.setActiveProjectTab);
+
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  const isPDF = ext === "pdf";
+  const canSummarize = !loading && (isPDF ? Boolean(content || pdfBytes) : Boolean(content?.text?.trim()));
 
   const handlePdfPageChange = useCallback(
     (page: number, totalPages: number) => {
@@ -54,6 +60,33 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
     },
     [],
   );
+
+  /** Derive the expected summary path for a document: data/foo.pdf -> summary/foo.md */
+  const summaryPathFor = useCallback((filePath: string): string => {
+    const sourceName = filePath.split("/").pop() ?? filePath;
+    const dotIndex = sourceName.lastIndexOf(".");
+    const stem = dotIndex > 0 ? sourceName.slice(0, dotIndex) : sourceName;
+    return `summary/${stem}.md`;
+  }, []);
+
+  /** When a document is opened, check whether a summary already exists alongside it
+   * (summary/<stem>.md) and auto-load it so the summary is accessible next to the source.
+   * Only runs when no summarisation is currently in progress so it cannot race
+   * with a freshly generated summary. */
+  const loadExistingSummary = useCallback(async () => {
+    if (summarizing) return;
+    const path = summaryPathFor(filePath);
+    try {
+      const doc = await readDocument(project.id, path, true);
+      if (doc?.text?.trim()) {
+        setSummary(doc.text);
+        setSummaryKind("summary");
+        setActiveTab("summary");
+      }
+    } catch {
+      // No existing summary — that's fine, the user can generate one.
+    }
+  }, [project.id, filePath, summaryPathFor, summarizing]);
 
   const loadDocument = useCallback(async () => {
     setLoading(true);
@@ -76,7 +109,6 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
       }
 
       // For PDFs, always try to load bytes for visual rendering
-      const isPDF = fileName.toLowerCase().endsWith(".pdf");
       if (isPDF) {
         try {
           let bytes: string | null = null;
@@ -101,6 +133,10 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
         const msg = "Failed to load document";
         setError(msg);
       }
+
+      // If a summary already exists alongside this document, load it so the
+      // user can access it next to the source file.
+      await loadExistingSummary();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load document";
       console.error("Failed to load document:", err);
@@ -115,11 +151,26 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   }, [loadDocument]);
 
   const handleSummarize = async () => {
-    if (!content) return;
+    // Guard: require document to be loaded and have text (or be a loadable PDF).
+    // Note: for PDFs, text is intentionally not extracted during initial document load
+    // to avoid UI blocking; the backend extracts PDF text on demand during summarizeDocument.
+    if (!canSummarize) return;
 
     setSummarizing(true);
     setSummaryError(null);
     setSummary(null);
+    setSummarizePhase("idle");
+
+    // Listen for extraction_done event from backend (PDF only)
+    let unlisten: (() => void) | null = null;
+    if (isPDF) {
+      setSummarizePhase("extracting");
+      unlisten = await listen("summarize:extraction_done", () => {
+        setSummarizePhase("summarizing");
+      });
+    } else {
+      setSummarizePhase("summarizing");
+    }
 
     try {
       const result = await summarizeDocument({
@@ -136,11 +187,15 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
       // map-reduce analysis pipeline, which chunks the document, summarises
       // each chunk, and synthesises the results, so long documents still get a
       // summary instead of a dead end.
+      //
+      // Use `filePath` (the full relative path, e.g. "data/report.pdf"), not
+      // `fileName` (the bare name), so the backend sandbox-path check resolves
+      // the file correctly for documents that are not in the project root.
       try {
         const result = await analyzeDocument({
           projectId: project.id,
           action: "summarize",
-          fileName,
+          fileName: filePath,
         });
         setSummary(result.content);
         setSummaryKind("summary");
@@ -151,36 +206,25 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
       }
     } finally {
       setSummarizing(false);
+      setSummarizePhase("idle");
+      if (unlisten) unlisten();
       setActiveTab("summary");
     }
-  };
-
-  const handleCopyContent = async () => {
-    if (!content) return;
-    await navigator.clipboard.writeText(content.text);
-  };
-
-  const handleCopySummary = async () => {
-    if (!summary) return;
-    await navigator.clipboard.writeText(summary);
   };
 
   const handleSaveMarkdown = async () => {
     if (!summary) return;
     setSaving(true);
     try {
-      const result = await saveSummaryAsMarkdown(project.id, filePath, summary);
-      setSavedFile(result);
+      await saveSummaryAsMarkdown(project.id, filePath, summary);
     } catch (err) {
+      console.error("Manual save summary failed:", err);
       setSummaryError(err instanceof Error ? err.message : "Failed to save summary");
     } finally {
       setSaving(false);
     }
   };
 
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-  const isPDF = ext === "pdf";
-  
   // Convert base64 to File object for PDFViewer.
   // Memoized: recreating the File object on every render would change the
   // identity the PDFViewer keys its load effect on, so any unrelated parent
@@ -217,13 +261,14 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
 
   /** Pull key figures and tables out through the analysis pipeline. */
   const handleExtractTables = async () => {
+    if (!canSummarize) return;
     setSummarizing(true);
     setSummaryError(null);
     try {
       const result = await analyzeDocument({
         projectId: project.id,
         action: "extract_tables",
-        fileName,
+        fileName: filePath,
         saveAs: `tables-${fileName.replace(/[^a-zA-Z0-9]/g, "_")}.md`,
       });
       setSummary(result.content);
@@ -238,15 +283,19 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   };
 
   /** Fallback when direct summarization fails: chunk the document via the
-   *  map-reduce analysis command instead. */
+   *  map-reduce analysis command instead.
+   *
+   *  Uses `filePath` (full relative path) not `fileName` (bare name) so the
+   *  backend sandbox check resolves correctly for sub-directory files.
+   *  Does NOT pass `saveAs` here — the backend's `summarize_document` already
+   *  writes to summary/<stem>.md, which `loadExistingSummary` picks up. */
   const handleMapReduce = async () => {
     setRecovering(true);
     try {
       const result = await analyzeDocument({
         projectId: project.id,
         action: "summarize",
-        fileName,
-        saveAs: `summary-${fileName.replace(/[^a-zA-Z0-9]/g, "_")}.md`,
+        fileName: filePath,
       });
       setSummary(result.content);
       setSummaryKind("summary");
@@ -345,8 +394,8 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
             type="button"
             className="btn btn--subtle btn--sm"
             onClick={() => void handleExtractTables()}
-            disabled={loading || (isPDF && !content)}
-            title={isPDF && !content ? "Load document first" : "Extract key figures and tables from this document"}
+            disabled={!canSummarize}
+            title={!canSummarize ? (isPDF ? "Load document first" : "Document text not available") : "Extract key figures and tables from this document"}
           >
             <TableIcon size={13} />
             <span>{loading ? "Loading…" : "Key figures & tables"}</span>
@@ -357,8 +406,14 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
               type="button"
               className="btn btn--primary btn--sm"
               onClick={handleSummarize}
-              disabled={loading || !content || (isPDF && !content)}
-              title={isPDF && !content ? "Load document first to summarize" : "Generate AI summary"}
+              disabled={!canSummarize}
+              title={
+                !canSummarize
+                  ? isPDF
+                    ? "Load PDF first to summarize"
+                    : "Document text not available for summarization"
+                  : "Generate AI summary"
+              }
             >
               <SparkIcon size={13} />
               <span>Summarize</span>
@@ -386,23 +441,13 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
               <button
                 type="button"
                 className="btn btn--subtle btn--sm"
-                onClick={handleCopySummary}
-                title="Copy summary"
+                onClick={() => {
+                  handleSaveMarkdown();
+                }}
+                disabled={saving}
+                title={saving ? "Saving…" : "Save summary as markdown file"}
               >
-                <CopyIcon size={13} />
-              </button>
-              {!saving && !savedFile ? (
-                <button
-                  type="button"
-                  className="btn btn--subtle btn--sm"
-                  onClick={handleSaveMarkdown}
-                  title="Save summary as markdown file"
-                >
-                  <DocIcon size={13} />
-                  <span style={{ marginLeft: "4px", fontSize: "11px" }}>Save .md</span>
-                </button>
-              ) : saving ? (
-                <button type="button" className="btn btn--subtle btn--sm" disabled>
+                {saving ? (
                   <div
                     style={{
                       width: "13px",
@@ -413,40 +458,14 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
                       animation: "spin 0.7s linear infinite",
                     }}
                   />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn--subtle btn--sm"
-                  onClick={() => {
-                    alert(`Saved as: ${savedFile?.savedPath}`);
-                  }}
-                  title="Saved"
-                >
-                  <DocIcon size={13} style={{ color: "var(--accent-success)" }} />
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn--subtle btn--sm"
-                onClick={() => setActiveTab("content")}
-                title="View document content"
-              >
-                <DocIcon size={13} />
+                ) : (
+                  <DocIcon size={13} />
+                )}
+                <span style={{ marginLeft: "4px", fontSize: "11px" }}>
+                  {saving ? "Saving…" : "Save .md"}
+                </span>
               </button>
             </>
-          )}
-
-          {!summarizing && content && (
-            <button
-              type="button"
-              className="btn btn--subtle btn--sm"
-              onClick={handleCopyContent}
-              disabled={isPDF && !content}
-              title={isPDF && !content ? "Load document first to copy" : "Copy document text"}
-            >
-              <CopyIcon size={13} />
-            </button>
           )}
 
           <button
@@ -607,21 +626,12 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
           )
         ) : summary ? (
           <div style={{
-            fontSize: "13px",
             lineHeight: 1.7,
             color: "var(--text)",
-            whiteSpace: "pre-wrap",
-            wordWrap: "break-word",
             maxHeight: "100%",
             overflow: "auto",
           }}>
-            {summary}
-            {savedFile && (
-              <div style={{ marginTop: "16px", padding: "12px", background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.3)", borderRadius: "var(--radius-md)", color: "var(--accent-success)", fontSize: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
-                <DocIcon size={14} style={{ color: "var(--accent-success)" }} />
-                <span>Saved as markdown: <strong>{savedFile.fileName}</strong></span>
-              </div>
-            )}
+            <MarkdownPreview markdown={summary} />
           </div>
         ) : summarizing ? (
           <div style={{
@@ -643,7 +653,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
                 animation: "spin 0.7s linear infinite",
               }}
             />
-            <span>{fileName.toLowerCase().endsWith(".pdf") ? "Extracting PDF text…" : "Generating summary with AI…"}</span>
+            <span>{summarizePhase === "extracting" ? "Extracting PDF text…" : "Summarization in progress…"}</span>
             <p style={{ fontSize: "12px", color: "var(--text-faint)" }}>
               Using model context: {profile.contextTokens || "default"} tokens
             </p>

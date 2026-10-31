@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
         for entry in std::fs::read_dir(&data_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "pdf") {
+            if path.extension().is_some_and(|e| e == "pdf") {
                 if let Some(name) = path.file_name() {
                     sources.push(format!("data/{}", name.to_string_lossy()));
                 }

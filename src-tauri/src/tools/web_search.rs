@@ -126,10 +126,10 @@ fn clean_text(text: &str) -> String {
     
     // Decode common HTML entities
     result = result
-        .replace("&", "&")
-        .replace("<", "<")
-        .replace(">", ">")
-        .replace(r#""""#, "\"")
+        .replace("&#38;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
         .replace("&apos;", "'")
         .replace("&nbsp;", " ");
     
@@ -147,3 +147,6 @@ fn encode_query(q: &str) -> String {
         })
         .collect()
 }
+
+
+

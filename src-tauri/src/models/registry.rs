@@ -307,7 +307,7 @@ fn best_projector_match(group: &ModelGroup, projectors: &[ModelEntry]) -> Option
         if common == 0 {
             continue;
         }
-        if best.is_none_or(|(_, length)| common > length) {
+        if best.map_or(true, |(_, length)| common > length) {
             best = Some((index, common));
         }
     }
@@ -374,7 +374,7 @@ pub fn projector_for(model_path: &Path) -> Option<PathBuf> {
     let mut best: Option<(&ModelEntry, usize)> = None;
     for projector in &projectors {
         let common = naming::common_prefix_len(&name, &naming::normalize(&projector.name));
-        if best.is_none_or(|(_, length)| common > length) {
+        if best.map_or(true, |(_, length)| common > length) {
             best = Some((projector, common));
         }
     }

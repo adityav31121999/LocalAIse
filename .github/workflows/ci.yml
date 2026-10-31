@@ -28,6 +28,36 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: choco install -y cmake ninja
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Clone llama.cpp (pinned tag)
+        working-directory: .
+        run: git clone --depth 1 --branch b11678 https://github.com/ggml-org/llama.cpp vendor/llama.cpp
+
+      - name: Build and stage llama-server bundle
+        working-directory: .
+        run: |
+          npx tsx scripts/fetch-llama-server.ts ${{ matrix.os == 'windows-latest' && 'windows-x64' || 'linux-x64' }} cpu
+          npx tsx scripts/stage-bundle.ts ${{ matrix.os == 'windows-latest' && 'windows-x64' || 'linux-x64' }}
+
       - name: cargo check
         run: cargo check --all-targets
 

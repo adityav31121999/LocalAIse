@@ -28,7 +28,7 @@ pub async fn detect_gpu() -> GpuRecommendation {
 /// The state of the GPU builds the app knows about.
 #[tauri::command]
 pub async fn list_gpu_builds(state: tauri::State<'_, AppState>) -> AppResult<GpuBuildList> {
-    Ok(list_backends(state).await?)
+    list_backends(state).await
 }
 
 /// Lists all known backends (aliased command per spec).

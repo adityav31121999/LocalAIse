@@ -126,6 +126,7 @@ pub async fn map_reduce_summarize(
     log::info!("[map_reduce] starting map step for {} chunks", chunks.len());
     let mut intermediate_summaries = Vec::new();
     let mut total_usage = Usage::default();
+    #[allow(clippy::clone_on_copy)]
     let map_sampling = SamplingParams {
         max_tokens: Some(1024),
         ..Default::default()

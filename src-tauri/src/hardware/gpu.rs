@@ -269,6 +269,7 @@ fn recommend_once() -> GpuRecommendation {
     }
 }
 
+#[allow(dead_code)]
 fn is_discrete_gpu(name: &str) -> bool {
     let lower = name.to_lowercase();
     (lower.contains("geforce")
@@ -285,6 +286,7 @@ fn is_discrete_gpu(name: &str) -> bool {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct AdapterRecord {
     pub name: String,
     pub vram_bytes: u64,

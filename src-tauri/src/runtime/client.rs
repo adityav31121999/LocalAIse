@@ -33,7 +33,7 @@ pub fn message(role: &'static str, content: impl Into<String>) -> ChatMessage {
 }
 
 /// Sampling parameters for LLM inference.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SamplingParams {
     pub temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,6 +43,12 @@ pub struct SamplingParams {
     /// Maximum number of tokens to generate. `None` lets the server decide.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    /// OAI reasoning effort: "none" disables reasoning for models with thinking enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// Chat template kwargs passed to llama-server (e.g. {"enable_thinking": false}).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_template_kwargs: Option<serde_json::Value>,
 }
 
 impl Default for SamplingParams {
@@ -52,6 +58,8 @@ impl Default for SamplingParams {
             top_p: None,
             top_k: None,
             max_tokens: None,
+            reasoning_effort: None,
+            chat_template_kwargs: None,
         }
     }
 }
@@ -75,6 +83,10 @@ struct ChatRequest<'a> {
     /// Maximum tokens the model may generate in this turn.
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<&'a serde_json::Value>,
 }
 
 #[derive(Serialize, Clone, Copy)]
@@ -92,6 +104,8 @@ struct ChatResponse {
 #[derive(Deserialize)]
 struct Choice {
     message: ReplyMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -132,6 +146,50 @@ pub async fn wait_until_ready(serving: &Serving) -> AppResult<()> {
     }
 }
 
+/// Tokenizes `text` using the model's own tokenizer (embedded in the GGUF and
+/// exposed by llama-server's `/tokenize` endpoint). Returns the token IDs so
+/// callers can size chunks by real token counts instead of character estimates.
+///
+/// Large documents can produce tens of thousands of tokens; 60 seconds gives
+/// slow machines enough headroom without blocking the response-timeout path.
+pub async fn tokenize(serving: &Serving, text: &str) -> AppResult<Vec<u32>> {
+    let http = client(Duration::from_secs(60))?;
+    let response = http
+        .post(endpoint(serving, "/tokenize"))
+        .bearer_auth(&serving.token)
+        .json(&serde_json::json!({ "content": text }))
+        .send()
+        .await
+        .map_err(|error| AppError::msg(format!("llama-server did not answer /tokenize: {error}")))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let detail = response.text().await.unwrap_or_default();
+        let detail = detail.trim();
+        return Err(AppError::ServerRejected(if detail.is_empty() {
+            status.to_string()
+        } else {
+            detail.to_string()
+        }));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| AppError::msg(format!("could not read /tokenize answer: {error}")))?;
+
+    body.get("tokens")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| AppError::msg("/tokenize response missing token array"))?
+        .iter()
+        .map(|v| {
+            v.as_u64()
+                .ok_or_else(|| AppError::msg("/tokenize returned a non-integer token"))
+                .map(|n| n as u32)
+        })
+        .collect::<AppResult<Vec<u32>>>()
+}
+
 /// Asks for one complete answer and returns its text.
 pub async fn complete(
     serving: &Serving,
@@ -151,6 +209,8 @@ pub async fn complete(
         cache_prompt: None,
         stream_options: StreamOptions { include_usage: false },
         max_tokens: sampling.max_tokens,
+        reasoning_effort: sampling.reasoning_effort.as_deref(),
+        chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
     let response = http
@@ -205,6 +265,8 @@ pub async fn complete_with_usage(
         cache_prompt: None,
         stream_options: StreamOptions { include_usage: true },
         max_tokens: sampling.max_tokens,
+        reasoning_effort: sampling.reasoning_effort.as_deref(),
+        chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
     let response = http
@@ -231,11 +293,21 @@ pub async fn complete_with_usage(
         .await
         .map_err(|error| AppError::ServerRejected(format!("could not read the answer: {error}")))?;
 
-    let content = parsed
+    let choice = parsed
         .choices
         .into_iter()
         .next()
-        .and_then(|choice| choice.message.content)
+        .ok_or_else(|| AppError::ServerRejected("the model returned no choices".to_string()))?;
+
+    if let Some(reason) = &choice.finish_reason {
+        if reason == "length" {
+            log::warn!("[client] completion stopped due to token limit (finish_reason=length)");
+        }
+    }
+
+    let content = choice
+        .message
+        .content
         .filter(|content| !content.trim().is_empty())
         .ok_or_else(|| AppError::ServerRejected("the model returned an empty answer".to_string()))?;
 
@@ -385,6 +457,7 @@ pub struct StreamedCompletion {
 ///
 /// `allow_empty` controls whether an empty answer is treated as an error (default false).
 /// When true, returns empty content instead of rejecting it.
+#[allow(clippy::too_many_arguments)]
 pub async fn complete_stream(
     serving: &Serving,
     model: &str,
@@ -407,6 +480,8 @@ pub async fn complete_stream(
         cache_prompt: if reuse_cache { None } else { Some(false) },
         stream_options: StreamOptions { include_usage: true },
         max_tokens: sampling.max_tokens,
+        reasoning_effort: sampling.reasoning_effort.as_deref(),
+        chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
     let response = http
@@ -522,6 +597,10 @@ struct ToolChatRequest<'a> {
     /// Maximum tokens the model may generate in this turn.
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<&'a serde_json::Value>,
 }
 
 /// Like [`complete_stream`], but offers the model a `tools` array and collects
@@ -548,6 +627,8 @@ pub async fn complete_stream_with_tools(
         top_k: sampling.top_k,
         stream_options: StreamOptions { include_usage: true },
         max_tokens: sampling.max_tokens,
+        reasoning_effort: sampling.reasoning_effort.as_deref(),
+        chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
     let response = http

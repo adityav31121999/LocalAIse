@@ -34,6 +34,24 @@ jobs:
 
       - run: npm ci
 
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: choco install -y cmake ninja
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential
+
+      - name: Clone llama.cpp (pinned tag)
+        run: git clone --depth 1 --branch b11678 https://github.com/ggml-org/llama.cpp vendor/llama.cpp
+
+      - name: Build and stage llama-server bundle
+        run: |
+          npx tsx scripts/fetch-llama-server.ts ${{ matrix.os == 'windows-latest' && 'windows-x64' || 'linux-x64' }} cpu
+          npx tsx scripts/stage-bundle.ts ${{ matrix.os == 'windows-latest' && 'windows-x64' || 'linux-x64' }}
+
       - name: verify llama-server checksums (if bundled)
         run: npx tsx scripts/verify-binaries.ts
 

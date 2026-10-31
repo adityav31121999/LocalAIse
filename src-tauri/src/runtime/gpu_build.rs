@@ -477,7 +477,7 @@ pub async fn install(
         let file_name = file_spec
             .url
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or("archive.zip")
             .to_string();
         let dest = tmp_dir.join(&file_name);

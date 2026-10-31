@@ -58,6 +58,7 @@ pub struct ChatStreamResult {
 const ATTACHMENT_FULL_READ_THRESHOLD: u64 = 10_000; // 10 KB
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_send(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -83,6 +84,8 @@ pub async fn chat_send(
         top_p: top_p.map(|v| v.clamp(0.0, 1.0)),
         top_k: top_k.map(|v| v.max(0)),
         max_tokens: None,
+        reasoning_effort: None,
+        chat_template_kwargs: None,
     };
 
     let (record, settings) = {
@@ -125,7 +128,7 @@ pub async fn chat_send(
         let project_root = &record.path;
         let index_db = IndexDb::new(project_root);
         
-        for (_idx, file_rel) in files.iter().enumerate() {
+        for file_rel in files.iter() {
             let file_path = project_root.join(file_rel);
             
             // Get file size to decide strategy

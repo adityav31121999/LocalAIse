@@ -214,6 +214,7 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
 /// `deliver` receives exactly the text the user should see, in order — streamed
 /// answer text plus one short note per tool call. `deliver_reasoning` receives
 /// the model's thinking deltas so the transcript can show them.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     serving: &Serving,
     model_label: &str,
@@ -255,7 +256,7 @@ pub async fn run(
             model_label,
             &messages,
             &tools,
-            sampling,
+            sampling.clone(),
             |delta| {
                 deliver(delta);
                 content.push_str(delta);
@@ -344,7 +345,7 @@ fn short_input(input: &str) -> String {
     let argument = ["path", "query", "url", "subdir"]
         .iter()
         .find_map(|key| parsed.get(key).and_then(Value::as_str))
-        .or_else(|| Some(input))
+        .or(Some(input))
         .unwrap_or(input);
     let argument = argument.lines().next().unwrap_or(argument).trim();
     if argument.chars().count() <= MAX_NOTE_CHARS {

@@ -119,8 +119,8 @@ pub fn read_project_file_bytes(
 }
 
 /// Writes content to a file in the project folder.
-/// Unlike the agent's write_file tool, this does NOT enforce outputs/ prefix.
-/// Used for saving AI summaries to data/summary/.
+/// Unlike the agent's write_file tool, this does NOT enforce the outputs/ prefix.
+/// Used by the frontend to save AI summaries to summary/ (e.g. summary/foo.md).
 #[tauri::command]
 pub fn write_file_content(
     state: State<'_, AppState>,
@@ -135,6 +135,15 @@ pub fn write_file_content(
         std::fs::create_dir_all(parent)?;
     }
 
-    std::fs::write(&target, content)?;
-    Ok(())
+    let content_len = content.len();
+    match std::fs::write(&target, content) {
+        Ok(()) => {
+            log::info!("[write_file_content] wrote {} ({} bytes)", target.display(), content_len);
+            Ok(())
+        }
+        Err(error) => {
+            log::warn!("[write_file_content] failed to write {}: {error}", target.display());
+            Err(error.into())
+        }
+    }
 }

@@ -2,7 +2,7 @@
 
 pub fn summarize_prompt(document_text: &str) -> String {
     format!(
-        "Summarize the following document clearly, highlighting main ideas, key takeaways, and conclusions:\n\n{document_text}"
+        "Summarize the following document clearly and completely, highlighting main ideas, key takeaways, and conclusions in full:\n\n{document_text}"
     )
 }
 
@@ -30,12 +30,12 @@ pub fn flag_inconsistencies_prompt(document_text: &str) -> String {
 
 pub fn map_chunk_prompt(chunk_text: &str) -> String {
     format!(
-        "Summarize this section of a larger document, capturing essential facts, names, numbers, and decisions:\n\n{chunk_text}"
+        "Summarize this section of a larger document concisely in 1-2 paragraphs, capturing key facts, methods, and findings:\n\n{chunk_text}"
     )
 }
 
 pub fn reduce_summaries_prompt(combined_summaries: &str) -> String {
     format!(
-        "Synthesize these section summaries into one cohesive, comprehensive, well-structured document summary:\n\n{combined_summaries}"
+        "Synthesize these section summaries into one cohesive, comprehensive, well-structured document summary. Thoroughly cover main ideas, key takeaways, and conclusions in full without cutting off:\n\n{combined_summaries}"
     )
 }

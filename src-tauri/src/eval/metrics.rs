@@ -98,7 +98,7 @@ pub fn ndcg_at_k(hits: &[Hit], rel: &[Relevant], k: usize) -> Option<f32> {
 /// For negatives: did the system return anything above `threshold`?
 /// Only meaningful once the retriever emits calibrated scores.
 pub fn false_positive(hits: &[Hit], threshold: f32) -> bool {
-    hits.first().map_or(false, |h| h.score >= threshold)
+    hits.first().is_some_and(|h| h.score >= threshold)
 }
 
 /// Mean of the defined values; None if no item contributed.

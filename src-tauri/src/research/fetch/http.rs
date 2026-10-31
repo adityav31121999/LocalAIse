@@ -3,6 +3,12 @@ use reqwest::Client;
 
 pub struct HttpFetcher { client: Client }
 
+impl Default for HttpFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HttpFetcher {
     pub fn new() -> Self { Self { client: Client::new() } }
     pub async fn fetch(&self, url: &str) -> Result<Page, String> {

@@ -12,7 +12,7 @@ use crate::projects::layout::{ChatMode, ProjectChatSettings, ProjectTemplate};
 use crate::runtime::profile::{InferenceProfile, ProfileScope};
 use crate::util::paths::plain;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     /// Global default applied to new projects. Internet stays off unless asked for.
@@ -37,20 +37,6 @@ pub struct Settings {
     /// Profiles stored for a single project, keyed by the project id.
     #[serde(default)]
     pub project_profiles: BTreeMap<String, InferenceProfile>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            default_internet: false,
-            llama_server_path: None,
-            selected_model: None,
-            model_folders: Vec::new(),
-            performance: InferenceProfile::desktop_default(),
-            model_profiles: BTreeMap::new(),
-            project_profiles: BTreeMap::new(),
-        }
-    }
 }
 
 impl Settings {
@@ -269,6 +255,7 @@ impl Registry {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::runtime::profile::KvCacheType;
@@ -320,6 +307,8 @@ mod tests {
         profile.context_tokens = context;
         profile
     }
+
+    #[allow(clippy::field_reassign_with_default)]
 
     #[test]
     fn the_global_default_applies_without_overrides() {

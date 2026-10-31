@@ -27,6 +27,8 @@ export interface SummarizationResult {
     input: number;
     output: number;
   };
+  /** Backend path where the summary was persisted, e.g. `summary/foo.md`. */
+  savedToFile?: string;
 }
 
 /** In-flight read_document calls, so concurrent requests for the same file —
