@@ -148,6 +148,7 @@ pub fn run() {
             commands::projects::create_project,
             commands::projects::attach_file_to_project,
             commands::research::analyze_document,
+            commands::research::summarize_document,
             commands::research::create_research_plan,
             commands::research::execute_research_plan,
             commands::research::run_deep_research,

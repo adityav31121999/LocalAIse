@@ -41,6 +41,16 @@ pub struct ChatStreamResult {
     /// The model's reasoning trace, empty when it answered without thinking.
     pub reasoning: String,
     pub citations: Vec<Citation>,
+    /// Prompt tokens this turn read, summed over every model call.
+    pub prompt_tokens: u32,
+    /// Tokens this turn generated, summed over every model call.
+    pub completion_tokens: u32,
+    /// Prompt plus completion, summed over every model call.
+    pub total_tokens: u32,
+    /// Prompt plus completion of the last call: how full the context is.
+    pub context_tokens: u32,
+    /// Generated tokens per second, when the server reported timings.
+    pub tokens_per_second: f64,
 }
 
 /// Threshold for deciding whether to read a file fully or index it for RAG.
@@ -72,6 +82,7 @@ pub async fn chat_send(
         temperature: temperature.unwrap_or(0.2).clamp(0.0, 2.0),
         top_p: top_p.map(|v| v.clamp(0.0, 1.0)),
         top_k: top_k.map(|v| v.max(0)),
+        max_tokens: None,
     };
 
     let (record, settings) = {
@@ -291,50 +302,70 @@ pub async fn chat_send(
             .ok();
     };
 
-    // Agent mode runs the LangChain tools agent over the same local server;
-    // chat mode is one streamed call.
-    let (content, reasoning) = if record.chat_mode == ChatMode::Agent {
-        let personal_space = {
-            let registry = state.registry()?;
-            registry.personal_space_or_default(&state.dirs)
+    // Agent mode runs the tool loop over the same local server; chat mode is
+    // one streamed call. Both report the tokens and the speed they spent.
+    let (content, reasoning, prompt_tokens, completion_tokens, total_tokens, context_tokens, tokens_per_second) =
+        if record.chat_mode == ChatMode::Agent {
+            let personal_space = {
+                let registry = state.registry()?;
+                registry.personal_space_or_default(&state.dirs)
+            };
+            let history = session.messages[history_start..]
+                .iter()
+                .map(|turn| agent_chat::HistoryTurn {
+                    assistant: turn.role == "assistant",
+                    content: turn.content.clone(),
+                })
+                .collect();
+            let turn = agent_chat::run(
+                &serving,
+                &model_label,
+                system.clone(),
+                history,
+                user_prompt.clone(),
+                &record.path,
+                &personal_space,
+                record.internet_enabled,
+                sampling,
+                max_tool_steps,
+                |delta| emit(false, delta),
+                |delta| emit(true, delta),
+            )
+            .await?;
+            (
+                turn.content,
+                turn.reasoning,
+                turn.usage.prompt_tokens,
+                turn.usage.completion_tokens,
+                turn.usage.total_tokens,
+                turn.context_tokens,
+                turn.timings.predicted_per_second,
+            )
+        } else {
+            let completion = client::complete_stream(
+                &serving,
+                &model_label,
+                &messages,
+                // A brand-new chat never reuses another conversation's cache.
+                !fresh,
+                sampling,
+                false, // allow_empty: reject empty answers (default behavior)
+                |delta| emit(false, delta),
+                |delta| emit(true, delta),
+            )
+            .await?;
+            let usage = completion.usage.unwrap_or_default();
+            let timings = completion.timings.unwrap_or_default();
+            (
+                completion.content,
+                completion.reasoning,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                usage.total_tokens,
+                usage.prompt_tokens + usage.completion_tokens,
+                timings.predicted_per_second,
+            )
         };
-        let history = session.messages[history_start..]
-            .iter()
-            .map(|turn| agent_chat::HistoryTurn {
-                assistant: turn.role == "assistant",
-                content: turn.content.clone(),
-            })
-            .collect();
-        let turn = agent_chat::run(
-            &serving,
-            &model_label,
-            system.clone(),
-            history,
-            user_prompt.clone(),
-            &record.path,
-            &personal_space,
-            record.internet_enabled,
-            sampling,
-            max_tool_steps,
-            |delta| emit(false, delta),
-        )
-        .await?;
-        (turn.content, String::new())
-    } else {
-        let completion = client::complete_stream(
-            &serving,
-            &model_label,
-            &messages,
-            // A brand-new chat never reuses another conversation's cache.
-            !fresh,
-            sampling,
-            false, // allow_empty: reject empty answers (default behavior)
-            |delta| emit(false, delta),
-            |delta| emit(true, delta),
-        )
-        .await?;
-        (completion.content, completion.reasoning)
-    };
 
     // 4. Save the turn: one JSON file per session in the project's chats folder.
     let now = time::now_iso();
@@ -345,6 +376,11 @@ pub async fn chat_send(
         reasoning: String::new(),
         created_at: now.clone(),
         citations: Vec::new(),
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        context_tokens: 0,
+        tokens_per_second: 0.0,
     });
     session.messages.push(StoredMessage {
         id: hash::unique_id("msg"),
@@ -353,6 +389,11 @@ pub async fn chat_send(
         reasoning: reasoning.clone(),
         created_at: now,
         citations: citations.clone(),
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        context_tokens,
+        tokens_per_second,
     });
     let summary = chats::save(&chat_dir, &mut session)?;
 
@@ -369,6 +410,11 @@ pub async fn chat_send(
         content,
         reasoning,
         citations,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        context_tokens,
+        tokens_per_second,
     })
 }
 

@@ -29,6 +29,29 @@ pub struct StoredMessage {
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<Citation>,
+    /// Prompt tokens this turn read (assistant turns only).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub prompt_tokens: u32,
+    /// Tokens this turn generated.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub completion_tokens: u32,
+    /// Prompt plus completion across the turn's model calls.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub total_tokens: u32,
+    /// Prompt plus completion of the last call: how full the context was.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub context_tokens: u32,
+    /// Generated tokens per second.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub tokens_per_second: f64,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
+fn is_zero_f64(value: &f64) -> bool {
+    *value == 0.0
 }
 
 /// A full chat session: fronts `list`, backs `read`.
@@ -217,6 +240,11 @@ mod tests {
             reasoning: String::new(),
             created_at: time::now_iso(),
             citations: Vec::new(),
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            context_tokens: 0,
+            tokens_per_second: 0.0,
         }
     }
 

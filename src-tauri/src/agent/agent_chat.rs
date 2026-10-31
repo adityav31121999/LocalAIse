@@ -1,5 +1,5 @@
-//! The chat agent: a LangChain tools agent that the project chat runs when it
-//! is switched to agent mode.
+//! The chat agent: a tool-using loop that the project chat runs when it is
+//! switched to agent mode.
 //!
 //! The LLM is the local llama-server itself, spoken to over its
 //! OpenAI-compatible endpoint, so no new model, key or network path comes in:
@@ -7,6 +7,11 @@
 //! supervisor already issues. Tool calling is native — llama-server receives
 //! the OpenAI `tools` array and asks for `tool_calls` — instead of a text
 //! protocol, which works with every chat template llama.cpp ships.
+//!
+//! The loop talks to the server through [`client`] rather than a third-party
+//! agent crate, because the client already understands llama-server's
+//! `reasoning_content` field. That keeps the model's thinking visible in agent
+//! mode, exactly as it is in plain chat.
 //!
 //! The available tools wrap the app's own sandboxed helpers (`crate::tools`):
 //! every path stays inside the project folder, and the web pair refuses to run
@@ -16,21 +21,12 @@
 //! content, so the streamed text and the saved turn always agree.
 
 use std::path::Path;
-use std::sync::Arc;
 
-use futures::StreamExt;
-use langchain_rust::agent::{AgentExecutor, AgentStreamEvent, OpenAiToolAgentBuilder};
-use langchain_rust::chain::options::ChainCallOptions;
-use langchain_rust::llm::{openai::OpenAI, OpenAIConfig};
-use langchain_rust::memory::SimpleMemory;
-use langchain_rust::prompt_args;
-use langchain_rust::schemas::memory::BaseMemory;
-use langchain_rust::tools::{FunctionTool, Tool};
-use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::error::{AppError, AppResult};
-use crate::runtime::{client::SamplingParams, Serving};
+use crate::error::AppResult;
+use crate::runtime::client::{self, SamplingParams, Timings, Usage};
+use crate::runtime::Serving;
 use crate::tools;
 
 /// Tool notes and answers are clipped, so one tool call cannot flood a line
@@ -40,7 +36,15 @@ const MAX_NOTE_CHARS: usize = 80;
 /// What one agent turn produced. `content` already contains the tool notes.
 pub struct AgentTurn {
     pub content: String,
+    /// The model's thinking across the turn, empty when it did not think.
+    pub reasoning: String,
     pub tools_used: Vec<String>,
+    /// Tokens spent across every model call of the turn.
+    pub usage: Usage,
+    /// Generation speed across every model call of the turn.
+    pub timings: Timings,
+    /// Prompt plus completion of the last call: what the context held.
+    pub context_tokens: u32,
 }
 
 /// One replayed turn of the saved conversation.
@@ -59,7 +63,11 @@ Before answering, you may act with the offered tools: read files, list folders \
 or search the project's indexed sources when the answer needs them, and use \
 the diary and calendar tools when the question touches the user's days. \
 write_file only when the user asked for something to be written. Cite files by \
-their relative path. Answer in plain prose; keep tool calls to one at a time.",
+their relative path. Answer in plain prose; keep tool calls to one at a time.\n\n\
+IMPORTANT: For greetings, simple questions, and casual conversation, do NOT use \
+any tools. Answer directly without searching, reading files, or calling any \
+tools. Only use tools when the question genuinely requires accessing the \
+project's files, searching the web, or checking your diary/calendar.",
     );
 
     if has_rag_context {
@@ -82,224 +90,130 @@ rather than guessing at the web."
     text
 }
 
-/// Typed arguments the model sends to each tool; serde fills the defaults.
-#[derive(Deserialize)]
-struct PathInput {
-    path: String,
-}
-
-#[derive(Deserialize)]
-struct QueryInput {
-    query: String,
-}
-
-#[derive(Deserialize)]
-struct SubdirInput {
-    #[serde(default)]
-    subdir: String,
-}
-
-#[derive(Deserialize)]
-struct WriteInput {
-    path: String,
-    content: String,
-}
-
-#[derive(Deserialize)]
-struct UrlInput {
-    url: String,
-}
-
-#[derive(Deserialize)]
-struct NoArgs {}
-
-/// Builds the OpenAI tools agent over the local llama-server with the app's
-/// sandboxed tools wrapped as langchain tools.
-fn build_tools(
-    project_root: &Path,
-    personal_space: &Path,
-    internet_enabled: bool,
-) -> Vec<Arc<dyn Tool>> {
-    let root = project_root.to_path_buf();
-
-    let read_file = FunctionTool::new(
-        "read_file",
-        "Reads one file of the project and returns its text. Paths are relative \
-to the project root, e.g. \"data/notes.md\".",
+/// The OpenAI `tools` array the model is offered. The names and arguments must
+/// stay in step with [`crate::tools::call`], which dispatches them.
+fn tool_specs(internet_enabled: bool) -> Vec<Value> {
+    let mut tools = vec![
         json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "File path relative to the project root" }
-            },
-            "required": ["path"]
-        }),
-        move |input: PathInput| {
-            let root = root.clone();
-            async move { Ok::<_, String>(tools::files::read_file(&root, &input.path).content().to_string()) }
-        },
-    );
-
-    let root = project_root.to_path_buf();
-    let list_files = FunctionTool::new(
-        "list_files",
-        "Lists the files of a folder of the project, one per line, so an empty \
-subdir lists the project root itself.",
-        json!({
-            "type": "object",
-            "properties": {
-                "subdir": { "type": "string", "description": "Folder relative to the project root; empty lists the root" }
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Reads one file of the project and returns its text. Paths are relative to the project root, e.g. \"data/notes.md\".",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File path relative to the project root" }
+                    },
+                    "required": ["path"]
+                }
             }
         }),
-        move |input: SubdirInput| {
-            let root = root.clone();
-            async move { Ok::<_, String>(tools::files::list_files(&root, &input.subdir).content().to_string()) }
-        },
-    );
-
-    let root = project_root.to_path_buf();
-    let write_file = FunctionTool::new(
-        "write_file",
-        "Creates or overwrites one file of the project. Only use it when the \
-user asked for something to be written.",
         json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "File path relative to the project root" },
-                "content": { "type": "string", "description": "Full text to write" }
-            },
-            "required": ["path", "content"]
-        }),
-        move |input: WriteInput| {
-            let root = root.clone();
-            async move {
-                Ok::<_, String>(
-                    tools::files::write_file(&root, &input.path, &input.content)
-                        .content()
-                        .to_string(),
-                )
+            "type": "function",
+            "function": {
+                "name": "list_files",
+                "description": "Lists the files of a folder of the project, one per line, so an empty subdir lists the project root itself.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "subdir": { "type": "string", "description": "Folder relative to the project root; empty lists the root" }
+                    }
+                }
             }
-        },
-    );
-
-    let root = project_root.to_path_buf();
-    let search_local = FunctionTool::new(
-        "search_local",
-        "Searches the project's indexed sources and returns the best matching \
-passages with their file names.",
-        json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "description": "What to look for" }
-            },
-            "required": ["query"]
         }),
-        move |input: QueryInput| {
-            let root = root.clone();
-            async move { Ok::<_, String>(tools::search_local::search_local(&root, &input.query).content().to_string()) }
-        },
-    );
-
-    let personal = personal_space.to_path_buf();
-    let search_diary = FunctionTool::new(
-        "search_diary",
-        "Searches the user's personal diary pages and returns matching snippets.",
         json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "description": "What to look for" }
-            },
-            "required": ["query"]
-        }),
-        move |input: QueryInput| {
-            let personal = personal.clone();
-            async move { Ok::<_, String>(tools::diary::search_diary(&personal, &input.query).content().to_string()) }
-        },
-    );
-
-    let personal = personal_space.to_path_buf();
-    let list_events = FunctionTool::new(
-        "list_events",
-        "Lists the user's upcoming calendar events.",
-        json!({ "type": "object", "properties": {} }),
-        move |_input: NoArgs| {
-            let personal = personal.clone();
-            async move {
-                Ok::<_, String>(tools::calendar::list_events_tool(&personal).content().to_string())
+            "type": "function",
+            "function": {
+                "name": "write_file",
+                "description": "Creates or overwrites one file of the project. Only use it when the user asked for something to be written.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "File path relative to the project root" },
+                        "content": { "type": "string", "description": "Full text to write" }
+                    },
+                    "required": ["path", "content"]
+                }
             }
-        },
-    );
-
-    let mut list: Vec<Arc<dyn Tool>> = vec![
-        Arc::new(read_file),
-        Arc::new(list_files),
-        Arc::new(write_file),
-        Arc::new(search_local),
-        Arc::new(search_diary),
-        Arc::new(list_events),
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "search_local",
+                "description": "Searches the project's indexed sources and returns the best matching passages with their file names.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "What to look for" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "search_diary",
+                "description": "Searches the user's personal diary pages and returns matching snippets.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "What to look for" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "list_events",
+                "description": "Lists the user's upcoming calendar events.",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        }),
     ];
 
     if internet_enabled {
-        let root = project_root.to_path_buf();
-        let web_search = FunctionTool::new(
-            "web_search",
-            "Searches the public web; use when the project's own sources cannot \
-answer the question.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Web search query" }
-                },
-                "required": ["query"]
-            }),
-            move |input: QueryInput| {
-                let root = root.clone();
-                async move {
-                    Ok::<_, String>(
-                        tools::web_search::search(&root, &input.query, true)
-                            .await
-                            .content()
-                            .to_string(),
-                    )
+        tools.push(json!({
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "Searches the public web; use when the project's own sources cannot answer the question.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Web search query" }
+                    },
+                    "required": ["query"]
                 }
-            },
-        );
-
-        let root = project_root.to_path_buf();
-        let web_fetch = FunctionTool::new(
-            "web_fetch",
-            "Reads one web page and returns its text.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "url": { "type": "string", "description": "The page's absolute URL" }
-                },
-                "required": ["url"]
-            }),
-            move |input: UrlInput| {
-                let root = root.clone();
-                async move {
-                    Ok::<_, String>(
-                        tools::web_fetch::fetch(&root, &input.url, true)
-                            .await
-                            .content()
-                            .to_string(),
-                    )
+            }
+        }));
+        tools.push(json!({
+            "type": "function",
+            "function": {
+                "name": "web_fetch",
+                "description": "Reads one web page and returns its text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "The page's absolute URL" }
+                    },
+                    "required": ["url"]
                 }
-            },
-        );
-
-        list.push(Arc::new(web_search));
-        list.push(Arc::new(web_fetch));
+            }
+        }));
     }
 
-    list
+    tools
 }
 
 /// The chat agent turn. Runs as long as the model keeps calling tools, bound
-/// by `max_tool_steps`.
+/// by `max_tool_steps` (0 falls back to the app default).
 ///
 /// `deliver` receives exactly the text the user should see, in order — streamed
-/// answer text plus one short note per tool call.
+/// answer text plus one short note per tool call. `deliver_reasoning` receives
+/// the model's thinking deltas so the transcript can show them.
 pub async fn run(
     serving: &Serving,
     model_label: &str,
@@ -312,91 +226,116 @@ pub async fn run(
     sampling: SamplingParams,
     max_tool_steps: u32,
     mut deliver: impl FnMut(&str),
+    mut deliver_reasoning: impl FnMut(&str),
 ) -> AppResult<AgentTurn> {
-    let mut memory = SimpleMemory::new();
+    let mut messages: Vec<Value> = Vec::new();
+    messages.push(json!({ "role": "system", "content": system }));
     for turn in &history {
-        let result = if turn.assistant {
-            memory.add_ai_message(&turn.content).await
-        } else {
-            memory.add_user_message(&turn.content).await
-        };
-        result.map_err(|error| {
-            AppError::msg(format!("could not feed chat history to the agent: {error}"))
-        })?;
+        messages.push(json!({
+            "role": if turn.assistant { "assistant" } else { "user" },
+            "content": turn.content,
+        }));
     }
+    messages.push(json!({ "role": "user", "content": user_prompt }));
 
-    let llm = OpenAI::default()
-        .with_config(
-            OpenAIConfig::default()
-                .with_api_base(&format!("http://127.0.0.1:{}/v1", serving.port))
-                .with_api_key(serving.token.as_str()),
-        )
-        .with_model(model_label);
-
-    let tools = build_tools(project_root, personal_space, internet_enabled);
-    let mut options = ChainCallOptions::new()
-        .with_temperature(sampling.temperature);
-    if let Some(top_p) = sampling.top_p {
-        options = options.with_top_p(top_p);
-    }
-    if let Some(top_k) = sampling.top_k {
-        options = options.with_top_k(top_k as usize);
-    }
-    let agent = OpenAiToolAgentBuilder::new()
-        .prefix(system)
-        .tools(&tools)
-        .options(options)
-        .build(llm)
-        .map_err(|error| AppError::msg(format!("could not start the agent: {error}")))?;
-
-    let executor = AgentExecutor::from_agent(agent)
-        .with_max_iterations(max_tool_steps as i32)
-        .with_memory(memory.into());
+    let tools = Value::Array(tool_specs(internet_enabled));
+    let max_steps = if max_tool_steps == 0 { 6 } else { max_tool_steps };
 
     let mut content = String::new();
+    let mut reasoning = String::new();
     let mut tools_used: Vec<String> = Vec::new();
-    let mut finish: Option<String> = None;
+    let mut usage = Usage::default();
+    let mut timings = Timings::default();
+    let mut context_tokens = 0u32;
+    let mut step = 0u32;
 
-    let mut events = executor.stream_events(prompt_args! {
-        "input" => user_prompt,
-    });
-    while let Some(event) = events.next().await {
-        match event {
-            Ok(AgentStreamEvent::Text(chunk)) => {
-                deliver(&chunk);
-                content.push_str(&chunk);
+    loop {
+        let turn = client::complete_stream_with_tools(
+            serving,
+            model_label,
+            &messages,
+            &tools,
+            sampling,
+            |delta| {
+                deliver(delta);
+                content.push_str(delta);
+            },
+            |delta| {
+                deliver_reasoning(delta);
+                reasoning.push_str(delta);
+            },
+        )
+        .await?;
+
+        // Every model call counts towards the turn; the last one's prompt plus
+        // completion is how much of the context window is now in use.
+        if let Some(counts) = turn.usage {
+            usage.add(counts);
+            context_tokens = counts.prompt_tokens + counts.completion_tokens;
+        }
+        if let Some(speed) = turn.timings {
+            timings.add(speed);
+        }
+
+        // No tool calls: the streamed text is the answer, and the turn is done.
+        if turn.tool_calls.is_empty() {
+            break;
+        }
+
+        // Replay the assistant's preamble and the calls it asked for, so the
+        // model sees its own request before the results.
+        let calls_json: Vec<Value> = turn
+            .tool_calls
+            .iter()
+            .map(|call| {
+                json!({
+                    "id": call.id,
+                    "type": "function",
+                    "function": { "name": call.name, "arguments": call.arguments }
+                })
+            })
+            .collect();
+        messages.push(json!({
+            "role": "assistant",
+            "content": turn.content,
+            "tool_calls": calls_json,
+        }));
+
+        for call in &turn.tool_calls {
+            if !tools_used.contains(&call.name) {
+                tools_used.push(call.name.clone());
             }
-            Ok(AgentStreamEvent::ToolStart { tool, input }) => {
-                if !tools_used.contains(&tool) {
-                    tools_used.push(tool.clone());
-                }
-                let note = format!("> 🔧 `{tool}` — {}\n\n", short_input(&input));
-                deliver(&note);
-                content.push_str(&note);
-            }
-            // The model already sees the tool output; Usage is not shown.
-            Ok(AgentStreamEvent::ToolEnd { .. }) | Ok(AgentStreamEvent::Usage(_)) => {}
-            Ok(AgentStreamEvent::Finish { output }) => finish = Some(output),
-            // The enum is deliberately open to new event kinds; ignore them.
-            Err(error) => {
-                return Err(AppError::msg(format!("the agent could not finish: {error}")))
-            }
-            Ok(_) => {}
+            let note = format!("> 🔧 `{}` — {}\n\n", call.name, short_input(&call.arguments));
+            deliver(&note);
+            content.push_str(&note);
+
+            let args = serde_json::from_str::<Value>(&call.arguments)
+                .ok()
+                .filter(Value::is_object)
+                .unwrap_or_else(|| json!({}));
+            let result =
+                tools::call(&call.name, &args, project_root, personal_space, internet_enabled).await;
+            messages.push(json!({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": result.content(),
+            }));
+        }
+
+        step += 1;
+        if step >= max_steps {
+            break;
         }
     }
 
-    // A plan may hold text back when it looks like a tool-call JSON dump and
-    // turns out to be the answer; make sure it reaches the saved turn too.
-    if let Some(output) = finish {
-        let tail = content.trim_end().trim_start_matches('>');
-        if tail.is_empty() {
-            content = output;
-        } else if !tail.ends_with(output.trim()) {
-            content.push_str(&output);
-        }
-    }
-
-    Ok(AgentTurn { content, tools_used })
+    Ok(AgentTurn {
+        content,
+        reasoning,
+        tools_used,
+        usage,
+        timings,
+        context_tokens,
+    })
 }
 
 /// The visible summary of one tool call: the first meaningful argument, short.
@@ -424,6 +363,7 @@ mod tests {
         let text = instructions("You are localAIse for “Budget”.", false, false);
         assert!(text.starts_with("You are localAIse"));
         assert!(text.contains("AGENT RULES"));
+        assert!(text.contains("do NOT use any tools"));
         assert!(text.contains("internet toggle is off"));
         assert!(!text.contains("web tools are available when the folders"));
         let with_web = instructions("base", true, false);
@@ -450,8 +390,10 @@ mod tests {
 
     #[test]
     fn tool_definitions_match_the_dispatcher_names() {
-        let tools = build_tools(Path::new("C:/tmp"), Path::new("C:/personal"), false);
-        let names: Vec<String> = tools.iter().map(|tool| tool.name()).collect();
+        let names: Vec<String> = tool_specs(false)
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().unwrap().to_string())
+            .collect();
         assert_eq!(
             names,
             vec![
@@ -464,8 +406,10 @@ mod tests {
             ]
         );
 
-        let tools = build_tools(Path::new("C:/tmp"), Path::new("C:/personal"), true);
-        let names: Vec<String> = tools.iter().map(|tool| tool.name()).collect();
+        let names: Vec<String> = tool_specs(true)
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().unwrap().to_string())
+            .collect();
         assert!(names.contains(&"web_search".to_string()));
         assert!(names.contains(&"web_fetch".to_string()));
     }

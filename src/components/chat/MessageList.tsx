@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { CitationChip } from "./CitationChip";
 import { SparkIcon } from "../ui/icons";
-import { formatClock } from "../../util/format";
+import { formatClock, formatRate } from "../../util/format";
 import { Markdown } from "../../util/markdown";
 import type { ChatMessage } from "../../types";
 
@@ -76,6 +76,14 @@ export function MessageList({ messages, streaming, showThinking }: MessageListPr
                   {message.citations.map((citation) => (
                     <CitationChip key={citation.index} citation={citation} />
                   ))}
+                </div>
+              ) : null}
+
+              {isAssistant && !message.pending && (message.tokensPerSecond ?? 0) > 0 ? (
+                <div className="msg__rate">
+                  <span className="msg__rate-value" title="Generation speed">
+                    {formatRate(message.tokensPerSecond ?? 0)} tok/s
+                  </span>
                 </div>
               ) : null}
             </article>

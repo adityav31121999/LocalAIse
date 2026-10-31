@@ -46,6 +46,10 @@ pub fn build_launch(
     let kv_arg = profile.kv_type.as_arg();
 
     let mut args: Vec<String> = vec![
+        // `-m` loads the GGUF weights. llama-server automatically reads the
+        // tokenizer (vocab + merges) embedded in the GGUF file itself, so no
+        // separate `--tokenizer` flag is needed — we use the tokenizer that
+        // ships with the model. Passing one here would only override it.
         "-m".into(),
         model.to_string_lossy().into_owned(),
         "--host".into(),

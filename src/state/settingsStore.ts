@@ -14,7 +14,7 @@ interface PersistedSettings {
 
 const DEFAULTS: PersistedSettings = {
   colorMode: "system",
-  themeName: "atelier",
+  themeName: "black-and-white",
   density: "comfortable",
   sidebarCollapsed: false,
   onboardingComplete: false,
@@ -27,6 +27,7 @@ export const THEME_ORDER: ThemeName[] = [
   "amethyst",
   "arctic",
   "evergreen",
+  "black-and-white",
 ];
 
 export const MODE_ORDER: ThemeMode[] = ["system", "dark", "light"];

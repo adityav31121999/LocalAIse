@@ -5,6 +5,7 @@ import {
 } from "../ui/icons";
 import { useProjectStore, selectActiveProject } from "../../state/projectStore";
 import { useNavStore } from "../../state/navStore";
+import appIcon from "../../assets/branding/localaise.ico";
 
 /**
  * The app-level rail. It owns navigation that exists outside any one project:
@@ -35,7 +36,7 @@ export function ActivityRail() {
   return (
     <nav className="rail" aria-label="Primary navigation">
       <div className="rail__brand" title="localAIse — private, local-first workspace">
-        <ShieldMark />
+        <img className="rail__brand-mark" src={appIcon} alt="" aria-hidden="true" />
       </div>
 
       <div className="rail__nav">
@@ -81,24 +82,5 @@ export function ActivityRail() {
         </button>
       </div>
     </nav>
-  );
-}
-
-function ShieldMark() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 3l7 3v6c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
   );
 }

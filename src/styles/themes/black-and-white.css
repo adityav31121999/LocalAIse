@@ -1,0 +1,91 @@
+/* 7. Black & White — ink black, paper white, mid grey.
+   A grayscale skin that strips out colour entirely for a minimalist,
+   distraction-free look. Best for reading, writing and focused work. */
+
+[data-theme="black-and-white"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --background: #0d0d0d;
+  --background-elevated: #141414;
+  --surface: #1a1a1a;
+  --surface-2: #242424;
+  --surface-hover: #2e2e2e;
+  --border: #333333;
+  --border-strong: #444444;
+
+  --text: #e6e6e6;
+  --text-secondary: #b3b3b3;
+  --text-muted: #808080;
+  --text-faint: #666666;
+
+  --accent-primary: #e6e6e6;
+  --accent-primary-strong: #ffffff;
+  --accent-primary-contrast: #0d0d0d;
+  --accent-primary-soft: rgba(230, 230, 230, 0.14);
+
+  --accent-research: #cccccc;
+  --accent-research-soft: rgba(204, 204, 204, 0.14);
+
+  --accent-ai: #d9d9d9;
+  --accent-ai-soft: rgba(217, 217, 217, 0.14);
+
+  --accent-attention: #bfbfbf;
+  --accent-attention-soft: rgba(191, 191, 191, 0.14);
+
+  --accent-success: #c6c6c6;
+  --accent-success-soft: rgba(198, 198, 198, 0.14);
+
+  --accent-danger: #b3b3b3;
+  --accent-danger-soft: rgba(179, 179, 179, 0.14);
+
+  --focus: rgba(230, 230, 230, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --scrollbar: #2c2c2c;
+
+  --reading-surface: #1a1a1a;
+}
+
+[data-theme="black-and-white"][data-mode="light"] {
+  color-scheme: light;
+
+  --background: #f5f5f5;
+  --background-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #eaeaea;
+  --surface-hover: #e0e0e0;
+  --border: #d4d4d4;
+  --border-strong: #bfbfbf;
+
+  --text: #1a1a1a;
+  --text-secondary: #4d4d4d;
+  --text-muted: #737373;
+  --text-faint: #999999;
+
+  --accent-primary: #2b2b2b;
+  --accent-primary-strong: #1a1a1a;
+  --accent-primary-contrast: #ffffff;
+  --accent-primary-soft: rgba(43, 43, 43, 0.1);
+
+  --accent-research: #404040;
+  --accent-research-soft: rgba(64, 64, 64, 0.1);
+
+  --accent-ai: #4d4d4d;
+  --accent-ai-soft: rgba(77, 77, 77, 0.1);
+
+  --accent-attention: #595959;
+  --accent-attention-soft: rgba(89, 89, 89, 0.12);
+
+  --accent-success: #666666;
+  --accent-success-soft: rgba(102, 102, 102, 0.12);
+
+  --accent-danger: #737373;
+  --accent-danger-soft: rgba(115, 115, 115, 0.1);
+
+  --focus: rgba(43, 43, 43, 0.45);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.12);
+  --scrollbar: #cfcfcf;
+
+  --reading-surface: #fbfbfb;
+}

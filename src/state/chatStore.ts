@@ -90,6 +90,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             reasoning: stored.reasoning,
             createdAt: stored.createdAt,
             citations: stored.citations,
+            promptTokens: stored.promptTokens,
+            completionTokens: stored.completionTokens,
+            totalTokens: stored.totalTokens,
+            contextTokens: stored.contextTokens,
+            tokensPerSecond: stored.tokensPerSecond,
           })),
         },
         activeChat: { ...state.activeChat, [projectId]: session.id },
@@ -212,6 +217,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         content: result.content,
         reasoning: result.reasoning || message.reasoning,
         citations: result.citations,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        totalTokens: result.totalTokens,
+        contextTokens: result.contextTokens,
+        tokensPerSecond: result.tokensPerSecond,
         pending: false,
       }));
       set((state) => ({

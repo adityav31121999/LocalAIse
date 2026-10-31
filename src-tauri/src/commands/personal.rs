@@ -10,11 +10,12 @@ use tauri::State;
 
 use crate::error::{AppError, AppResult};
 use crate::personal::diary::{self, DiaryPage};
-use crate::projects::layout::DIARY_DIR;
 use crate::AppState;
 
-/// The folder a diary command works in: a project's `diary/` or the personal
-/// space. Nothing is created here; the diary module creates on write.
+/// The folder a diary command works in: a project's root or the personal
+/// space. The diary module (`crate::personal::diary`) appends `diary/` itself,
+/// so nothing is created here and a project's pages end up at
+/// `<project>/diary/` — never `<project>/diary/diary/`.
 fn diary_root(state: &AppState, project_id: Option<&str>) -> AppResult<PathBuf> {
     match project_id {
         Some(id) => {
@@ -22,7 +23,7 @@ fn diary_root(state: &AppState, project_id: Option<&str>) -> AppResult<PathBuf> 
             let record = registry
                 .find(id)
                 .ok_or_else(|| AppError::UnknownProject(id.to_string()))?;
-            Ok(record.path.join(DIARY_DIR))
+            Ok(record.path.clone())
         }
         None => state.personal_space(),
     }

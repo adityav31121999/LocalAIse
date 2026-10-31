@@ -4,15 +4,16 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
-use tauri::Emitter;
+use tauri::{Emitter, State};
 
 use crate::activity::log as activity;
+use crate::agent::mapreduce::map_reduce_summarize;
 use crate::error::{AppError, AppResult};
 use crate::ingest::parsers::parse_file;
 use crate::models::registry as models;
 use crate::projects::layout::ProjectPaths;
-use crate::runtime::client::{self, SamplingParams};
+use crate::runtime::client::{self, SamplingParams, Usage};
+use crate::runtime::profile::InferenceProfile;
 use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,29 @@ pub struct AnalysisRequest {
     pub save_as: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummarizationRequest {
+    pub project_id: String,
+    pub file_path: String,
+    pub prompt: Option<String>,
+    pub profile: InferenceProfile,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummarizationResult {
+    pub summary: String,
+    pub tokens_used: TokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsage {
+    pub input: u32,
+    pub output: u32,
+}
+
 #[tauri::command]
 pub async fn analyze_document(
     state: State<'_, AppState>,
@@ -52,8 +76,25 @@ pub async fn analyze_document(
 
     let root = PathBuf::from(&record.path);
     let target_path = crate::sandbox::paths::ensure_within(&root, std::path::Path::new(&request.file_name))?;
-    let doc_text = parse_file(&target_path)
+
+    // Extract document text (PDF extraction can take several seconds; run in
+    // a blocking task so we don't stall the async runtime, and log progress).
+    let ext = target_path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    let is_pdf = ext == "pdf";
+
+    if is_pdf {
+        log::info!("[analyze_document] extracting text from PDF: {}", request.file_name);
+    }
+    let doc_text = tokio::task::spawn_blocking(move || parse_file(&target_path))
+        .await
+        .map_err(|e| AppError::msg(format!("PDF extraction task failed: {e}")))?
         .map_err(|e| AppError::msg(format!("Failed to read {}: {e}", request.file_name)))?;
+    if is_pdf {
+        log::info!("[analyze_document] finished extracting PDF text ({} chars)", doc_text.len());
+    }
 
     let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
 
@@ -133,6 +174,97 @@ pub async fn analyze_document(
     Ok(AnalysisResult {
         content: result_content,
         saved_to_file,
+    })
+}
+
+#[tauri::command]
+pub async fn summarize_document(
+    state: State<'_, AppState>,
+    request: SummarizationRequest,
+) -> AppResult<SummarizationResult> {
+    let (record, settings) = {
+        let registry = state.registry()?;
+        let record = registry
+            .find(&request.project_id)
+            .cloned()
+            .ok_or_else(|| AppError::UnknownProject(request.project_id.clone()))?;
+        (record, registry.settings.clone())
+    };
+
+    let root = PathBuf::from(&record.path);
+    let target_path = crate::sandbox::paths::ensure_within(&root, std::path::Path::new(&request.file_path))?;
+
+    // Extract document text (PDF extraction can take several seconds; run in
+    // a blocking task so we don't stall the async runtime, and log progress).
+    let ext = target_path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    let is_pdf = ext == "pdf";
+
+    if is_pdf {
+        log::info!("[summarize_document] extracting text from PDF: {}", request.file_path);
+    }
+    let doc_text = tokio::task::spawn_blocking(move || parse_file(&target_path))
+        .await
+        .map_err(|e| AppError::msg(format!("PDF extraction task failed: {e}")))?
+        .map_err(|e| AppError::msg(format!("Failed to read {}: {e}", request.file_path)))?;
+    if is_pdf {
+        log::info!("[summarize_document] finished extracting PDF text ({} chars)", doc_text.len());
+    }
+
+    let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
+
+    let serving = crate::commands::runtime::ensure(&state, &settings, Some(&request.project_id))?;
+
+    if let Err(error) = client::wait_until_ready(&serving).await {
+        if let Ok(mut supervisor) = state.supervisor() {
+            supervisor.mark_failed(error.to_string());
+        }
+        return Err(error);
+    }
+
+    let model_label = models::label(&model);
+
+    // Always use map-reduce: chunk the document, summarize each chunk,
+    // then synthesize. Works for any document length without context window
+    // issues. Output capped at 16384 tokens.
+    log::info!(
+        "[summarize_document] summarizing via map-reduce ({} chars)",
+        doc_text.len()
+    );
+    let summary = map_reduce_summarize(&serving, &model_label, &doc_text).await?;
+
+    // Map-reduce makes multiple calls; we don't have exact token counts.
+    let usage = Usage {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+    };
+
+    // Print token counts to the terminal logs so summarisation (including PDFs)
+    // is observable server-side.
+    log::info!(
+        "[summarize_document] {} — prompt_tokens={}, completion_tokens={}, total_tokens={}",
+        request.file_path,
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        usage.total_tokens
+    );
+
+    let _ = activity::record(
+        &ProjectPaths::new(record.path),
+        activity::ActivityKind::Local,
+        "summarize_document",
+        &request.file_path,
+    );
+
+    Ok(SummarizationResult {
+        summary,
+        tokens_used: TokenUsage {
+            input: usage.prompt_tokens,
+            output: usage.completion_tokens,
+        },
     })
 }
 

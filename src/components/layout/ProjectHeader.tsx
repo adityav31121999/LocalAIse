@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  BookIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
-  DocIcon,
   FolderIcon,
   PanelLeftIcon,
 } from "../ui/icons";
@@ -17,7 +15,6 @@ interface ProjectHeaderProps {
   tab: WorkspaceTab;
   onTabChange(tab: WorkspaceTab): void;
   onBack(): void;
-  onToggleDiary(enabled: boolean): void;
   onToggleSidebar(): void;
   sidebarCollapsed: boolean;
 }
@@ -40,7 +37,6 @@ export function ProjectHeader({
   tab,
   onTabChange,
   onBack,
-  onToggleDiary,
   onToggleSidebar,
   sidebarCollapsed,
 }: ProjectHeaderProps) {
@@ -130,17 +126,6 @@ export function ProjectHeader({
                   <CopyIcon size={13} />
                   {copied ? "Path copied" : "Copy path"}
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onToggleDiary(!project.diaryEnabled);
-                    setCrumbOpen(false);
-                  }}
-                >
-                  <BookIcon size={13} />
-                  {project.diaryEnabled ? "Turn diary folder off" : "Turn diary folder on"}
-                </button>
               </div>
             </div>
           )}
@@ -174,23 +159,6 @@ export function ProjectHeader({
         >
           <PanelLeftIcon size={15} />
           <span className="sr-only">Toggle sources panel</span>
-        </button>
-
-        <button
-          type="button"
-          className="icon-btn icon-btn--sm"
-          aria-pressed={project.diaryEnabled}
-          title={
-            project.diaryEnabled
-              ? "Project diary is on — pages live in diary/"
-              : "Add a diary/ folder with one Markdown page per day"
-          }
-          onClick={() => onToggleDiary(!project.diaryEnabled)}
-        >
-          <DocIcon size={15} />
-          <span className="sr-only">
-            {project.diaryEnabled ? "Turn the project diary off" : "Turn the project diary on"}
-          </span>
         </button>
       </div>
     </header>

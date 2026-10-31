@@ -34,6 +34,20 @@ export function formatBytes(bytes: number): string {
   return `${(mb / 1024).toFixed(1)} GB`;
 }
 
+/** Compact token/count label: 950, 12.4k, 1.2M. */
+export function formatCount(count: number): string {
+  if (!Number.isFinite(count) || count <= 0) return "0";
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 10_000) return `${(count / 1_000).toFixed(1)}k`;
+  return Math.round(count).toLocaleString();
+}
+
+/** One decimal place for a throughput figure. */
+export function formatRate(rate: number): string {
+  if (!Number.isFinite(rate) || rate <= 0) return "0.0";
+  return rate.toFixed(1);
+}
+
 export function templateLabel(template: ProjectTemplate): string {
   switch (template) {
     case "budget":

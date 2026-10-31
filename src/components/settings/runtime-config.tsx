@@ -257,13 +257,11 @@ export function RuntimeConfigProvider({
     if (caps) setCapabilities(caps);
     if (state) setStatus(state);
 
-    // Auto-set thinking budget based on model type
+    // Auto-set thinking budget for reasoning models only.
+    // Non-reasoning models keep the default (from DEFAULT_PROFILE or stored profile).
     if (model && model !== previousModel) {
       const reasoning = await isModelReasoning(model).catch(() => false);
-      if (!reasoning) {
-        // Non-reasoning model: disable thinking budget
-        setDraft((current) => ({ ...current, thinkingBudget: 0 }));
-      } else {
+      if (reasoning) {
         // Reasoning model: ensure thinking budget is enabled (use default if 0)
         setDraft((current) =>
           current.thinkingBudget === 0

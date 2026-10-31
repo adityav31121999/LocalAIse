@@ -130,8 +130,25 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
       setSummary(result.summary);
       setSummaryKind("summary");
       if (onSummarize) onSummarize(result.summary);
-    } catch (err) {
-      setSummaryError(err instanceof Error ? err.message : "Failed to summarize document");
+    } catch (firstErr) {
+      // Direct (single-shot) summarization failed — most commonly because the
+      // document is longer than the model's context window. Retry through the
+      // map-reduce analysis pipeline, which chunks the document, summarises
+      // each chunk, and synthesises the results, so long documents still get a
+      // summary instead of a dead end.
+      try {
+        const result = await analyzeDocument({
+          projectId: project.id,
+          action: "summarize",
+          fileName,
+        });
+        setSummary(result.content);
+        setSummaryKind("summary");
+        setSummaryError(null);
+        if (onSummarize) onSummarize(result.content);
+      } catch (mapReduceErr) {
+        setSummaryError(mapReduceErr instanceof Error ? mapReduceErr.message : "Failed to summarize document");
+      }
     } finally {
       setSummarizing(false);
       setActiveTab("summary");
@@ -626,7 +643,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
                 animation: "spin 0.7s linear infinite",
               }}
             />
-            <span>Generating summary with AI…</span>
+            <span>{fileName.toLowerCase().endsWith(".pdf") ? "Extracting PDF text…" : "Generating summary with AI…"}</span>
             <p style={{ fontSize: "12px", color: "var(--text-faint)" }}>
               Using model context: {profile.contextTokens || "default"} tokens
             </p>

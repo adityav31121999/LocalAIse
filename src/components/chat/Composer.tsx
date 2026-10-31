@@ -3,7 +3,7 @@ import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../ui/icons";
 import { useProjectStore } from "../../state/projectStore";
 import { useNavStore } from "../../state/navStore";
 import { formatBytes } from "../../util/format";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../api";
 import type { Project } from "../../types";
 
 /** Default system prompt for chat mode (mirrors the Rust `system_prompt` function). */
@@ -24,7 +24,11 @@ function defaultAgentSystemPrompt(projectName: string, internetEnabled: boolean,
     "or search the project's indexed sources when the answer needs them, and use " +
     "the diary and calendar tools when the question touches the user's days. " +
     "write_file only when the user asked for something to be written. Cite files by " +
-    "their relative path. Answer in plain prose; keep tool calls to one at a time.";
+    "their relative path. Answer in plain prose; keep tool calls to one at a time.\n\n" +
+    "IMPORTANT: For greetings, simple questions, and casual conversation, do NOT use " +
+    "any tools. Answer directly without searching, reading files, or calling any " +
+    "tools. Only use tools when the question genuinely requires accessing the " +
+    "project's files, searching the web, or checking your diary/calendar.";
 
   if (hasRagContext) {
     text +=
@@ -366,62 +370,57 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             Sampling
           </button>
           {samplingOpen && (
-            <div className="composer__prompt" style={{ marginTop: 8 }}>
-              <div className="composer__prompt-head">
-                <span className="composer__prompt-title">Sampling</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, padding: 8 }}>
-                <label>
-                  Temp
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="2"
-                    value={temperatureDisplay}
-                    onChange={(e) => {
-                      setTemperatureDisplay(e.target.value);
-                      const n = Number(e.target.value);
-                      if (!Number.isNaN(n)) setTemperature(n);
-                    }}
-                    onBlur={() => setTemperatureDisplay(String(temperature))}
-                    className="input"
-                  />
-                </label>
-                <label>
-                  Top-p
-                  <input
-                    type="number"
-                    step="0.05"
-                    min="0"
-                    max="1"
-                    value={topPDisplay}
-                    onChange={(e) => {
-                      setTopPDisplay(e.target.value);
-                      const n = Number(e.target.value);
-                      if (!Number.isNaN(n)) setTopP(n);
-                    }}
-                    onBlur={() => setTopPDisplay(String(topP))}
-                    className="input"
-                  />
-                </label>
-                <label>
-                  Top-k
-                  <input
-                    type="number"
-                    step="1"
-                    min="0"
-                    value={topKDisplay}
-                    onChange={(e) => {
-                      setTopKDisplay(e.target.value);
-                      const n = Number(e.target.value);
-                      if (!Number.isNaN(n)) setTopK(Math.max(0, n));
-                    }}
-                    onBlur={() => setTopKDisplay(String(topK))}
-                    className="input"
-                  />
-                </label>
-              </div>
+            <div className="composer__sampling">
+              <label className="composer__sampling-item">
+                Temp
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="2"
+                  value={temperatureDisplay}
+                  onChange={(e) => {
+                    setTemperatureDisplay(e.target.value);
+                    const n = Number(e.target.value);
+                    if (!Number.isNaN(n)) setTemperature(n);
+                  }}
+                  onBlur={() => setTemperatureDisplay(String(temperature))}
+                  className="composer__sampling-input"
+                />
+              </label>
+              <label className="composer__sampling-item">
+                Top-p
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0"
+                  max="1"
+                  value={topPDisplay}
+                  onChange={(e) => {
+                    setTopPDisplay(e.target.value);
+                    const n = Number(e.target.value);
+                    if (!Number.isNaN(n)) setTopP(n);
+                  }}
+                  onBlur={() => setTopPDisplay(String(topP))}
+                  className="composer__sampling-input"
+                />
+              </label>
+              <label className="composer__sampling-item">
+                Top-k
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={topKDisplay}
+                  onChange={(e) => {
+                    setTopKDisplay(e.target.value);
+                    const n = Number(e.target.value);
+                    if (!Number.isNaN(n)) setTopK(Math.max(0, n));
+                  }}
+                  onBlur={() => setTopKDisplay(String(topK))}
+                  className="composer__sampling-input"
+                />
+              </label>
             </div>
           )}
           <span className="composer__hint">Enter to send · Shift+Enter for a new line</span>

@@ -149,7 +149,13 @@ export async function summarizeDocument(
   };
 }
 
-/** Save the AI summary as a markdown file with the same name as the source document. */
+/** Save the AI summary as a markdown file with the same name as the source document.
+ *
+ * Summaries are written to the project's `summary/` folder (see
+ * `src-tauri/src/projects/layout.rs`, `SUMMARY_DIR`), which `ensure_structure`
+ * creates when a project is opened. Writing anywhere else — e.g. `data/summary/`
+ * — means the file never shows up where the app and the user expect it.
+ */
 export async function saveSummaryAsMarkdown(
   projectId: string,
   sourceFilePath: string,
@@ -166,7 +172,7 @@ export async function saveSummaryAsMarkdown(
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("write_file_content", {
       projectId,
-      file_path: `data/summary/${mdFileName}`,
+      file_path: `summary/${mdFileName}`,
       content: markdownContent,
     });
   } else {
@@ -174,7 +180,7 @@ export async function saveSummaryAsMarkdown(
     // Browser mock: store in localStorage for persistence simulation
     try {
       const existing = JSON.parse(localStorage.getItem("localaise_summaries") ?? "{}");
-      existing[`${projectId}:data/summary/${mdFileName}`] = {
+      existing[`${projectId}:summary/${mdFileName}`] = {
         content: markdownContent,
         savedAt: new Date().toISOString(),
       };
@@ -185,7 +191,7 @@ export async function saveSummaryAsMarkdown(
   }
 
   return {
-    savedPath: `data/summary/${mdFileName}`,
+    savedPath: `summary/${mdFileName}`,
     fileName: mdFileName,
   };
 }

@@ -4,7 +4,7 @@
 export type ThemeMode = "light" | "dark" | "system";
 
 /** Theme — the visual skin. Orthogonal to the color mode. */
-export type ThemeName = "atelier" | "paper" | "cyber-lab" | "amethyst" | "arctic" | "evergreen";
+export type ThemeName = "atelier" | "paper" | "cyber-lab" | "amethyst" | "arctic" | "evergreen" | "black-and-white";
 
 /** Interface density — how much breathing room the shared component system gets. */
 export type Density = "compact" | "comfortable" | "spacious";
@@ -70,6 +70,16 @@ export interface ChatMessage {
   createdAt: string;
   citations?: Citation[];
   pending?: boolean;
+  /** Prompt tokens the turn read, summed over its model calls. */
+  promptTokens?: number;
+  /** Tokens the turn generated, summed over its model calls. */
+  completionTokens?: number;
+  /** Prompt plus completion, summed over the turn's model calls. */
+  totalTokens?: number;
+  /** Prompt plus completion of the last call: how full the context was. */
+  contextTokens?: number;
+  /** Generated tokens per second for the turn. */
+  tokensPerSecond?: number;
 }
 
 export interface ChatStreamResult {
@@ -80,6 +90,12 @@ export interface ChatStreamResult {
   /** Reasoning the model produced before answering, if any. */
   reasoning?: string;
   citations: Citation[];
+  /** Token and speed accounting for the turn. */
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  contextTokens?: number;
+  tokensPerSecond?: number;
 }
 
 /** One saved chat session, as listed in the chats/ folder. */
@@ -99,6 +115,11 @@ export interface StoredChatMessage {
   reasoning?: string;
   createdAt: string;
   citations?: Citation[];
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  contextTokens?: number;
+  tokensPerSecond?: number;
 }
 
 /** A full saved conversation. */

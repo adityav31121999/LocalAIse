@@ -20,7 +20,6 @@ export function ProjectDashboard({ project }: { project: Project }) {
   const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useSettingsStore((state) => state.toggleSidebar);
   const closeProject = useProjectStore((state) => state.closeProject);
-  const setDiary = useProjectStore((state) => state.setDiary);
 
   // A configuration tab can be left open from the previous project; always
   // land on the workspace instead of an empty view.
@@ -40,7 +39,6 @@ export function ProjectDashboard({ project }: { project: Project }) {
           tab={tab}
           onTabChange={setTab}
           onBack={closeProject}
-          onToggleDiary={(enabled) => void setDiary(enabled)}
           onToggleSidebar={toggleSidebar}
           sidebarCollapsed={sidebarCollapsed}
         />

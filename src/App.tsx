@@ -22,7 +22,7 @@ export default function App() {
 
   if (!onboardingComplete) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--app-bg)" }}>
+      <div style={{ height: "100%", display: "flex", alignItems: "safe center", justifyContent: "center", padding: 24, background: "var(--app-bg)", overflowY: "auto" }}>
         {onboardingStep === 0 && (
           <Welcome onNext={() => setOnboardingStep(1)} onSkip={completeOnboarding} />
         )}

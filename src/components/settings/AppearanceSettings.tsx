@@ -43,6 +43,12 @@ const THEMES: Record<
     bestFor: "the diary, knowledge management and extended research",
     swatch: ["#1b231a", "#a3c98a", "#7cc3c8"],
   },
+  "black-and-white": {
+    label: "Black & White",
+    palette: "Ink black · Paper white · Mid grey",
+    bestFor: "minimalist reading, writing and distraction-free focus",
+    swatch: ["#ffffff", "#e6e6e6", "#999999"],
+  },
 };
 
 const MODES: { value: ThemeMode; label: string }[] = [

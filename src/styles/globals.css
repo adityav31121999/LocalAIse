@@ -10,6 +10,7 @@
 @import "./themes/amethyst.css";
 @import "./themes/arctic.css";
 @import "./themes/evergreen.css";
+@import "./themes/black-and-white.css";
 
 /* ------------------------------------------------------------------ *
  * Reset and base
@@ -26,6 +27,35 @@ body,
 #root {
   height: 100%;
   margin: 0;
+}
+
+/* Desktop shell: the window itself never scrolls. Only inner panels do, and
+   they keep their wheel events to themselves (see overscroll-behavior below),
+   so the layout can never be dragged up or down by scrolling. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Every scrollable panel keeps its own wheel/trackpad events. Without this,
+   reaching the end of a list hands the rest of the gesture to the next scroll
+   ancestor, which is what made the window appear to move. */
+.home,
+.panel__scroll,
+.activity,
+.diary__body,
+.settings,
+.files__scroll,
+.chat__scroll,
+.project-diary__main,
+.theme-panel__content,
+.model-config__runtime-panel,
+.model-config__column--models .models,
+.workbench__col,
+.workbench__output,
+.cite-list {
+  overscroll-behavior: contain;
 }
 
 body {
@@ -359,10 +389,13 @@ a {
   display: grid;
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
   /* Cap the row at the shell height: a tall view must never push the rail,
-     header or statusbar out of the window — inner panels scroll instead. */
+     header or statusbar out of the window - inner panels scroll instead. */
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   background: var(--background);
+  /* Any child that pokes past the window edge would otherwise become
+     scrollable overflow on <body>, which lets the wheel drag the whole UI. */
+  overflow: hidden;
 }
 
 .app-main {
@@ -392,9 +425,13 @@ a {
   width: 32px;
   height: 32px;
   margin-bottom: var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--accent-primary-soft);
-  color: var(--accent-primary);
+}
+
+.rail__brand-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .rail__nav {
@@ -1220,6 +1257,14 @@ button.net:hover {
   white-space: nowrap;
 }
 
+/* Generation speed shown under an assistant answer. */
+.msg__rate {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* A compact switch for turning assistant reasoning on and off. */
 .thinking-toggle {
   display: inline-flex;
@@ -1930,6 +1975,42 @@ button.net:hover {
 
 .composer__prompt-save:hover {
   background: var(--accent-primary-strong);
+}
+
+/* Compact inline sampling controls shown under the composer. */
+.composer__sampling {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.composer__sampling-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.composer__sampling-input {
+  width: 70px;
+  padding: 1px 6px;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  background: var(--background-elevated);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+
+.composer__sampling-input:focus {
+  border-color: var(--accent-primary);
+  outline: none;
 }
 
 /* ------------------------------------------------------------------ *
@@ -3586,6 +3667,7 @@ button.net:hover {
 .theme-panel__option-swatch[data-theme="amethyst"] { background: linear-gradient(135deg, #2d1b3d 0%, #4a2c5a 100%); }
 .theme-panel__option-swatch[data-theme="arctic"] { background: linear-gradient(135deg, #e8f4f8 0%, #c8e0e8 100%); }
 .theme-panel__option-swatch[data-theme="evergreen"] { background: linear-gradient(135deg, #1b3d2e 0%, #2d5a3e 100%); }
+.theme-panel__option-swatch[data-theme="black-and-white"] { background: linear-gradient(135deg, #e6e6e6 0%, #999999 100%); }
 
 .theme-panel__option-label {
   flex: 1;
@@ -4039,10 +4121,6 @@ button.net:hover {
 }
 
 /* --- Rail ---------------------------------------------------------- */
-
-.rail__brand {
-  border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, transparent);
-}
 
 .rail__item {
   border: 0;
