@@ -1,4 +1,5 @@
 use crate::error::AppResult;
+use crate::retrieval::search::tokenize;
 use crate::runtime::client::{self, SamplingParams, Usage};
 use crate::runtime::Serving;
 
@@ -63,7 +64,7 @@ pub async fn map_reduce_summarize(
     }
 
     // Count tokens using the model's own tokenizer.
-    let tokens = client::tokenize(serving, full_text).await?;
+    let tokens = tokenize(full_text);
     let token_count = tokens.len();
     log::info!("[map_reduce] tokenized document: {} tokens, input_token_limit: {}", token_count, input_token_limit);
 

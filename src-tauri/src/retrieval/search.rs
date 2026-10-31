@@ -11,7 +11,7 @@ pub struct ScoredChunk {
 }
 
 /// Tokenizes text into lowercase normalized alphanumeric keywords.
-fn tokenize(text: &str) -> Vec<String> {
+pub fn tokenize(text: &str) -> Vec<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| t.len() > 1)
