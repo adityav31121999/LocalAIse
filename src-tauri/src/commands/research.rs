@@ -1,10 +1,10 @@
 //! Document analysis commands: summarize, extract tables, compare documents,
 //! flag inconsistencies, and save outputs to the project folder.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::activity::log as activity;
 use crate::agent::mapreduce::map_reduce_summarize;
@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use crate::ingest::parsers::parse_file;
 use crate::models::registry as models;
 use crate::projects::layout::ProjectPaths;
-use crate::runtime::client::{self, SamplingParams, Usage};
+use crate::runtime::client::{self, SamplingParams};
 use crate::runtime::profile::InferenceProfile;
 use crate::AppState;
 
@@ -51,6 +51,7 @@ pub struct SummarizationRequest {
 pub struct SummarizationResult {
     pub summary: String,
     pub tokens_used: TokenUsage,
+    pub saved_to_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,7 +112,15 @@ pub async fn analyze_document(
 
     let result_content = match request.action.as_str() {
         "summarize" => {
-            crate::agent::mapreduce::map_reduce_summarize(&serving, &model_label, &doc_text).await?
+            let profile = settings.profile_for(Some(&model), Some(&request.project_id));
+            let (summary, _usage) = crate::agent::mapreduce::map_reduce_summarize(
+                &serving,
+                &model_label,
+                profile.context_tokens,
+                &doc_text,
+            )
+            .await?;
+            summary
         }
         "extract_tables" => {
             let messages = vec![
@@ -179,6 +188,7 @@ pub async fn analyze_document(
 
 #[tauri::command]
 pub async fn summarize_document(
+    app: AppHandle,
     state: State<'_, AppState>,
     request: SummarizationRequest,
 ) -> AppResult<SummarizationResult> {
@@ -211,6 +221,8 @@ pub async fn summarize_document(
         .map_err(|e| AppError::msg(format!("Failed to read {}: {e}", request.file_path)))?;
     if is_pdf {
         log::info!("[summarize_document] finished extracting PDF text ({} chars)", doc_text.len());
+        // Notify frontend that extraction is done, summarization starting
+        let _ = app.emit("summarize:extraction_done", ());
     }
 
     let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
@@ -228,19 +240,20 @@ pub async fn summarize_document(
 
     // Always use map-reduce: chunk the document, summarize each chunk,
     // then synthesize. Works for any document length without context window
-    // issues. Output capped at 16384 tokens.
+    // issues. Token usage is accumulated across all internal model calls.
     log::info!(
         "[summarize_document] summarizing via map-reduce ({} chars)",
         doc_text.len()
     );
-    let summary = map_reduce_summarize(&serving, &model_label, &doc_text).await?;
+    let (summary, usage) = map_reduce_summarize(
+        &serving,
+        &model_label,
+        request.profile.context_tokens,
+        &doc_text,
+    )
+    .await?;
 
-    // Map-reduce makes multiple calls; we don't have exact token counts.
-    let usage = Usage {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-    };
+    log::info!("[summarize_document] summary length: {} chars", summary.len());
 
     // Print token counts to the terminal logs so summarisation (including PDFs)
     // is observable server-side.
@@ -251,6 +264,39 @@ pub async fn summarize_document(
         usage.completion_tokens,
         usage.total_tokens
     );
+
+    // Save the summary to the project's summary/ folder so it is persisted
+    // even if the frontend auto-save path fails. Derive the markdown file
+    // name from the source document (e.g. data/foo.pdf -> summary/foo.md).
+    let mut saved_to_file = None;
+    let source_name = Path::new(&request.file_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&request.file_path);
+    let dot_index = source_name.rfind('.');
+    let stem = dot_index.map(|i| &source_name[..i]).unwrap_or(source_name);
+    let md_file_name = format!("{stem}.md");
+    let summary_dir = ProjectPaths::new(&record.path).summary_dir();
+    if std::fs::create_dir_all(&summary_dir).is_ok() {
+        let summary_path = summary_dir.join(&md_file_name);
+        if std::fs::write(&summary_path, &summary).is_ok() {
+            saved_to_file = Some(format!("summary/{md_file_name}"));
+            log::info!(
+                "[summarize_document] saved summary to {}",
+                summary_path.display()
+            );
+        } else {
+            log::warn!(
+                "[summarize_document] failed to write summary to {}",
+                summary_path.display()
+            );
+        }
+    } else {
+        log::warn!(
+            "[summarize_document] failed to create summary directory {}",
+            summary_dir.display()
+        );
+    }
 
     let _ = activity::record(
         &ProjectPaths::new(record.path),
@@ -265,6 +311,7 @@ pub async fn summarize_document(
             input: usage.prompt_tokens,
             output: usage.completion_tokens,
         },
+        saved_to_file,
     })
 }
 
