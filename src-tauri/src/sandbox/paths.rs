@@ -35,7 +35,8 @@ pub fn ensure_within(root: &Path, candidate: &Path) -> AppResult<PathBuf> {
         // Accept absolute candidates only when they live inside the root,
         // compared component by component. Windows canonicalized roots use a
         // verbatim prefix (`\\?\C:`), so prefixes are compared loosely.
-        // Canonicalize the candidate too so its prefix matches the root's.
+        // Canonicalize the candidate too so its prefix matches the root's for comparison,
+        // but return the original candidate path to preserve the non-verbatim prefix.
         let canonical_candidate = candidate.canonicalize().unwrap_or_else(|_| candidate.to_path_buf());
         let root_parts: Vec<Component> = canonical_root.components().collect();
         let cand_parts: Vec<Component> = canonical_candidate.components().collect();
@@ -47,7 +48,7 @@ pub fn ensure_within(root: &Path, candidate: &Path) -> AppResult<PathBuf> {
         {
             return Err(AppError::OutsideSandbox(candidate.display().to_string()));
         }
-        canonical_candidate
+        candidate.to_path_buf()
     } else {
         let mut joined = canonical_root.clone();
         for component in candidate.components() {
