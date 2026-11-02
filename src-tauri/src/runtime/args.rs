@@ -108,6 +108,15 @@ pub fn build_launch(
         }
     }
 
+    // Gemma 4's per-layer embedding cache (`per_layer_token_embd`) is read
+    // lazily by token and never benefits from GPU memory. When the planner
+    // parked it in system RAM, tell llama-server with a tensor override so
+    // the cache does not consume VRAM even when layers are offloaded.
+    if profile.ple_cache_in_ram {
+        args.push("-ot".into());
+        args.push("per_layer_token_embd=CPU".into());
+    }
+
     if !profile.use_mmap {
         // v0.7.0: `--no-mmap` was folded into the load-mode switch and
         // `none` is exactly the old behaviour: read the model without mmap.
@@ -224,6 +233,23 @@ mod tests {
         assert_eq!(ngl, Some(999));
         assert!(launch.args.contains(&"--n-cpu-moe".to_string()));
         assert!(launch.args.contains(&"12".to_string()));
+    }
+
+    #[test]
+    fn ple_cache_in_ram_emits_tensor_override() {
+        let mut profile = InferenceProfile::desktop_default();
+        profile.device = ComputeDevice::UserGpu { gpu_layers: 999 };
+        profile.ple_cache_in_ram = true;
+        let launch = build_launch(Path::new("m.gguf"), None, 8080, "key", &profile).unwrap();
+        assert!(launch.args.contains(&"-ot".to_string()));
+        assert!(launch.args.contains(&"per_layer_token_embd=CPU".to_string()));
+    }
+
+    #[test]
+    fn ple_cache_not_in_ram_omits_tensor_override() {
+        let profile = InferenceProfile::desktop_default();
+        let launch = build_launch(Path::new("m.gguf"), None, 8080, "key", &profile).unwrap();
+        assert!(!launch.args.contains(&"-ot".to_string()));
     }
 
     #[test]

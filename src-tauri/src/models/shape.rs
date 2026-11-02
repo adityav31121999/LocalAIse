@@ -97,6 +97,8 @@ pub fn read_shape(path: &Path) -> ShapeResult {
         head_dim: 0,
         max_context: 0,
         moe: None,
+        ple: false,
+        ple_cache_bytes: 0,
     };
     let mut meta = ModelMeta::default();
 
@@ -163,7 +165,13 @@ fn read_shape_into<R: Read>(
     // Mixture-of-experts facts. expert_count 0 means a dense model; the
     // tensor list is then not parsed at all.
     let n_experts = metadata.num("expert_count");
-    if n_experts == 0 {
+    // Per-layer embedding cache (Gemma 4 E2B / E4B). Declared through
+    // `embedding_length_per_layer_input`, the cache tensor is
+    // `per_layer_token_embd` and is kept in system RAM even on GPU runs.
+    let ple_length = metadata.num("embedding_length_per_layer_input");
+    let has_ple = ple_length > 0;
+
+    if n_experts == 0 && !has_ple {
         shape.moe = None;
         return Ok(());
     }
@@ -173,10 +181,13 @@ fn read_shape_into<R: Read>(
             n_experts_used: metadata.num("expert_used_count"),
             expert_bytes_total: 0,
         });
+        shape.ple = has_ple;
+        shape.ple_cache_bytes = 0;
         return Ok(());
     }
 
     let mut expert_bytes = 0f64;
+    let mut ple_bytes = 0u64;
     for _ in 0..tensor_count {
         let name = read_string(reader)?;
         let n_dims = read_u32(reader)?;
@@ -190,13 +201,27 @@ fn read_shape_into<R: Read>(
         if name.contains("exps") {
             expert_bytes += elements as f64 * ggml_type_scale(ggml_type);
         }
+        // The per-layer token embedding cache: one row per (layer, vocab)
+        // entry, read lazily by token. Its size is the gap between total
+        // and effective parameter count.
+        if name.contains("per_layer_token_embd") {
+            ple_bytes = ple_bytes.saturating_add(
+                (elements as f64 * ggml_type_scale(ggml_type)) as u64,
+            );
+        }
     }
 
-    shape.moe = Some(MoeShape {
-        n_experts,
-        n_experts_used: metadata.num("expert_used_count"),
-        expert_bytes_total: expert_bytes as u64,
-    });
+    shape.moe = if n_experts > 0 {
+        Some(MoeShape {
+            n_experts,
+            n_experts_used: metadata.num("expert_used_count"),
+            expert_bytes_total: expert_bytes as u64,
+        })
+    } else {
+        None
+    };
+    shape.ple = has_ple;
+    shape.ple_cache_bytes = ple_bytes;
 
     Ok(())
 }

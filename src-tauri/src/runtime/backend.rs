@@ -422,6 +422,13 @@ pub fn plan(
     let mut resolved = profile.clone();
     resolved.device = device;
 
+    // Gemma 4's per-layer embedding cache never benefits from VRAM: it is
+    // read lazily by token (GET_ROWS). When layers are offloaded to the GPU,
+    // park it in system RAM instead so it does not consume the card's memory.
+    if shape.map_or(false, |s| s.ple) && resolved.device.is_gpu() {
+        resolved.ple_cache_in_ram = true;
+    }
+
     Ok(RuntimePlan {
         server,
         device,

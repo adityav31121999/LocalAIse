@@ -5,10 +5,12 @@ import {
   FolderIcon,
   FolderPlusIcon,
   FilePlusIcon,
-  MoreIcon,
   SearchIcon,
   TrashIcon,
   PencilIcon,
+  RefreshCwIcon,
+  ChevronDownIcon,
+  ArrowUpIcon,
 } from "../ui/icons";
 import { useProjectStore } from "../../state/projectStore";
 import { useProjectEvents } from "../../hooks/useProjectEvents";
@@ -101,6 +103,7 @@ function TreeNodeItem({
     isDir && !path.includes("/") && PROTECTED_ROOT_DIRS.has(name.toLowerCase());
   const [children, setChildren] = useState<DirectoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   useEffect(() => {
     if (!isDir || !isExpanded) return;
@@ -135,27 +138,41 @@ function TreeNodeItem({
     return null;
   }
 
+  // Reduced spacing constants
+  const indentSize = 10; // was 14
+  const basePadding = 4; // was 6
+
   if (isDir) {
     return (
       <div style={{ display: "flex", flexDirection: "column" }}>
         <div
           className={`ide-tree-row ${isSelected ? "ide-tree-row--active" : ""}`}
-          style={{ paddingLeft: `${depth * 14 + 6}px` }}
+          style={{
+            paddingLeft: `${depth * indentSize + basePadding}px`,
+            height: "24px", // reduced from 28px
+          }}
           onClick={() => {
             onToggleFolder(path);
             onSelectPath(path);
           }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
           title={path}
         >
           <span
             className={`ide-tree-chevron ${isExpanded ? "ide-tree-chevron--expanded" : ""}`}
-            style={{ marginRight: "2px" }}
+            style={{
+              marginRight: "2px",
+              width: "14px",
+              height: "14px",
+              flexShrink: 0,
+            }}
           >
-            <ChevronRightIcon size={12} />
+            <ChevronRightIcon size={10} />
           </span>
 
           <span style={{ color: "#f59e0b", display: "inline-flex", flexShrink: 0 }}>
-            <FolderIcon size={15} />
+            <FolderIcon size={13} />
           </span>
 
           <span
@@ -163,7 +180,7 @@ function TreeNodeItem({
             style={{
               fontWeight: isExpanded ? "600" : "500",
               color: isSelected ? "var(--accent-primary)" : "var(--text)",
-              fontSize: "12.5px",
+              fontSize: "12px", // reduced from 12.5px
             }}
           >
             {name}
@@ -172,45 +189,49 @@ function TreeNodeItem({
           {children.length > 0 && (
             <span
               style={{
-                fontSize: "10px",
+                fontSize: "9px",
                 color: "var(--text-faint)",
                 fontFamily: "var(--font-mono)",
-                marginLeft: "2px",
+                marginLeft: "4px",
               }}
             >
               ({children.length})
             </span>
           )}
 
-          {/* Hover Actions */}
-          <div className="ide-tree-actions" onClick={(e) => e.stopPropagation()}>
+          {/* Actions - always visible when hovered, more compact */}
+          <div
+            className="ide-tree-actions"
+            onClick={(e) => e.stopPropagation()}
+            style={{ opacity: hovered ? 1 : 0, transition: "opacity 120ms ease" }}
+          >
             <button
               type="button"
               className="icon-btn icon-btn--sm"
-              style={{ width: "20px", height: "20px", padding: 0 }}
+              style={{ width: "18px", height: "18px", padding: 0 }}
               onClick={() => onNewFile(path)}
               title="New file in this folder"
             >
-              <FilePlusIcon size={12} />
+              <FilePlusIcon size={10} />
             </button>
             <button
               type="button"
               className="icon-btn icon-btn--sm"
-              style={{ width: "20px", height: "20px", padding: 0 }}
+              style={{ width: "18px", height: "18px", padding: 0 }}
               onClick={() => onNewFolder(path)}
               title="New subfolder"
             >
-              <FolderPlusIcon size={12} />
+              <FolderPlusIcon size={10} />
             </button>
             {isProtected ? null : (
               <button
                 type="button"
                 className="icon-btn icon-btn--sm"
-                style={{ width: "20px", height: "20px", padding: 0, color: "#ef4444" }}
+                style={{ width: "18px", height: "18px", padding: 0, color: "#ef4444" }}
                 onClick={() => onDelete({ path, name })}
                 title="Delete folder"
               >
-                <TrashIcon size={12} />
+                <TrashIcon size={10} />
               </button>
             )}
           </div>
@@ -218,14 +239,14 @@ function TreeNodeItem({
 
         {/* Subtree */}
         {isExpanded && (
-          <div className="ide-tree-children" style={{ marginLeft: `${depth * 14 + 13}px` }}>
+          <div className="ide-tree-children" style={{ marginLeft: `${depth * indentSize + 10}px` }}>
             {loading ? (
               <div
                 style={{
-                  paddingLeft: "16px",
-                  fontSize: "11px",
+                  paddingLeft: "12px",
+                  fontSize: "10px",
                   color: "var(--text-faint)",
-                  height: "22px",
+                  height: "18px",
                   display: "flex",
                   alignItems: "center",
                 }}
@@ -235,10 +256,10 @@ function TreeNodeItem({
             ) : children.length === 0 ? (
               <div
                 style={{
-                  paddingLeft: "16px",
-                  fontSize: "11px",
+                  paddingLeft: "12px",
+                  fontSize: "10px",
                   color: "var(--text-faint)",
-                  height: "22px",
+                  height: "18px",
                   display: "flex",
                   alignItems: "center",
                 }}
@@ -281,13 +302,18 @@ function TreeNodeItem({
   return (
     <div
       className={`ide-tree-row ${isSelected ? "ide-tree-row--active" : ""}`}
-      style={{ paddingLeft: `${depth * 14 + 20}px` }}
+      style={{
+        paddingLeft: `${depth * indentSize + 18}px`,
+        height: "24px",
+      }}
       onClick={() => onSelectPath(path)}
       onDoubleClick={() => onOpenDocument({ projectId: project.id, filePath: path, fileName: name })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       title={`${path} (${formatBytes(sizeBytes || source?.sizeBytes || 0)})`}
     >
       <span style={{ color: fileMeta.color, display: "inline-flex", flexShrink: 0 }}>
-        <DocIcon size={14} />
+        <DocIcon size={12} />
       </span>
 
       <span
@@ -296,35 +322,39 @@ function TreeNodeItem({
           flex: 1,
           minWidth: 0,
           color: isSelected ? "var(--accent-primary)" : "var(--text)",
-          fontSize: "12.5px",
+          fontSize: "12px",
         }}
       >
         {name}
       </span>
 
       {source && source.status === "indexed" && (
-        <span className="dot dot--success" aria-label="Indexed" style={{ marginRight: 4 }} />
+        <span className="dot dot--success" aria-label="Indexed" style={{ marginRight: 6 }} />
       )}
 
       {/* Hover Actions */}
-      <div className="ide-tree-actions" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="ide-tree-actions"
+        onClick={(e) => e.stopPropagation()}
+        style={{ opacity: hovered ? 1 : 0, transition: "opacity 120ms ease" }}
+      >
         <button
           type="button"
           className="icon-btn icon-btn--sm"
-          style={{ width: "20px", height: "20px", padding: 0 }}
+          style={{ width: "18px", height: "18px", padding: 0 }}
           onClick={() => onRename({ path, name })}
           title="Rename"
         >
-          <PencilIcon size={12} />
+          <PencilIcon size={10} />
         </button>
         <button
           type="button"
           className="icon-btn icon-btn--sm"
-          style={{ width: "20px", height: "20px", padding: 0, color: "#ef4444" }}
+          style={{ width: "18px", height: "18px", padding: 0, color: "#ef4444" }}
           onClick={() => onDelete({ path, name })}
           title="Delete file"
         >
-          <TrashIcon size={12} />
+          <TrashIcon size={10} />
         </button>
       </div>
     </div>
@@ -350,34 +380,16 @@ export function Sidebar({ project }: { project: Project }) {
   const setOpenDocument = useNavStore((state) => state.setOpenDocument);
   const setActiveProjectTab = useNavStore((state) => state.setActiveProjectTab);
 
-  const handleOpenDocument = (doc: { projectId: string; filePath: string; fileName: string }) => {
-    setActiveProjectTab("chat");
-    setOpenDocument(doc);
-  };
-
   // Modals
   const [modalType, setModalType] = useState<"folder" | "file" | "rename" | "delete" | null>(null);
   const [modalTargetParent, setModalTargetParent] = useState("");
   const [modalTargetEntry, setModalTargetEntry] = useState<{ path: string; name: string } | null>(null);
   const [modalInputVal, setModalInputVal] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen]);
+  const handleOpenDocument = (doc: { projectId: string; filePath: string; fileName: string }) => {
+    setActiveProjectTab("chat");
+    setOpenDocument(doc);
+  };
 
   const sourcesMap = useMemo(() => {
     const map = new Map<string, SourceFile>();
@@ -498,14 +510,14 @@ export function Sidebar({ project }: { project: Project }) {
 
   return (
     <div className="panel" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* IDE Top Bar Header */}
+      {/* IDE Top Bar Header - Mode Selector */}
       <div
         className="panel__head"
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "6px 8px",
+          padding: "4px 8px", // reduced from 6px 8px
           borderBottom: "1px solid var(--border)",
         }}
       >
@@ -551,92 +563,86 @@ export function Sidebar({ project }: { project: Project }) {
             </button>
           </div>
         </div>
-
-        {/* Actions menu */}
-        <div style={{ display: "flex", alignItems: "center", gap: "2px", position: "relative" }}>
-          {sidebarMode === "tree" && (
-            <>
-              <button
-                type="button"
-                className="icon-btn icon-btn--sm"
-                ref={menuRef}
-                onClick={() => setMenuOpen((open) => !open)}
-                title="Actions"
-                style={{ width: "24px", height: "24px" }}
-              >
-                <MoreIcon size={14} />
-              </button>
-
-              {menuOpen && (
-                <div
-                  className="card-menu"
-                  style={{
-                    top: "28px",
-                    right: 0,
-                    minWidth: "170px",
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    type="button"
-                    className="btn btn--subtle btn--sm"
-                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      Object.keys(expandedFolders).length > 0
-                        ? handleCollapseAll()
-                        : handleExpandAll();
-                    }}
-                  >
-                    {Object.keys(expandedFolders).length > 0 ? "Collapse all folders" : "Expand all folders"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--subtle btn--sm"
-                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      openNewFolder("");
-                    }}
-                  >
-                    <FolderPlusIcon size={13} />
-                    <span style={{ marginLeft: 6 }}>New folder</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--subtle btn--sm"
-                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      openNewFile("");
-                    }}
-                  >
-                    <FilePlusIcon size={13} />
-                    <span style={{ marginLeft: 6 }}>New file</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--subtle btn--sm"
-                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
-                    disabled={indexing || sources.length === 0}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      handleReindex();
-                    }}
-                  >
-                    {indexing ? "…" : "Index files"}
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
       </div>
+
+      {/* Visible Toolbar - Key Actions */}
+      {sidebarMode === "tree" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            padding: "4px 8px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--surface)",
+          }}
+        >
+          {/* New Folder */}
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm"
+            onClick={() => openNewFolder("")}
+            title="New folder (Ctrl+Shift+N)"
+            style={{ width: "28px", height: "28px" }}
+          >
+            <FolderPlusIcon size={14} />
+          </button>
+          {/* New File */}
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm"
+            onClick={() => openNewFile("")}
+            title="New file (Ctrl+N)"
+            style={{ width: "28px", height: "28px" }}
+          >
+            <FilePlusIcon size={14} />
+          </button>
+          {/* Separator */}
+          <div style={{ width: "1px", height: "18px", background: "var(--border)", margin: "0 4px" }} />
+          {/* Collapse/Expand All */}
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm"
+            onClick={() => {
+              Object.keys(expandedFolders).length > 0
+                ? handleCollapseAll()
+                : handleExpandAll();
+            }}
+            title={
+              Object.keys(expandedFolders).length > 0
+                ? "Collapse all folders"
+                : "Expand all folders"
+            }
+            style={{ width: "28px", height: "28px" }}
+          >
+            {Object.keys(expandedFolders).length > 0 ? (
+              <ChevronDownIcon size={14} />
+            ) : (
+              <ArrowUpIcon size={14} />
+            )}
+          </button>
+          {/* Reindex */}
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm"
+            disabled={indexing || sources.length === 0}
+            onClick={handleReindex}
+            title={indexing ? "Indexing…" : "Reindex files (Ctrl+Shift+R)"}
+            style={{ width: "28px", height: "28px", marginLeft: "auto" }}
+          >
+            {indexing ? (
+              <RefreshCwIcon size={14} style={{ animation: "spin 1s linear infinite" }} />
+            ) : (
+              <RefreshCwIcon size={14} />
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Search Input */}
       <div className="panel__search" style={{ padding: "4px 8px" }}>
-        <label className="input" style={{ height: "28px" }}>
-          <SearchIcon size={13} />
+        <label className="input" style={{ height: "26px" }}>
+          <SearchIcon size={12} />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -658,7 +664,7 @@ export function Sidebar({ project }: { project: Project }) {
       </div>
 
       {/* Body: IDE Tree or Sources List */}
-      <div className="panel__scroll" style={{ padding: "2px 4px" }}>
+      <div className="panel__scroll" style={{ padding: "0 4px" }}>
         {sidebarMode === "tree" ? (
           <div className="ide-tree">
             {/* Root Project Node */}
@@ -667,8 +673,8 @@ export function Sidebar({ project }: { project: Project }) {
                 display: "flex",
                 alignItems: "center",
                 gap: "6px",
-                padding: "4px 8px",
-                fontSize: "11.5px",
+                padding: "2px 4px", // reduced from 4px 8px
+                fontSize: "10.5px", // reduced from 11.5px
                 fontWeight: "700",
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",
@@ -676,14 +682,14 @@ export function Sidebar({ project }: { project: Project }) {
               }}
             >
               <span className="truncate">{project.name}</span>
-              <span style={{ fontSize: "10px", color: "var(--text-faint)", marginLeft: "auto" }}>
+              <span style={{ fontSize: "9px", color: "var(--text-faint)", marginLeft: "auto" }}>
                 {rootEntries.length} items
               </span>
             </div>
 
             {/* Tree Children */}
             {rootEntries.length === 0 ? (
-              <p className="muted" style={{ padding: "12px 8px", fontSize: "12px" }}>
+              <p className="muted" style={{ padding: "8px 4px", fontSize: "11px" }}>
                 Reading workspace directory…
               </p>
             ) : (
@@ -760,15 +766,15 @@ export function Sidebar({ project }: { project: Project }) {
       </div>
 
       {/* Panel Foot: Indexing & Storage telemetry */}
-      <div className="panel__foot" style={{ padding: "6px 8px", fontSize: "11px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+      <div className="panel__foot" style={{ padding: "4px 8px", fontSize: "10.5px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
           <span>{indexed} of {sources.length} indexed</span>
           <span className="mono">{percent}%</span>
         </div>
-        <div className="progress" style={{ height: "3px" }}>
+        <div className="progress" style={{ height: "2px" }}>
           <div className="progress__bar" style={{ width: `${percent}%` }} />
         </div>
-        <div style={{ marginTop: "6px", color: "var(--text-faint)", fontSize: "10.5px" }}>
+        <div style={{ marginTop: "4px", color: "var(--text-faint)", fontSize: "9.5px" }}>
           {watching
             ? "Watcher active: live index refresh"
             : project.internetEnabled

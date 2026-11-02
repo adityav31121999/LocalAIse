@@ -67,6 +67,12 @@ pub struct ModelShape {
     /// Context length the file declares, 0 when absent.
     pub max_context: u32,
     pub moe: Option<MoeShape>,
+    /// True when the architecture has a per-layer embedding cache
+    /// (Gemma 4 E2B / E4B declare `embedding_length_per_layer_input > 0`).
+    pub ple: bool,
+    /// Total bytes of the `per_layer_token_embd` tensor(s), read from the
+    /// GGUF header. Kept in system RAM even when layers are offloaded to GPU.
+    pub ple_cache_bytes: u64,
 }
 
 /// Mixture-of-experts specifics, also read from GGUF metadata.
@@ -167,9 +173,18 @@ pub fn split(shape: &ModelShape, profile: &InferenceProfile) -> MemorySplit {
     let expert_on_cpu = shape.expert_bytes_per_layer() * cpu_expert_layers as u64;
     let expert_on_gpu = shape.expert_bytes().saturating_sub(expert_on_cpu);
 
+    // Gemma 4's per-layer embedding cache (`per_layer_token_embd`) is read
+    // lazily by token (GET_ROWS), so it never benefits from being on the GPU.
+    // It is kept in system RAM even when all layers are offloaded.
+    let ple_on_ram = if shape.ple { shape.ple_cache_bytes } else { 0 };
+
     MemorySplit {
-        ram_bytes: expert_on_cpu,
-        vram_bytes: shape.dense_bytes() + kv + expert_on_gpu,
+        ram_bytes: expert_on_cpu.saturating_add(ple_on_ram),
+        vram_bytes: shape
+            .dense_bytes()
+            .saturating_add(kv)
+            .saturating_add(expert_on_gpu)
+            .saturating_sub(ple_on_ram),
     }
 }
 
@@ -193,7 +208,10 @@ pub fn auto_gpu_layers(
         .saturating_sub(kv)
         .saturating_sub(RUNTIME_OVERHEAD_BYTES);
 
-    let per_layer = shape.file_bytes / shape.n_layers as u64;
+    // The per-layer embedding cache (Gemma 4) stays in system RAM, so it is
+    // not part of the per-layer VRAM weight budget.
+    let weight_bytes = shape.file_bytes.saturating_sub(shape.ple_cache_bytes);
+    let per_layer = weight_bytes / shape.n_layers.max(1) as u64;
     if per_layer == 0 {
         return None;
     }
@@ -234,6 +252,7 @@ pub fn recommend_cpu(
                     parallel_slots: 1,
                     use_mmap: true,
                     moe: MoeOffload::Off,
+                    ple_cache_in_ram: false,
                     thinking_budget: 2_048,
                     partial_load: false,
                 });
@@ -277,7 +296,10 @@ fn recommend_gpu(
 
     let vram_budget = gpu.vram_bytes.saturating_sub(VRAM_RESERVE_BYTES);
     let ram_budget = host.total_ram_bytes.saturating_sub(RAM_RESERVE_BYTES);
-    let per_layer = shape.file_bytes / shape.n_layers.max(1) as u64;
+    // The per-layer embedding cache (Gemma 4) stays in system RAM, so it is
+    // not part of the per-layer VRAM weight budget.
+    let weight_bytes = shape.file_bytes.saturating_sub(shape.ple_cache_bytes);
+    let per_layer = weight_bytes / shape.n_layers.max(1) as u64;
     if per_layer == 0 {
         return None;
     }
@@ -295,6 +317,7 @@ fn recommend_gpu(
                 parallel_slots: 1,
                 use_mmap: true,
                 moe: MoeOffload::Off,
+                ple_cache_in_ram: false,
                 thinking_budget: 2_048,
                 partial_load: false,
             };
@@ -385,6 +408,8 @@ mod tests {
             head_dim: 128,
             max_context: 0,
             moe: None,
+            ple: false,
+            ple_cache_bytes: 0,
         }
     }
 
@@ -492,6 +517,8 @@ mod tests {
             head_dim: 0,
             max_context: 0,
             moe: None,
+            ple: false,
+            ple_cache_bytes: 0,
         };
         assert!(recommend_cpu(&unknown, &host(32), 8_192).is_none());
     }

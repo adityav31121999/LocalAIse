@@ -143,6 +143,7 @@ pub fn validate(context: &ValidationContext<'_>) -> ValidationReport {
     check_cache(context, &mut messages);
     check_thinking(context, &mut messages);
     check_experts(context, &mut messages);
+    check_ple(context, &mut messages);
 
     ValidationReport {
         messages,
@@ -415,6 +416,45 @@ fn check_experts(context: &ValidationContext<'_>, messages: &mut Vec<ValidationM
     }
 }
 
+/// Gemma 4's per-layer embedding cache (`per_layer_token_embd`) is kept in
+/// system RAM even when layers are offloaded to the GPU. This is automatic
+/// for models that declare `embedding_length_per_layer_input > 0`.
+fn check_ple(context: &ValidationContext<'_>, messages: &mut Vec<ValidationMessage>) {
+    let profile = context.profile;
+    let Some(shape) = context.shape else {
+        return;
+    };
+    if !shape.ple {
+        return;
+    }
+
+    let on_gpu = profile.device.is_gpu()
+        || (profile.device.is_auto()
+            && context.server_supports_gpu
+            && context.vram_bytes.is_some());
+
+    if on_gpu && profile.ple_cache_in_ram {
+        let gb = shape.ple_cache_bytes as f32 / 1_073_741_824.0;
+        messages.push(info(
+            "ple-in-ram",
+            "Per-layer embedding cache stays in system RAM",
+            format!(
+                "{gb:.1} GB of per-layer embedding cache ({}) is kept in system RAM instead of \
+                 VRAM, so it does not consume graphics memory. This is automatic for Gemma 4 \
+                 E2B / E4B models.",
+                shape.ple_cache_bytes
+            ),
+        ));
+    } else if on_gpu && !profile.ple_cache_in_ram {
+        messages.push(info(
+            "ple-in-vram",
+            "Per-layer embedding cache in VRAM",
+            "The model has a per-layer embedding cache, but it was not parked in system RAM. \
+             This can happen with older llama-server builds that do not support tensor overrides.",
+        ));
+    }
+}
+
 fn gigabytes(bytes: u64) -> f32 {
     bytes as f32 / 1_073_741_824.0
 }
@@ -459,6 +499,8 @@ mod tests {
             head_dim: 128,
             max_context: 32_768,
             moe: None,
+            ple: false,
+            ple_cache_bytes: 0,
         }
     }
 

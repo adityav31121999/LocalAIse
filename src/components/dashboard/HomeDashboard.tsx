@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarIcon,
   ChevronDownIcon,
-  CpuIcon,
   FolderIcon,
   GlobeIcon,
   LayersIcon,
+  ModelIcon,
   PlusIcon,
   SearchIcon,
   SparkIcon,
@@ -206,7 +206,7 @@ export function HomeDashboard() {
 
           <div className="metric metric--model">
             <span className="metric__icon metric__icon--success">
-              <CpuIcon size={16} />
+              <ModelIcon size={16} />
             </span>
             <div className="metric__body">
               <span className="metric__label">

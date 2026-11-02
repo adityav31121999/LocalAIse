@@ -175,6 +175,10 @@ struct ProfileWire {
     parallel_slots: u32,
     use_mmap: bool,
     moe: MoeOffload,
+    /// Keep the per-layer embedding cache (Gemma 4 E2B / E4B) in system RAM
+    /// even when layers are offloaded to the GPU. Set automatically by the
+    /// runtime planner; not a user setting yet.
+    ple_cache_in_ram: bool,
     thinking_budget: u32,
     partial_load: bool,
 }
@@ -220,6 +224,7 @@ impl From<ProfileWire> for InferenceProfile {
             parallel_slots: wire.parallel_slots,
             use_mmap: wire.use_mmap,
             moe: wire.moe,
+            ple_cache_in_ram: wire.ple_cache_in_ram,
             thinking_budget: wire.thinking_budget,
             partial_load: wire.partial_load,
         }
@@ -238,6 +243,7 @@ impl From<InferenceProfile> for ProfileWire {
             parallel_slots: profile.parallel_slots,
             use_mmap: profile.use_mmap,
             moe: profile.moe,
+            ple_cache_in_ram: profile.ple_cache_in_ram,
             thinking_budget: profile.thinking_budget,
             partial_load: profile.partial_load,
         }
@@ -277,6 +283,10 @@ pub struct InferenceProfile {
     pub parallel_slots: u32,
     pub use_mmap: bool,
     pub moe: MoeOffload,
+    /// Keep the per-layer embedding cache (Gemma 4 E2B / E4B) in system RAM
+    /// even when layers are offloaded to the GPU. Set automatically by the
+    /// runtime planner; not a user setting yet.
+    pub ple_cache_in_ram: bool,
     /// Cap on reasoning tokens. `0` means "auto": the flag is not passed and
     /// llama-server leaves thinking unrestricted (its default of -1).
     pub thinking_budget: u32,
@@ -300,6 +310,7 @@ impl InferenceProfile {
             parallel_slots: 1,
             use_mmap: true,
             moe: MoeOffload::Off,
+            ple_cache_in_ram: false,
             thinking_budget: 2_048,
             partial_load: false,
         }
