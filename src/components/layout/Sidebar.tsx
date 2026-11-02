@@ -5,6 +5,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   FilePlusIcon,
+  MoreIcon,
   SearchIcon,
   TrashIcon,
   PencilIcon,
@@ -24,14 +25,7 @@ import {
   formatBytes,
   formatRelativeTime,
 } from "../../util/format";
-import type { DirectoryEntry, Project, SourceFile, SourceStatus } from "../../types";
-
-const STATUS_LABEL: Record<SourceStatus, string> = {
-  indexed: "INDEXED",
-  indexing: "INDEXING",
-  pending: "QUEUED",
-  error: "FAILED",
-};
+import type { DirectoryEntry, Project, SourceFile } from "../../types";
 
 /** Top-level folders the app owns; the backend refuses to move or delete them. */
 const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs", "summary"]);
@@ -299,6 +293,8 @@ function TreeNodeItem({
       <span
         className="truncate"
         style={{
+          flex: 1,
+          minWidth: 0,
           color: isSelected ? "var(--accent-primary)" : "var(--text)",
           fontSize: "12.5px",
         }}
@@ -306,23 +302,8 @@ function TreeNodeItem({
         {name}
       </span>
 
-      {source && (
-        <span
-          className={`file-row__status file-row__status--${source.status}`}
-          style={{
-            marginLeft: "auto",
-            marginRight: "4px",
-            fontSize: "9px",
-            padding: "1px 4px",
-            borderRadius: "2px",
-            background:
-              source.status === "indexed"
-                ? "rgba(117, 214, 156, 0.12)"
-                : "rgba(255, 255, 255, 0.06)",
-          }}
-        >
-          {STATUS_LABEL[source.status]}
-        </span>
+      {source && source.status === "indexed" && (
+        <span className="dot dot--success" aria-label="Indexed" style={{ marginRight: 4 }} />
       )}
 
       {/* Hover Actions */}
@@ -379,6 +360,24 @@ export function Sidebar({ project }: { project: Project }) {
   const [modalTargetParent, setModalTargetParent] = useState("");
   const [modalTargetEntry, setModalTargetEntry] = useState<{ path: string; name: string } | null>(null);
   const [modalInputVal, setModalInputVal] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
 
   const sourcesMap = useMemo(() => {
     const map = new Map<string, SourceFile>();
@@ -506,7 +505,7 @@ export function Sidebar({ project }: { project: Project }) {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "8px 10px",
+          padding: "6px 8px",
           borderBottom: "1px solid var(--border)",
         }}
       >
@@ -548,60 +547,94 @@ export function Sidebar({ project }: { project: Project }) {
                 cursor: "pointer",
               }}
             >
-              Sources ({sources.length})
+              Sources
             </button>
           </div>
         </div>
 
-        {/* Action icons like VS Code Explorer */}
-        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+        {/* Actions menu */}
+        <div style={{ display: "flex", alignItems: "center", gap: "2px", position: "relative" }}>
           {sidebarMode === "tree" && (
             <>
               <button
                 type="button"
                 className="icon-btn icon-btn--sm"
-                onClick={() => openNewFile("")}
-                title="New File in project root"
+                ref={menuRef}
+                onClick={() => setMenuOpen((open) => !open)}
+                title="Actions"
                 style={{ width: "24px", height: "24px" }}
               >
-                <FilePlusIcon size={14} />
+                <MoreIcon size={14} />
               </button>
-              <button
-                type="button"
-                className="icon-btn icon-btn--sm"
-                onClick={() => openNewFolder("")}
-                title="New Folder in project root"
-                style={{ width: "24px", height: "24px" }}
-              >
-                <FolderPlusIcon size={14} />
-              </button>
-              <button
-                type="button"
-                className="icon-btn icon-btn--sm"
-                onClick={Object.keys(expandedFolders).length > 0 ? handleCollapseAll : handleExpandAll}
-                title={Object.keys(expandedFolders).length > 0 ? "Collapse all folders" : "Expand all folders"}
-                style={{ width: "24px", height: "24px", fontSize: "12px" }}
-              >
-                {Object.keys(expandedFolders).length > 0 ? "−" : "+"}
-              </button>
+
+              {menuOpen && (
+                <div
+                  className="card-menu"
+                  style={{
+                    top: "28px",
+                    right: 0,
+                    minWidth: "170px",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    className="btn btn--subtle btn--sm"
+                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      Object.keys(expandedFolders).length > 0
+                        ? handleCollapseAll()
+                        : handleExpandAll();
+                    }}
+                  >
+                    {Object.keys(expandedFolders).length > 0 ? "Collapse all folders" : "Expand all folders"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--subtle btn--sm"
+                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      openNewFolder("");
+                    }}
+                  >
+                    <FolderPlusIcon size={13} />
+                    <span style={{ marginLeft: 6 }}>New folder</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--subtle btn--sm"
+                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      openNewFile("");
+                    }}
+                  >
+                    <FilePlusIcon size={13} />
+                    <span style={{ marginLeft: 6 }}>New file</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--subtle btn--sm"
+                    style={{ width: "100%", textAlign: "left", padding: "6px 8px" }}
+                    disabled={indexing || sources.length === 0}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      handleReindex();
+                    }}
+                  >
+                    {indexing ? "…" : "Index files"}
+                  </button>
+                </div>
+              )}
             </>
           )}
-
-          <button
-            type="button"
-            className="btn btn--subtle"
-            onClick={handleReindex}
-            disabled={indexing || sources.length === 0}
-            style={{ fontSize: "11px", padding: "2px 7px", cursor: "pointer", height: "24px" }}
-            title="Parse and re-index project sources"
-          >
-            {indexing ? "…" : "Index"}
-          </button>
         </div>
       </div>
 
       {/* Search Input */}
-      <div className="panel__search" style={{ padding: "6px 10px" }}>
+      <div className="panel__search" style={{ padding: "4px 8px" }}>
         <label className="input" style={{ height: "28px" }}>
           <SearchIcon size={13} />
           <input
@@ -625,7 +658,7 @@ export function Sidebar({ project }: { project: Project }) {
       </div>
 
       {/* Body: IDE Tree or Sources List */}
-      <div className="panel__scroll" style={{ padding: "4px 6px" }}>
+      <div className="panel__scroll" style={{ padding: "2px 4px" }}>
         {sidebarMode === "tree" ? (
           <div className="ide-tree">
             {/* Root Project Node */}
@@ -711,9 +744,13 @@ export function Sidebar({ project }: { project: Project }) {
                         <span>·</span>
                         <span>{formatRelativeTime(file.modifiedAt)}</span>
                       </span>
-                    </span>
-                    <span className={`file-row__status file-row__status--${file.status}`}>
-                      {STATUS_LABEL[file.status]}
+                      {file.status === "indexed" && (
+                        <span
+                          className="dot dot--success"
+                          aria-label="Indexed"
+                          style={{ marginLeft: 4 }}
+                        />
+                      )}
                     </span>
                   </div>
                 ))
@@ -723,7 +760,7 @@ export function Sidebar({ project }: { project: Project }) {
       </div>
 
       {/* Panel Foot: Indexing & Storage telemetry */}
-      <div className="panel__foot" style={{ padding: "8px 10px", fontSize: "11px" }}>
+      <div className="panel__foot" style={{ padding: "6px 8px", fontSize: "11px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
           <span>{indexed} of {sources.length} indexed</span>
           <span className="mono">{percent}%</span>

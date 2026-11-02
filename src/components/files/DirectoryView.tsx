@@ -809,7 +809,7 @@ export function DirectoryView({ project }: { project: Project }) {
                       }}
                       className="file-explorer-row"
                     >
-                      <td style={{ padding: "8px 16px" }}>
+                      <td style={{ padding: "8px 8px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           <span
                             style={{

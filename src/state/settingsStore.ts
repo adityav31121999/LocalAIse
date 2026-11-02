@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Density, ThemeMode, ThemeName } from "../types";
+import { invoke } from "@tauri-apps/api/core";
 
 const STORAGE_KEY = "LocalAIse.settings";
 
@@ -9,6 +10,7 @@ interface PersistedSettings {
   themeName: ThemeName;
   density: Density;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   onboardingComplete: boolean;
 }
 
@@ -17,6 +19,7 @@ const DEFAULTS: PersistedSettings = {
   themeName: "black-and-white",
   density: "comfortable",
   sidebarCollapsed: false,
+  sidebarWidth: 220,
   onboardingComplete: false,
 };
 
@@ -55,6 +58,9 @@ function readPersisted(): PersistedSettings {
       themeName: isThemeName(parsed.themeName) ? parsed.themeName : DEFAULTS.themeName,
       density: isDensity(parsed.density) ? parsed.density : DEFAULTS.density,
       sidebarCollapsed: Boolean(parsed.sidebarCollapsed),
+      sidebarWidth: typeof parsed.sidebarWidth === "number" && parsed.sidebarWidth > 0
+        ? parsed.sidebarWidth
+        : DEFAULTS.sidebarWidth,
       onboardingComplete: Boolean(parsed.onboardingComplete),
     };
   } catch {
@@ -77,13 +83,18 @@ interface SettingsState extends PersistedSettings {
   setDensity(density: Density): void;
   toggleSidebar(): void;
   setSidebarCollapsed(collapsed: boolean): void;
+  setSidebarWidth(width: number): void;
   completeOnboarding(): void;
+  // Updater settings (synced with backend)
+  getAutoUpdateCheck(): Promise<boolean>;
+  setAutoUpdateCheck(enabled: boolean): Promise<void>;
+  getLastCheck(): Promise<number>;
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => {
   const persist = () => {
-    const { colorMode, themeName, density, sidebarCollapsed, onboardingComplete } = get();
-    write({ colorMode, themeName, density, sidebarCollapsed, onboardingComplete });
+    const { colorMode, themeName, density, sidebarCollapsed, sidebarWidth, onboardingComplete } = get();
+    write({ colorMode, themeName, density, sidebarCollapsed, sidebarWidth, onboardingComplete });
   };
 
   return {
@@ -123,9 +134,27 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
       persist();
     },
 
+    setSidebarWidth: (width) => {
+      set({ sidebarWidth: width });
+      persist();
+    },
+
     completeOnboarding: () => {
       set({ onboardingComplete: true });
       persist();
+    },
+
+    // Updater settings - delegated to backend
+    getAutoUpdateCheck: async () => {
+      return await invoke<boolean>("get_auto_update_check");
+    },
+
+    setAutoUpdateCheck: async (enabled: boolean) => {
+      await invoke("set_auto_update_check", { enabled });
+    },
+
+    getLastCheck: async () => {
+      return await invoke<number>("get_last_check");
     },
   };
 });

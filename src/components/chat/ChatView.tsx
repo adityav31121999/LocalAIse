@@ -261,7 +261,7 @@ export function ChatView({ project }: { project: Project }) {
         </button>
       </div>
 
-      <div className="chat__pane" ref={paneRef}>
+      <div className="chat__pane" ref={paneRef} style={{ flex: 1, minHeight: 0 }}>
         {/* Main chat area */}
         <div
           className="chat__pane-main"

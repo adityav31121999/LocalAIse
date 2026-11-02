@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LocalAIse",
-  "version": "0.1.0",
   "identifier": "dev.LocalAIse.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -38,6 +37,18 @@
     ],
     "resources": [
       "./bundle-llama"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_PUBLIC_KEY_REPLACE_WITH_ACTUAL_KEY",
+      "endpoints": [
+        "https://github.com/adityav31121999/LocalAIse/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

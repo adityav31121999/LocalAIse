@@ -65,6 +65,8 @@ anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 # Stream combinators the agent event loop needs; futures-util alone is not enough.
 futures = "0.3"
+# Random number generation for jitter in update checker
+fastrand = "2"
 # The GPU build installer: GitHub archives unzip or untar into the app's
 # data dir. sha2 verifies the digest GitHub publishes for every release asset.
 zip = { version = "2", default-features = false, features = ["deflate"] }
@@ -83,3 +85,7 @@ fastembed = "4"
 # Reading the display-adapter class keys to get real VRAM sizes.
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+
+# Updater plugin (desktop only)
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

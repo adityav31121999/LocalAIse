@@ -823,6 +823,38 @@ a {
   min-height: 0;
 }
 
+.workspace__splitter {
+  position: relative;
+  width: 9px;
+  margin-left: -2px;
+  flex: none;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+}
+
+.workspace__splitter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background var(--dur-1) var(--ease);
+}
+
+.workspace__splitter:hover::after,
+.workspace__splitter[data-dragging="true"]::after {
+  background: var(--accent-primary);
+}
+
+body.workspace-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* Project header */
 
 .project-header {
@@ -1098,7 +1130,7 @@ button.net:hover {
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding-right: 8px;
+  padding-right: 4px;
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
   font-size: 12.5px;
@@ -1127,7 +1159,6 @@ button.net:hover {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
   transition: opacity var(--dur-1) var(--ease);
 }
 

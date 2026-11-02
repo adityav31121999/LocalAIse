@@ -21,6 +21,7 @@ pub mod retrieval;
 pub mod runtime;
 pub mod sandbox;
 pub mod tools;
+pub mod updater;
 pub mod util;
 pub mod eval;
 
@@ -94,6 +95,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Ensure writable runtime exists and base CPU files are staged before supervisor launches
             if let Err(e) = crate::runtime::gpu_build::ensure_runtime(app.handle()) {
@@ -109,6 +112,9 @@ pub fn run() {
                 supervisor: Mutex::new(Supervisor::new()),
                 capabilities: Mutex::new(CapabilityCache::default()),
             });
+
+            // Initialize updater: load state, spawn background checker
+            crate::updater::init(app.handle());
 
             // Keep every project's index in step with its folder's files.
             crate::projects::watcher::start(app.handle());
@@ -186,6 +192,14 @@ pub fn run() {
             commands::personal::import_calendar_ics,
             commands::personal::search_personal,
             commands::activity::list_activity,
+            // Updater commands
+            updater::commands::check_now,
+            updater::commands::get_update_status,
+            updater::commands::install_update,
+            updater::commands::skip_version,
+            updater::commands::get_auto_update_check,
+            updater::commands::set_auto_update_check,
+            updater::commands::get_last_check,
         ])
         .build(tauri::generate_context!())
         .expect("could not start localAIse")

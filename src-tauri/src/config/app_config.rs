@@ -12,6 +12,10 @@ use crate::projects::layout::{ChatMode, ProjectChatSettings, ProjectTemplate};
 use crate::runtime::profile::{InferenceProfile, ProfileScope};
 use crate::util::paths::plain;
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -37,6 +41,10 @@ pub struct Settings {
     /// Profiles stored for a single project, keyed by the project id.
     #[serde(default)]
     pub project_profiles: BTreeMap<String, InferenceProfile>,
+    /// Whether to automatically check for updates once per day when online.
+    /// Defaults to true. Stored in state.json so it persists across restarts.
+    #[serde(default = "default_true")]
+    pub auto_update_check: bool,
 }
 
 impl Settings {

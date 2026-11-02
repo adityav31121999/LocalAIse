@@ -308,6 +308,13 @@ export function HomeDashboard() {
           </div>
         </div>
 
+        {totalSources > 0 && (
+          <p className="muted" style={{ marginTop: 8, fontSize: 11 }}>
+            <span className="dot dot--success" aria-hidden="true" /> Indexed files are shown with a
+            green dot in the sources panel.
+          </p>
+        )}
+
         <div className="home__toolbar">
           <label className="input">
             <SearchIcon size={14} />

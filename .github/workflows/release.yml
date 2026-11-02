@@ -2,93 +2,79 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ['v*.*.*']
 
 permissions:
   contents: write
 
 jobs:
-  bundle:
-    name: ${{ matrix.os }} · installers
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches app version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CARGO=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          PKG=$(node -p "require('./package.json').version")
+          [ "$TAG" = "$CARGO" ] && [ "$TAG" = "$PKG" ] || { echo "Mismatch: tag $TAG, Cargo $CARGO, package $PKG"; exit 1; }
+      - id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRE=false; [[ "$GITHUB_REF_NAME" == *-* ]] && PRE=true
+          ID=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$GITHUB_REF_NAME" -f name="LocalAIse $GITHUB_REF_NAME" \
+            -F draft=true -F prerelease=$PRE -F generate_release_notes=true --jq .id)
+          echo "release_id=$ID" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: create-release
     strategy:
-      fail-fast: false
+      fail-fast: true
+      max-parallel: 1
       matrix:
         include:
           - os: windows-latest
-            target: nsis
-          - os: ubuntu-latest
-            target: "appimage,deb"
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.target }}" }
       - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - name: Install system dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: choco install -y cmake ninja
-
-      - name: Install system dependencies (Linux)
+        with: { node-version: 22, cache: npm }
+      - name: Linux deps
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential
-
-      - name: Clone llama.cpp (pinned tag)
-        run: git clone --depth 1 --branch b11678 https://github.com/ggml-org/llama.cpp vendor/llama.cpp
-
-      - name: Build and stage llama-server bundle
-        run: |
-          npx tsx scripts/fetch-llama-server.ts ${{ matrix.os == 'windows-latest' && 'windows-x64' || 'linux-x64' }} cpu
-          npx tsx scripts/stage-bundle.ts ${{ matrix.os == 'windows-latest' && 'windows-x64' || 'linux-x64' }}
-
-      - name: verify llama-server checksums (if bundled)
-        run: npx tsx scripts/verify-binaries.ts
-
-      - name: build installers
-        uses: tauri-apps/tauri-action@v0
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code signing is strongly recommended before public release
-          # (Windows SmartScreen). Configure TAURI_SIGNING_PRIVATE_KEY and,
-          # for Windows, the EV certificate secrets in the repo settings.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          projectPath: .
-          tauriScript: npx tauri
-          args: --bundles ${{ matrix.target }}
-
-      - name: check the produced bundle is CPU-only
-        run: npx tsx scripts/check-bundle.ts src-tauri/target/release/bundle
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: LocalAIse-${{ runner.os }}
-          path: |
-            src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/bundle/**/*.AppImage
-            src-tauri/target/release/bundle/**/*.deb
-          if-no-files-found: error
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
   publish:
-    needs: bundle
+    needs: [create-release, build]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          generate_release_notes: true
+      - name: Verify assets, then publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ID=${{ needs.create-release.outputs.release_id }}
+          NAMES=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID" --jq '.assets[].name')
+          echo "$NAMES"
+          for p in 'latest.json' '\.AppImage$' '\.AppImage\.sig$' 'setup\.exe$' 'setup\.exe\.sig$'; do
+            echo "$NAMES" | grep -Eq "$p" || { echo "Missing asset matching $p"; exit 1; }
+          done
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false

@@ -1,8 +1,9 @@
-/** The settings page: Appearance, and Model & Runtime.
+/** The settings page: Appearance, Model & Runtime, and Updates.
  *
  * Appearance stays local (theme/mode/density). The Model & Runtime tab
  * combines models, inference, and hardware into a single full-width panel
- * so everything is visible at once.
+ * so everything is visible at once. The Updates tab controls auto-check
+ * and shows update status.
  */
 
 import { useState, useEffect } from "react";
@@ -11,10 +12,11 @@ import { InferenceSettings } from "./InferenceSettings";
 import { HardwareSettings } from "./HardwareSettings";
 import { RuntimeConfigProvider } from "./runtime-config";
 import { ModelsPanel } from "../models/ModelsPanel";
+import { UpdateSettings } from "./UpdateSettings";
 import { ChevronLeftIcon, SettingsIcon } from "../ui/icons";
 import { useNavStore } from "../../state/navStore";
 
-type SettingsTab = "appearance" | "model-runtime";
+type SettingsTab = "appearance" | "model-runtime" | "updates";
 
 const TAB_META: { id: SettingsTab; label: string; title: string; subtitle: string }[] = [
   {
@@ -28,6 +30,12 @@ const TAB_META: { id: SettingsTab; label: string; title: string; subtitle: strin
     label: "Model & Runtime",
     title: "Model & Runtime",
     subtitle: "Your models, inference settings, and hardware configuration — all in one view.",
+  },
+  {
+    id: "updates",
+    label: "Updates",
+    title: "Updates",
+    subtitle: "Configure automatic update checks and view update status.",
   },
 ];
 
@@ -92,6 +100,7 @@ export function SettingsView() {
               </div>
             </RuntimeConfigProvider>
           )}
+          {tab === "updates" && <UpdateSettings />}
         </div>
       </div>
     </div>
