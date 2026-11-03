@@ -40,6 +40,7 @@ pub enum AppError {
     #[error("tauri error: {0}")]
     Tauri(#[from] tauri::Error),
 
+    #[cfg(windows)]
     #[error("updater error: {0}")]
     Updater(#[from] tauri_plugin_updater::Error),
 }

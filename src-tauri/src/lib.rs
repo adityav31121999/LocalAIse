@@ -21,6 +21,7 @@ pub mod retrieval;
 pub mod runtime;
 pub mod sandbox;
 pub mod tools;
+#[cfg(windows)]
 pub mod updater;
 pub mod util;
 pub mod eval;
@@ -92,11 +93,18 @@ pub fn run() {
         ])
         .build();
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(log_plugin)
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    #[cfg(windows)]
+    {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
+    }
+
+    builder
         .setup(|app| {
             // Ensure writable runtime exists and base CPU files are staged before supervisor launches
             if let Err(e) = crate::runtime::gpu_build::ensure_runtime(app.handle()) {
@@ -114,6 +122,7 @@ pub fn run() {
             });
 
             // Initialize updater: load state, spawn background checker
+            #[cfg(windows)]
             crate::updater::init(app.handle());
 
             // Keep every project's index in step with its folder's files.
@@ -193,13 +202,19 @@ pub fn run() {
             commands::personal::import_calendar_ics,
             commands::personal::search_personal,
             commands::activity::list_activity,
-            // Updater commands
+            #[cfg(windows)]
             updater::commands::check_now,
+            #[cfg(windows)]
             updater::commands::get_update_status,
+            #[cfg(windows)]
             updater::commands::install_update,
+            #[cfg(windows)]
             updater::commands::skip_version,
+            #[cfg(windows)]
             updater::commands::get_auto_update_check,
+            #[cfg(windows)]
             updater::commands::set_auto_update_check,
+            #[cfg(windows)]
             updater::commands::get_last_check,
         ])
         .build(tauri::generate_context!())
