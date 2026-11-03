@@ -101,7 +101,7 @@ impl UpdaterStateInner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn mock_state(last_success: i64, skipped: Option<String>) -> UpdaterStateInner {
         UpdaterStateInner {

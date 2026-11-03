@@ -101,12 +101,9 @@ fn file_name_looks_like_projector(file_name: &str) -> bool {
 /// Image is the only supported multimodal modality — audio and video
 /// attachments do not trigger projector loading.
 pub fn is_image_file(path: &Path) -> bool {
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("jpg") | Some("jpeg") | Some("png") | Some("gif")
+    matches!(path.extension().and_then(|ext| ext.to_str()), Some("jpg") | Some("jpeg") | Some("png") | Some("gif")
         | Some("webp") | Some("bmp") | Some("tiff") | Some("tif")
-        | Some("svg") | Some("ico") => true,
-        _ => false,
-    }
+        | Some("svg") | Some("ico"))
 }
 
 /// Whether any of the given paths point at an image file.

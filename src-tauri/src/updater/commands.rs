@@ -40,7 +40,7 @@ pub async fn install_update(app: AppHandle) -> AppResult<()> {
     // Download with progress
     let mut downloaded = 0u64;
 
-    let _ = update.download_and_install(
+    update.download_and_install(
         |chunk_length, content_length| {
             downloaded += chunk_length as u64;
             let progress = if let Some(total) = content_length {

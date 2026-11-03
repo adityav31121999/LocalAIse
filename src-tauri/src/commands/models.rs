@@ -262,7 +262,7 @@ fn runtime_status_for(state: &AppState, settings: &Settings) -> RuntimeStatus {
         Ok(supervisor) => supervisor,
         Err(_) => {
             return RuntimeStatus {
-                model: models::selected_label(&state.dirs, &settings),
+                model: models::selected_label(&state.dirs, settings),
                 model_path: None,
                 state: RuntimeState::Error,
                 port: None,
@@ -289,7 +289,7 @@ fn runtime_status_for(state: &AppState, settings: &Settings) -> RuntimeStatus {
     let model = model_path
         .as_deref()
         .map(|path| models::label(Path::new(path)))
-        .unwrap_or_else(|| models::selected_label(&state.dirs, &settings));
+        .unwrap_or_else(|| models::selected_label(&state.dirs, settings));
 
     RuntimeStatus {
         model,
@@ -340,11 +340,10 @@ pub async fn load_model(state: State<'_, AppState>, model_path: String) -> AppRe
 
     // Start (or restart) the server for this model immediately.
     let _serving = crate::commands::runtime::ensure(&state, &settings, projector.as_deref())
-        .map_err(|error| {
+        .inspect_err(|error| {
             if let Ok(mut supervisor) = state.supervisor() {
                 supervisor.mark_failed(error.to_string());
             }
-            error
         })?;
 
     Ok(runtime_status_for(&state, &settings))

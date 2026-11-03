@@ -104,7 +104,7 @@ pub async fn chat_send(
     // an image, so text-only chats run without --mmproj.
     let needs_projector = attached_files
         .as_ref()
-        .map_or(false, |files| {
+        .is_some_and(|files| {
             models::has_image_attachment(
                 &files
                     .iter()
