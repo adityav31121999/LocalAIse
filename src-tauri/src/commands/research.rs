@@ -99,7 +99,7 @@ pub async fn analyze_document(
 
     let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
 
-    let serving = crate::commands::runtime::ensure(&state, &settings, Some(&request.project_id), None)?;
+    let serving = crate::commands::runtime::ensure(&state, &settings, None)?;
 
     if let Err(error) = client::wait_until_ready(&serving).await {
         if let Ok(mut supervisor) = state.supervisor() {
@@ -112,7 +112,7 @@ pub async fn analyze_document(
 
     let result_content = match request.action.as_str() {
         "summarize" => {
-            let profile = settings.profile_for(Some(&model), Some(&request.project_id));
+            let profile = settings.performance;
             let (summary, _usage) = crate::agent::mapreduce::map_reduce_summarize(
                 &serving,
                 &model_label,
@@ -227,7 +227,7 @@ pub async fn summarize_document(
 
     let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
 
-    let serving = crate::commands::runtime::ensure(&state, &settings, Some(&request.project_id), None)?;
+    let serving = crate::commands::runtime::ensure(&state, &settings, None)?;
 
     if let Err(error) = client::wait_until_ready(&serving).await {
         if let Ok(mut supervisor) = state.supervisor() {
@@ -347,7 +347,7 @@ pub async fn execute_research_plan(
     let root = PathBuf::from(&record.path);
     let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
 
-    let serving = crate::commands::runtime::ensure(&state, &settings, Some(&project_id), None)?;
+    let serving = crate::commands::runtime::ensure(&state, &settings, None)?;
 
     if let Err(error) = client::wait_until_ready(&serving).await {
         if let Ok(mut supervisor) = state.supervisor() {

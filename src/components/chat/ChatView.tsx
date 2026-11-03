@@ -8,8 +8,9 @@ import { PanelErrorBoundary } from "../ui/PanelErrorBoundary";
 import { useChatStore } from "../../state/chatStore";
 import { useNavStore } from "../../state/navStore";
 import { useProjectStore } from "../../state/projectStore";
+import { useRuntimeStore } from "../../state/runtimeStore";
 import { useSettingsStore } from "../../state/settingsStore";
-import { chatLabel, chatNumber } from "../../util/format";
+import { chatLabel, chatNumber, formatCount } from "../../util/format";
 import type { ChatMessage, ChatSummary, Project, ProjectTemplate } from "../../types";
 import { DocumentViewer } from "../files/DocumentViewer";
 
@@ -47,6 +48,26 @@ export function ChatView({ project }: { project: Project }) {
   const removeChat = useChatStore((state) => state.removeChat);
   const setInternet = useProjectStore((state) => state.setInternet);
   const setChatMode = useProjectStore((state) => state.setChatMode);
+
+  // The model the runtime is actually running right now — what answers are
+  // written with. Falls back to the project's selected model when nothing is
+  // loaded yet.
+  const runtime = useRuntimeStore((state) => state.status);
+  const modelInUse =
+    runtime.state === "ready" && runtime.model
+      ? runtime.model
+      : runtime.state === "starting"
+        ? "Starting…"
+        : project.model;
+
+  // Cumulative tokens across the whole conversation — prompt, system prompt,
+  // thinking and response summed over every turn the model ran.
+  const totalConversationTokens = messages.reduce(
+    (sum, message) => sum + (message.totalTokens ?? 0),
+    0,
+  );
+  // The context window the user selected; 0 means the model's own default.
+  const selectedContext = runtime.profile?.contextTokens ?? 0;
 
   const openDocument = useNavStore((state) => state.openDocument);
   const setOpenDocument = useNavStore((state) => state.setOpenDocument);
@@ -209,8 +230,13 @@ export function ChatView({ project }: { project: Project }) {
 
         <span className="project-header__spacer" />
 
+        {totalConversationTokens > 0 && (
+          <span className="chat__bar-tokens" title="Total tokens used in this conversation — prompt, system prompt, thinking and response">
+            {formatCount(totalConversationTokens)} / {selectedContext ? formatCount(selectedContext) : "model default"}
+          </span>
+        )}
         <span className="mono chat__bar-model" title="Model used for this conversation">
-          {project.model}
+          {modelInUse}
         </span>
         <NetworkIndicator
           enabled={project.internetEnabled}

@@ -14,31 +14,18 @@
  * step that writes, and the core refuses it when the configuration has
  * errors.
  *
- * A configuration lives in one of three scopes. The global default is what
- * every model starts from; a model profile replaces it for that one model; a
- * project profile replaces both while that project is the one being worked
- * in. The scope decides where an applied profile is stored, and the runtime
- * always starts from the most specific one that exists.
+ * There is one live inference profile — the app-wide settings the runtime
+ * starts with. Applying stores it as the live profile and restarts the
+ * server so the next chat turn uses the new flags.
  */
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   ComputeDevice,
   InferenceProfile,
   KvCacheType,
   MoeOffload,
   ProfileEstimate,
-  ProfileScope,
-  ProfileStorage,
   RuntimeStatus,
   ServerCapabilities,
   ValidationMessage,
@@ -51,14 +38,12 @@ import {
   getSelectedModel,
   getServerBinary,
   profileEstimate,
-  resetProfile,
   runtimeCapabilities,
   runtimeProfile,
   runtimeStatus,
   isModelReasoning,
 } from "../../api/models";
 import type { HardwareReport } from "../../api/models";
-import { useProjectStore } from "../../state/projectStore";
 import { PROFILE_BUDGET_DEFAULTS, withProfileDefaults } from "../../types";
 
 /** How the three fit levels read on screen. */
@@ -66,13 +51,6 @@ export const FIT_LABELS: Record<ProfileEstimate["fit"], string> = {
   comfortable: "Fits comfortably",
   tight: "Tight memory budget",
   exceeds: "May exceed available memory",
-};
-
-/** How the three scopes read on screen. */
-export const SCOPE_LABELS: Record<ProfileScope, string> = {
-  global: "every model",
-  model: "this model",
-  project: "this project",
 };
 
 /** A readable name for a device setting. */
@@ -93,16 +71,6 @@ export function deviceLabel(device: ComputeDevice): string {
 export function effectiveThreads(profile: InferenceProfile, cores: number | undefined): number {
   if (profile.threads > 0) return profile.threads;
   return Math.max(1, (cores ?? 2) - 1);
-}
-
-/**
- * The profile a scope starts from: its own when it has one, otherwise the
- * scope below it. The same rule the core applies when it stores a profile.
- */
-export function scopeBase(storage: ProfileStorage, scope: ProfileScope): InferenceProfile {
-  if (scope === "global") return storage.global;
-  if (scope === "model") return storage.model ?? storage.global;
-  return storage.project ?? storage.model ?? storage.global;
 }
 
 function sameDevice(a: ComputeDevice, b: ComputeDevice): boolean {
@@ -148,20 +116,10 @@ function sameBudgets(a: InferenceProfile, b: InferenceProfile): boolean {
 export interface RuntimeConfigValue {
   /** The profile being edited. */
   draft: InferenceProfile;
-  /** The profile as it is stored, for the scope being edited. */
+  /** The profile as it is stored (the app-wide live profile). */
   saved: InferenceProfile;
-  /** The scope the draft belongs to. */
-  scope: ProfileScope;
-  /** The profiles the app has stored. */
-  storage: ProfileStorage | null;
-  /** The scope whose profile is in effect right now. */
-  effectiveScope: ProfileScope;
   /** The model the configuration is about. */
   modelPath: string | null;
-  /** The project the configuration is about. */
-  projectId: string | null;
-  /** The name of that project, for the labels. */
-  projectName: string | null;
   /** The memory estimate for the draft, null while it is being measured. */
   estimate: ProfileEstimate | null;
   /** What the core found when it measured the draft. */
@@ -190,14 +148,10 @@ export interface RuntimeConfigValue {
   setDevice(device: ComputeDevice): void;
   setKvType(kvType: KvCacheType): void;
   setMoe(mode: MoeOffload["mode"]): void;
-  /** Switches to another scope and loads the profile it holds. */
-  setScope(scope: ProfileScope): void;
   /** Validates and stores the draft, then restarts the runtime. */
   apply(): Promise<void>;
   /** Throws the draft away and goes back to the stored profile. */
   reset(): void;
-  /** Removes the stored profile of the scope, so the one below applies again. */
-  clearScope(): Promise<void>;
   /** Takes the profile the core recommends for this model and machine. */
   useRecommended(): void;
   /** Reads the machine, the build and the runtime again. */
@@ -218,16 +172,8 @@ export function RuntimeConfigProvider({
   active?: boolean;
   children: ReactNode;
 }) {
-  const projectId = useProjectStore((state) => state.activeProjectId);
-  const projectName = useProjectStore((state) => {
-    const project = state.projects.find((entry) => entry.id === state.activeProjectId);
-    return project?.name ?? null;
-  });
-
   const [draft, setDraft] = useState<InferenceProfile>(DEFAULT_PROFILE);
   const [saved, setSaved] = useState<InferenceProfile>(DEFAULT_PROFILE);
-  const [scope, setScopeState] = useState<ProfileScope>("global");
-  const [storage, setStorage] = useState<ProfileStorage | null>(null);
   const [modelPath, setModelPath] = useState<string | null>(null);
   const [estimate, setEstimate] = useState<ProfileEstimate | null>(null);
   const [capabilities, setCapabilities] = useState<ServerCapabilities | null>(null);
@@ -236,11 +182,6 @@ export function RuntimeConfigProvider({
   const [serverBinary, setServerBinary] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // The scope is read while the storage is being fetched, so it is kept in a
-  // ref as well: a refresh must not drag the draft back to another scope.
-  const scopeRef = useRef(scope);
-  scopeRef.current = scope;
 
   const refresh = useCallback(async () => {
     const [model, report, binary, caps, state] = await Promise.all([
@@ -271,14 +212,12 @@ export function RuntimeConfigProvider({
       }
     }
 
-    const stored = await runtimeProfile(model, projectId).catch(() => null);
+    const stored = await runtimeProfile().catch(() => null);
     if (stored) {
-      setStorage(stored);
-      const base = withProfileDefaults(scopeBase(stored, scopeRef.current));
-      setDraft(base);
-      setSaved(base);
+      setDraft(stored);
+      setSaved(stored);
     }
-  }, [projectId]);
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -313,7 +252,7 @@ export function RuntimeConfigProvider({
     if (!active) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      profileEstimate(draft, scope, modelPath, projectId)
+      profileEstimate(draft, modelPath)
         .then((next) => {
           if (!cancelled) setEstimate(next);
         })
@@ -325,7 +264,7 @@ export function RuntimeConfigProvider({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [draft, active, scope, modelPath, projectId]);
+  }, [draft, active, modelPath]);
 
   const patch = useCallback((changes: Partial<InferenceProfile>) => {
     setError(null);
@@ -367,34 +306,14 @@ export function RuntimeConfigProvider({
     });
   }, []);
 
-  /** Switching scope swaps the draft for the profile that scope holds, so
-   * the two never bleed into each other. */
-  const setScope = useCallback(
-    (next: ProfileScope) => {
-      setScopeState(next);
-      setError(null);
-      if (storage) {
-        const base = withProfileDefaults(scopeBase(storage, next));
-        setDraft(base);
-        setSaved(base);
-      }
-    },
-    [storage],
-  );
-
   const apply = useCallback(async () => {
     setApplying(true);
     setError(null);
     try {
-      const report = await applyProfile(draft, scope, modelPath, projectId);
-      // The core stored the profile and stopped the running server when the
-      // configuration in effect changed, so both are read again: this is the
-      // state the app is really in.
-      const stored = await runtimeProfile(modelPath, projectId).catch(() => null);
-      if (stored) {
-        setStorage(stored);
-        setSaved(scopeBase(stored, scope));
-      }
+      const report = await applyProfile(draft, modelPath);
+      // The core stored the live profile and stopped the running server when
+      // the configuration changed, so the draft is now what is stored.
+      setSaved(draft);
       setEstimate((current) => (current ? { ...current, report } : current));
       const state = await runtimeStatus().catch(() => null);
       if (state) setStatus(state);
@@ -403,31 +322,12 @@ export function RuntimeConfigProvider({
     } finally {
       setApplying(false);
     }
-  }, [draft, scope, modelPath, projectId]);
+  }, [draft, modelPath]);
 
   const reset = useCallback(() => {
     setError(null);
     setDraft(saved);
   }, [saved]);
-
-  /** Removes the profile of the scope, so the scope below it applies again. */
-  const clearScope = useCallback(async () => {
-    setApplying(true);
-    setError(null);
-    try {
-      const stored = await resetProfile(scope, modelPath, projectId);
-      setStorage(stored);
-      const base = withProfileDefaults(scopeBase(stored, scope));
-      setDraft(base);
-      setSaved(base);
-      const state = await runtimeStatus().catch(() => null);
-      if (state) setStatus(state);
-    } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : String(clearError));
-    } finally {
-      setApplying(false);
-    }
-  }, [scope, modelPath, projectId]);
 
   const useRecommended = useCallback(() => {
     const recommended = estimate?.recommended;
@@ -443,12 +343,7 @@ export function RuntimeConfigProvider({
     () => ({
       draft,
       saved,
-      scope,
-      storage,
-      effectiveScope: storage?.effectiveScope ?? "global",
       modelPath,
-      projectId,
-      projectName,
       estimate,
       report,
       capabilities,
@@ -464,10 +359,8 @@ export function RuntimeConfigProvider({
       setDevice,
       setKvType,
       setMoe,
-      setScope,
       apply,
       reset,
-      clearScope,
       useRecommended,
       refresh,
       refreshBuild,
@@ -475,11 +368,7 @@ export function RuntimeConfigProvider({
     [
       draft,
       saved,
-      scope,
-      storage,
       modelPath,
-      projectId,
-      projectName,
       estimate,
       report,
       capabilities,
@@ -493,10 +382,8 @@ export function RuntimeConfigProvider({
       setDevice,
       setKvType,
       setMoe,
-      setScope,
       apply,
       reset,
-      clearScope,
       useRecommended,
       refresh,
       refreshBuild,

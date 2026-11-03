@@ -175,7 +175,6 @@ pub fn run() {
             commands::models::get_runtime_capabilities,
             commands::models::validate_runtime_profile,
             commands::models::apply_runtime_profile,
-            commands::models::reset_runtime_profile,
             commands::models::get_profile_estimate,
             commands::models::get_server_binary,
             commands::models::pick_server_binary,

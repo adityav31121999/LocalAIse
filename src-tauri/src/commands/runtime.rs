@@ -45,10 +45,9 @@ pub struct RuntimeSetup {
 pub fn resolve(
     state: &AppState,
     settings: &Settings,
-    project_id: Option<&str>,
 ) -> AppResult<RuntimeSetup> {
     let model = models::selected(&state.dirs, settings).ok_or(AppError::NoModelSelected)?;
-    let profile = settings.profile_for(Some(&model), project_id);
+    let profile = settings.performance.clone();
 
     // The model shape decides how many layers fit on the GPU, so it is only
     // read when the device is not already pinned to the CPU.
@@ -65,7 +64,7 @@ pub fn resolve(
             .capabilities
             .lock()
             .map_err(|_| AppError::msg("the local runtime is busy; try again"))?;
-        backend::plan(&state.dirs, settings, profile, shape.as_ref(), &mut cache)
+        backend::plan(&state.dirs, settings, &profile, shape.as_ref(), &mut cache)
     }
     .map_err(AppError::msg)?;
 
@@ -85,10 +84,9 @@ pub fn resolve(
 pub fn ensure(
     state: &AppState,
     settings: &Settings,
-    project_id: Option<&str>,
     projector: Option<&Path>,
 ) -> AppResult<Serving> {
-    let setup = resolve(state, settings, project_id)?;
+    let setup = resolve(state, settings)?;
 
     let mut supervisor = state.supervisor()?;
     match supervisor.ensure(&LaunchRequest {

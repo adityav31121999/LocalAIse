@@ -7,8 +7,6 @@
  */
 
 import { useState } from "react";
-import { ChevronLeftIcon } from "../ui/icons";
-import { useNavStore } from "../../state/navStore";
 import { RuntimeConfigProvider } from "./runtime-config";
 import { ModelsPanel } from "../models/ModelsPanel";
 import { InferenceSettings } from "./InferenceSettings";
@@ -23,24 +21,9 @@ const TABS: { id: SettingsTab; label: string }[] = [
 
 export function ModelConfig() {
   const [tab, setTab] = useState<SettingsTab>("inference");
-  const showHome = useNavStore((state) => state.showHome);
 
   return (
     <div className="model-config">
-      <header className="model-config__header">
-        <button
-          type="button"
-          className="icon-btn icon-btn--sm model-config__back"
-          onClick={showHome}
-          title="Back to work directories"
-        >
-          <ChevronLeftIcon size={16} />
-          <span className="sr-only">Back</span>
-        </button>
-        <h1 className="model-config__title">Model & Runtime</h1>
-        <span className="model-config__spacer" />
-      </header>
-
       <div className="model-config__main">
         <div className="model-config__column model-config__column--models">
           <h2 className="model-config__column-title">Models</h2>

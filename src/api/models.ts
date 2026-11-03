@@ -12,8 +12,6 @@ import type {
   InferenceProfile,
   KvCacheType,
   ProfileEstimate,
-  ProfileScope,
-  ProfileStorage,
   RuntimeStatus,
   ServerCapabilities,
   ValidationMessage,
@@ -58,8 +56,6 @@ export interface ModelEntry {
   quantization: string;
   /** GGUF architecture such as "llama"; empty when unknown. */
   architecture: string;
-  /** True when the app stores a configuration of its own for this file. */
-  hasProfile: boolean;
   /// GGUF shape facts read from the header, used for memory and KV-cache
   /// estimates. Zero when the file could not be read as a GGUF.
   nLayers: number;
@@ -93,21 +89,11 @@ export interface ModelGroup {
 // Installed models and model folders
 // ---------------------------------------------------------------------------
 
-/** Marks the models the app stores a configuration of its own for. */
-function markProfiles(groups: ModelGroup[]): ModelGroup[] {
-  for (const group of groups) {
-    for (const entry of [...group.models, ...group.projectors]) {
-      entry.hasProfile = mockModelProfiles[entry.path] != null;
-    }
-  }
-  return groups;
-}
-
 /** The models on this machine, grouped by the folder they live in. */
 export async function listModelGroups(): Promise<ModelGroup[]> {
   if (isTauri) return invoke<ModelGroup[]>("list_available_models");
   await delay(140);
-  return markProfiles(mockGroups);
+  return mockGroups;
 }
 
 /** The folders the user keeps GGUF files in, outside the app's models folder. */
@@ -148,7 +134,7 @@ export async function addModelFolder(folder: string): Promise<void> {
         paramsBillion: 8,
         quantization: "Q4_K_M",
         architecture: "granite",
-        hasProfile: false,
+
         nLayers: 36,
         nKvHeads: 8,
         headDim: 128,
@@ -279,20 +265,17 @@ export async function runtimeStatus(): Promise<RuntimeStatus> {
 }
 
 /**
- * The profiles the app has stored, and the one that is in effect.
+ * The live inference profile the runtime starts with.
  *
  * `threads: 0` still means "auto" — the UI shows the resolved count beside
  * the switch rather than baking it into the stored profile.
  */
-export async function runtimeProfile(
-  modelPath?: string | null,
-  projectId?: string | null,
-): Promise<ProfileStorage> {
+export async function runtimeProfile(): Promise<InferenceProfile> {
   if (isTauri) {
-    return invoke<ProfileStorage>("get_runtime_profile", { modelPath, projectId });
+    return invoke<InferenceProfile>("get_runtime_profile");
   }
   await delay(120);
-  return mockStorage(modelPath, projectId);
+  return mockSavedProfile;
 }
 
 /** What the llama-server build in use can do. */
@@ -308,16 +291,12 @@ export async function runtimeCapabilities(): Promise<ServerCapabilities> {
  */
 export async function validateProfile(
   profile: InferenceProfile,
-  scope: ProfileScope = "global",
   modelPath?: string | null,
-  projectId?: string | null,
 ): Promise<ValidationReport> {
   if (isTauri) {
     return invoke<ValidationReport>("validate_runtime_profile", {
       profile,
-      scope,
       modelPath,
-      projectId,
     });
   }
   await delay(140);
@@ -325,25 +304,18 @@ export async function validateProfile(
 }
 
 /**
- * Validates a draft and, when nothing is wrong with it, persists it.
- *
- * The profile is stored in the scope it belongs to — the app-wide default,
- * one model or one project. The running server is stopped when the profile
- * that is actually in effect changes, so the new flags take effect on the
- * next chat turn.
+ * Validates a draft and, when nothing is wrong with it, persists it as the
+ * live inference profile. The running server is stopped when the profile in
+ * effect changes, so the new flags take effect on the next chat turn.
  */
 export async function applyProfile(
   profile: InferenceProfile,
-  scope: ProfileScope = "global",
   modelPath?: string | null,
-  projectId?: string | null,
 ): Promise<ValidationReport> {
   if (isTauri) {
     return invoke<ValidationReport>("apply_runtime_profile", {
       profile,
-      scope,
       modelPath,
-      projectId,
     });
   }
   await delay(160);
@@ -356,44 +328,23 @@ export async function applyProfile(
         .join(" "),
     );
   }
-  mockStore(scope, modelPath, projectId, profile);
+  mockSavedProfile = profile;
   return report;
-}
-
-/**
- * Removes the profile stored in a scope, so the scope below it applies
- * again. The app-wide default falls back to the app's own default.
- */
-export async function resetProfile(
-  scope: ProfileScope = "global",
-  modelPath?: string | null,
-  projectId?: string | null,
-): Promise<ProfileStorage> {
-  if (isTauri) {
-    return invoke<ProfileStorage>("reset_runtime_profile", { scope, modelPath, projectId });
-  }
-  await delay(140);
-  mockClear(scope, modelPath, projectId);
-  return mockStorage(modelPath, projectId);
 }
 
 /**
  * Memory estimate for a profile against the selected model. The profile is
  * the on-screen draft, so the estimate follows the controls live; omit it to
- * estimate the stored profile.
+ * estimate the live profile.
  */
 export async function profileEstimate(
   profile?: InferenceProfile | null,
-  scope: ProfileScope = "global",
   modelPath?: string | null,
-  projectId?: string | null,
 ): Promise<ProfileEstimate> {
   if (isTauri) {
     return invoke<ProfileEstimate>("get_profile_estimate", {
       profile,
-      scope,
       modelPath,
-      projectId,
     });
   }
   await delay(200);
@@ -582,7 +533,7 @@ let mockGroups: ModelGroup[] = [
         paramsBillion: 8,
         quantization: "Q4_K_M",
         architecture: "llama",
-        hasProfile: false,
+
         nLayers: 32,
         nKvHeads: 8,
         headDim: 128,
@@ -610,7 +561,7 @@ let mockGroups: ModelGroup[] = [
         paramsBillion: 7,
         quantization: "Q4_K_M",
         architecture: "qwen2vl",
-        hasProfile: false,
+
         nLayers: 28,
         nKvHeads: 4,
         headDim: 128,
@@ -631,7 +582,7 @@ let mockGroups: ModelGroup[] = [
         paramsBillion: 0,
         quantization: "F16",
         architecture: "clip",
-        hasProfile: false,
+
         nLayers: 0,
         nKvHeads: 0,
         headDim: 0,
@@ -650,67 +601,6 @@ let mockSelectedPath: string | null = LLAMA_8B_PATH;
 
 /** The profile as it is stored. */
 let mockSavedProfile: InferenceProfile = { ...DEFAULT_PROFILE };
-
-/** Profiles stored for a single model, keyed by the model's path. */
-const mockModelProfiles: Record<string, InferenceProfile> = {};
-
-/** Profiles stored for a single project, keyed by the project id. */
-const mockProjectProfiles: Record<string, InferenceProfile> = {};
-
-/** The profiles the app holds for a model and a project. */
-function mockStorage(
-  modelPath?: string | null,
-  projectId?: string | null,
-): ProfileStorage {
-  const model = modelPath ?? mockSelectedPath ?? null;
-  const modelProfile = model ? (mockModelProfiles[model] ?? null) : null;
-  const projectProfile = projectId ? (mockProjectProfiles[projectId] ?? null) : null;
-  const effective = projectProfile ?? modelProfile ?? mockSavedProfile;
-  return {
-    effective,
-    effectiveScope: projectProfile ? "project" : modelProfile ? "model" : "global",
-    global: mockSavedProfile,
-    model: modelProfile,
-    project: projectProfile,
-  };
-}
-
-/** Stores a profile in a scope. */
-function mockStore(
-  scope: ProfileScope,
-  modelPath: string | null | undefined,
-  projectId: string | null | undefined,
-  profile: InferenceProfile,
-): void {
-  if (scope === "global") {
-    mockSavedProfile = profile;
-    return;
-  }
-  if (scope === "model") {
-    const model = modelPath ?? mockSelectedPath;
-    if (model) mockModelProfiles[model] = profile;
-    return;
-  }
-  if (projectId) mockProjectProfiles[projectId] = profile;
-}
-
-/** Removes the profile stored in a scope. */
-function mockClear(
-  scope: ProfileScope,
-  modelPath: string | null | undefined,
-  projectId: string | null | undefined,
-): void {
-  if (scope === "global") {
-    mockSavedProfile = { ...DEFAULT_PROFILE };
-    return;
-  }
-  if (scope === "model") {
-    const model = modelPath ?? mockSelectedPath;
-    if (model) delete mockModelProfiles[model];
-    return;
-  }
-  if (projectId) delete mockProjectProfiles[projectId];
-}
 
 /** What the running server was started with: the profile, resolved. */
 const MOCK_RUNNING: {

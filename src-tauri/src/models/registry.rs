@@ -51,9 +51,6 @@ pub struct ModelEntry {
     pub quantization: String,
     /// GGUF architecture such as "llama"; empty when unknown.
     pub architecture: String,
-    /// True when the app stores a configuration of its own for this file.
-    #[serde(default)]
-    pub has_profile: bool,
     /// GGUF shape facts read from the header, used for memory and KV-cache
     /// estimates. Zero when the file could not be read as a GGUF.
     pub n_layers: u32,
@@ -164,7 +161,6 @@ fn describe(path: &Path, internal: bool) -> ModelEntry {
             .map(|quant| quant.as_label().to_string())
             .unwrap_or_default(),
         architecture: meta.architecture.clone(),
-        has_profile: false,
         n_layers: shape.n_layers,
         n_kv_heads: shape.n_kv_heads,
         head_dim: shape.head_dim,

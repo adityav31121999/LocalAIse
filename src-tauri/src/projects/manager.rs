@@ -353,7 +353,6 @@ pub fn remove(
     }
 
     registry.projects.retain(|project| project.id != id);
-    registry.settings.project_profiles.remove(id);
     registry.save(&dirs.state_file)?;
     Ok(())
 }

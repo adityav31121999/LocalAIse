@@ -121,7 +121,7 @@ pub async fn chat_send(
 
     // The runtime resolves the device and starts the server. The projector
     // is passed through only when an image needs to be embedded.
-    let serving = crate::commands::runtime::ensure(&state, &settings, Some(&project_id), projector)?;
+    let serving = crate::commands::runtime::ensure(&state, &settings, projector)?;
 
     // 1. Load or start the session that this turn belongs to.
     let paths = ProjectPaths::new(record.path.clone());
@@ -275,7 +275,7 @@ pub async fn chat_send(
 
                 // Force a CPU setup and launch
                 let cpu_settings = settings.clone();
-                let mut cpu_profile = cpu_settings.profile_for(Some(&model), Some(&project_id)).clone();
+                let mut cpu_profile = cpu_settings.performance.clone();
                 cpu_profile.device = crate::runtime::profile::ComputeDevice::Cpu;
 
                 let cpu_server = crate::runtime::backend::resolve_server(&state.dirs, &cpu_settings)

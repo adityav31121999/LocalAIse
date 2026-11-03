@@ -7,19 +7,18 @@
  */
 
 import { useState } from "react";
-import type { KvCacheType, ProfileScope } from "../../types";
+import type { KvCacheType } from "../../types";
 
 import { MemoryWarningAlert } from "./MemoryWarningAlert";
 import { MemoryBudgetBar } from "./MemoryBudgetBar";
 import { NumberField } from "../ui/NumberField";
+import { RuntimeActions } from "./RuntimeActions";
 import {
   FIT_LABELS,
   deviceLabel,
   effectiveThreads,
-  sameProfile,
   useRuntimeConfig,
 } from "./runtime-config";
-import { DEFAULT_PROFILE } from "../../api/models";
 
 const KV_OPTIONS: { value: KvCacheType; label: string; hint: string }[] = [
   { value: "f16", label: "f16", hint: "full precision" },
@@ -42,12 +41,6 @@ function kvLabel(value: KvCacheType): string {
 }
 
 /** The file name of a model, without its extension. */
-function modelName(path: string | null): string {
-  if (!path) return "";
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  const last = parts[parts.length - 1] ?? path;
-  return last.replace(/\.gguf$/i, "");
-}
 
 export function InferenceSettings() {
   const {
@@ -55,15 +48,6 @@ export function InferenceSettings() {
     estimate,
     capabilities,
     hardware,
-    scope,
-    storage,
-    effectiveScope,
-    modelPath,
-    projectId,
-    projectName,
-    setScope,
-    clearScope,
-    applying,
     patch,
     setKvType,
     setMoe,
@@ -95,96 +79,17 @@ export function InferenceSettings() {
 
   const flashSupport = capabilities?.flashAttn ?? null;
 
-  // The three places a configuration can live. The more specific one wins:
-  // a project sits on top of a model, and a model on top of the default.
-  const scopeOptions: { id: ProfileScope; label: string; available: boolean }[] = [
-    { id: "global", label: "Every model", available: true },
-    { id: "model", label: "This model", available: Boolean(modelPath) },
-    { id: "project", label: "This project", available: Boolean(projectId) },
-  ];
-
-  const scopeHint =
-    scope === "global"
-      ? "The default every model starts from. A model or a project can replace it."
-      : scope === "model"
-        ? modelPath
-          ? `Only ${modelName(modelPath)} uses these settings — every other model keeps the default.`
-          : "No model is selected yet, so there is nothing to configure for one."
-        : projectName
-          ? `Only ${projectName} uses these settings — every other project keeps the default.`
-          : "No project is open, so there is nothing to configure for one.";
-
-  // A more specific scope is in effect while a looser one is being edited —
-  // a stored project profile governs the model, a stored model or project
-  // profile governs the app-wide default. Only then do changes here not
-  // reach the runtime yet.
-  const shadowed =
-    storage !== null &&
-    ((scope === "global" && (storage.model != null || storage.project != null)) ||
-      (scope === "model" && storage.project != null));
-
-  const canClear =
-    scope === "global"
-      ? storage !== null && !sameProfile(storage.global, DEFAULT_PROFILE)
-      : scope === "model"
-        ? storage?.model != null
-        : storage?.project != null;
-
-  const clearLabel =
-    scope === "global"
-      ? "Restore the app default"
-      : scope === "model"
-        ? "Use the default for every model"
-        : "Use the inherited settings";
-
   return (
     <div className="perf">
       <MemoryWarningAlert />
-      <section className="field" aria-labelledby="field-scope">
-        <h2 className="field__label" id="field-scope">
-          Applies to
-        </h2>
-        <div className="segmented" role="group" aria-labelledby="field-scope">
-          {scopeOptions.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              className="segmented__item"
-              aria-pressed={scope === option.id}
-              disabled={!option.available}
-              onClick={() => setScope(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <p className="field__hint">{scopeHint}</p>
-        {shadowed && (
-          <p className="field__hint">
-            Right now the{" "}
-            {effectiveScope === "project" ? "project" : effectiveScope === "model" ? "model" : "default"}{" "}
-            settings are in effect, so changes here only apply once that one is removed.
-          </p>
-        )}
-        {canClear && (
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            disabled={applying}
-            onClick={() => void clearScope()}
-          >
-            {clearLabel}
-          </button>
-        )}
-      </section>
-
       <section className="field" aria-labelledby="field-context">
         <h2 className="field__label" id="field-context">
-          Context window
+          Context window &amp; KV cache
         </h2>
         <p className="field__hint">
           How much text the model can see at once — files pasted into chat, long citations and
           multi-turn research all count against this. 0 lets the model use its own default context.
+          The KV cache type below chooses how much memory each cached token costs.
         </p>
         <div className="perf__slider-row" style={{ gap: "var(--space-2)" }}>
           <NumberField
@@ -281,12 +186,8 @@ export function InferenceSettings() {
             not measured from a running server.
           </p>
         </div>
-      </section>
 
-      <section className="field" aria-labelledby="field-kv">
-        <h2 className="field__label" id="field-kv">
-          KV cache type
-        </h2>
+        <h3 id="field-kv">KV cache type</h3>
         <p className="field__hint">
           A quantized cache keeps long contexts affordable on CPU-sized memory. It costs a little
           answer quality, and it only works together with flash attention.
@@ -585,6 +486,8 @@ export function InferenceSettings() {
           </p>
         )}
       </section>
+
+      <RuntimeActions />
     </div>
   );
 }

@@ -5,33 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Which configuration a profile is stored for.
-///
-/// The scopes stack. The global default is the base every model starts from,
-/// a model profile replaces it for that one model, and a project profile
-/// replaces both while that project is the one being worked in. The more
-/// specific the scope, the later it is asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum ProfileScope {
-    /// The app-wide default, used when nothing more specific applies.
-    #[default]
-    Global,
-    /// A profile stored for one model file.
-    Model,
-    /// A profile stored for one project.
-    Project,
-}
-
-impl ProfileScope {
-    /// True when the scope stores a profile of its own.
-    ///
-    /// The global default always exists, so it is never an override.
-    pub fn is_override(self) -> bool {
-        !matches!(self, ProfileScope::Global)
-    }
-}
-
 /// Where model weights and the KV cache are allowed to live.
 ///
 /// The default is `Auto`: the app picks the GPU when this machine has one

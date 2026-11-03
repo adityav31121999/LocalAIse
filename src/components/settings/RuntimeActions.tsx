@@ -6,7 +6,7 @@
  * be stored by accident.
  */
 
-import { SCOPE_LABELS, useRuntimeConfig } from "./runtime-config";
+import { useRuntimeConfig } from "./runtime-config";
 
 export function RuntimeActions() {
   const {
@@ -17,7 +17,6 @@ export function RuntimeActions() {
     applying,
     error,
     estimate,
-    scope,
     apply,
     reset,
     useRecommended,
@@ -43,8 +42,8 @@ export function RuntimeActions() {
 
       {report.requiresRestart && !error && (
         <p className="field__hint">
-          The running server uses different settings. Applying stores these for {SCOPE_LABELS[scope]}{" "}
-          and restarts it — the next chat turn starts it again.
+          The running server uses different settings. Applying stores these settings and restarts it
+          — the next chat turn starts it again.
         </p>
       )}
 
@@ -65,7 +64,7 @@ export function RuntimeActions() {
           disabled={applying || blocked}
           onClick={() => void apply()}
         >
-          {applying ? "Applying…" : `Apply for ${SCOPE_LABELS[scope]}`}
+          {applying ? "Applying…" : "Apply"}
         </button>
       </div>
     </div>

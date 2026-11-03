@@ -1,8 +1,16 @@
 import { create } from "zustand";
 import type { Density, ThemeMode, ThemeName } from "../types";
-import { invoke } from "@tauri-apps/api/core";
 
 const STORAGE_KEY = "LocalAIse.settings";
+
+/** Lazily load the Tauri IPC bridge so `@tauri-apps/api/core` isn't bundled
+ * statically into the settings store's chunk. All callers below are async,
+ * so the dynamic import fits naturally and lets Vite split `core` into its
+ * own async chunk. */
+async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(command, args);
+}
 
 /** Theme, color mode and density are independent settings. */
 interface PersistedSettings {
@@ -146,15 +154,15 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
 
     // Updater settings - delegated to backend
     getAutoUpdateCheck: async () => {
-      return await invoke<boolean>("get_auto_update_check");
+      return await tauriInvoke<boolean>("get_auto_update_check");
     },
 
     setAutoUpdateCheck: async (enabled: boolean) => {
-      await invoke("set_auto_update_check", { enabled });
+      await tauriInvoke("set_auto_update_check", { enabled });
     },
 
     getLastCheck: async () => {
-      return await invoke<number>("get_last_check");
+      return await tauriInvoke<number>("get_last_check");
     },
   };
 });

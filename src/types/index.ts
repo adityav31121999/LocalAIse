@@ -268,29 +268,6 @@ export function withProfileDefaults<T extends Partial<InferenceProfile>>(
   return { ...PROFILE_BUDGET_DEFAULTS, ...profile } as InferenceProfile & T;
 }
 
-/**
- * Which configuration a profile is stored for.
- *
- * The scopes stack: the global default is the base every model starts from,
- * a model profile replaces it for that one model, and a project profile
- * replaces both while that project is the one being worked in.
- */
-export type ProfileScope = "global" | "model" | "project";
-
-/** The profiles the app has stored, and the one that is in effect. */
-export interface ProfileStorage {
-  /** The profile that is in effect for the requested model and project. */
-  effective: InferenceProfile;
-  /** Which scope the effective profile came from. */
-  effectiveScope: ProfileScope;
-  /** The app-wide default every model starts from. */
-  global: InferenceProfile;
-  /** The profile stored for this model, when it has one. */
-  model: InferenceProfile | null;
-  /** The profile stored for this project, when it has one. */
-  project: InferenceProfile | null;
-}
-
 /** How well a configuration fits into the memory a machine has. */
 export type FitLevel = "comfortable" | "tight" | "exceeds";
 

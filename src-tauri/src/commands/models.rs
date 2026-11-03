@@ -20,7 +20,7 @@ use crate::models::naming::is_reasoning_model;
 use crate::models::shape::{read_shape, read_meta};
 use crate::runtime::backend::{self, ServerCapabilities};
 use crate::runtime::budget::{self, FitLevel, ModelShape};
-use crate::runtime::profile::{ComputeDevice, InferenceProfile, KvCacheType, ProfileScope};
+use crate::runtime::profile::{ComputeDevice, InferenceProfile, KvCacheType};
 use crate::runtime::{RuntimeState, RuntimeStatus};
 use crate::AppState;
 
@@ -78,43 +78,8 @@ pub struct ProfileEstimate {
     pub report: ValidationReport,
 }
 
-/// The profiles the app has stored, and the one that is in effect.
-///
-/// A configuration lives in one of three places: the app-wide default, a
-/// profile for one model, or a profile for one project. The more specific
-/// one wins, so a project can be tuned without changing anything else.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileStorage {
-    /// The profile that is in effect for the requested model and project.
-    pub effective: InferenceProfile,
-    /// Which scope the effective profile came from.
-    pub effective_scope: ProfileScope,
-    /// The app-wide default every model starts from.
-    pub global: InferenceProfile,
-    /// The profile stored for this model, when it has one.
-    pub model: Option<InferenceProfile>,
-    /// The profile stored for this project, when it has one.
-    pub project: Option<InferenceProfile>,
-}
-
-impl ProfileStorage {
-    /// The profiles the app holds for a model and a project.
-    fn read(settings: &Settings, model: Option<&Path>, project_id: Option<&str>) -> Self {
-        Self {
-            effective: settings.profile_for(model, project_id).clone(),
-            effective_scope: settings.scope_for(model, project_id),
-            global: settings.performance.clone(),
-            model: settings.model_profile(model).cloned(),
-            project: settings.project_profile(project_id).cloned(),
-        }
-    }
-}
-
 /// What the app knows about the machine and the model a draft runs on.
 struct Facts {
-    /// The model the configuration is about.
-    model: Option<PathBuf>,
     shape: Option<ModelShape>,
     model_error: Option<String>,
     total_ram_bytes: u64,
@@ -148,13 +113,7 @@ pub async fn list_available_models(
         .registry()
         .map(|registry| registry.settings.clone())
         .unwrap_or_default();
-    let mut groups = models::groups(&state.dirs, &settings.model_folders);
-
-    for group in &mut groups {
-        for entry in group.models.iter_mut().chain(group.projectors.iter_mut()) {
-            entry.has_profile = settings.model_profile(Some(&entry.path)).is_some();
-        }
-    }
+    let groups = models::groups(&state.dirs, &settings.model_folders);
 
     Ok(groups)
 }
@@ -380,7 +339,7 @@ pub async fn load_model(state: State<'_, AppState>, model_path: String) -> AppRe
     let projector = models::projector_for(&path);
 
     // Start (or restart) the server for this model immediately.
-    let _serving = crate::commands::runtime::ensure(&state, &settings, None, projector.as_deref())
+    let _serving = crate::commands::runtime::ensure(&state, &settings, projector.as_deref())
         .map_err(|error| {
             if let Ok(mut supervisor) = state.supervisor() {
                 supervisor.mark_failed(error.to_string());
@@ -414,22 +373,17 @@ pub async fn unload_model(state: State<'_, AppState>) -> AppResult<RuntimeStatus
 
 /// The profiles the app has stored, and the one that is in effect.
 ///
-/// The thread count is left alone: `0` means "pick automatically", and the
-/// UI shows the resolved count beside the switch. Expanding it here would
-/// turn an automatic setting into a fixed one the first time the user
-/// applies the profile.
+/// The live inference profile the runtime starts with.
+///
+/// `threads: 0` still means "auto" — the UI shows the resolved count beside
+/// the switch rather than baking it into the stored profile.
 #[tauri::command]
-pub fn get_runtime_profile(
-    state: State<'_, AppState>,
-    model_path: Option<String>,
-    project_id: Option<String>,
-) -> ProfileStorage {
+pub fn get_runtime_profile(state: State<'_, AppState>) -> InferenceProfile {
     let settings = state
         .registry()
         .map(|registry| registry.settings.clone())
         .unwrap_or_default();
-    let model = model_for(&state, &settings, model_path.as_deref());
-    ProfileStorage::read(&settings, model.as_deref(), project_id.as_deref())
+    settings.performance
 }
 
 /// What the llama-server build in use can do.
@@ -465,43 +419,30 @@ pub async fn validate_runtime_profile(
     state: State<'_, AppState>,
     profile: InferenceProfile,
     model_path: Option<String>,
-    project_id: Option<String>,
-    scope: ProfileScope,
 ) -> AppResult<ValidationReport> {
     let settings = state.registry()?.settings.clone();
     let facts = gather(&state, &settings, model_path.as_deref());
-    Ok(validate_draft(
-        &state,
-        &profile,
-        &facts,
-        scope,
-        &settings,
-        project_id.as_deref(),
-    ))
+    Ok(validate_draft(&state, &profile, &facts))
 }
 
-/// Validates a draft and, when nothing is wrong with it, persists it.
+/// Validates a draft and, when nothing is wrong with it, persists it as the
+/// live inference profile.
 ///
 /// A profile with errors is refused: the running server is left alone and the
 /// findings come back so the UI can show what to fix.
 ///
-/// The profile is stored in the scope the user picked — the app-wide default,
-/// this model or this project — and the server is only stopped when the
-/// profile that is actually in effect changes.
+/// The server is only stopped when the live profile changes, so the new flags
+/// take effect on the next chat turn.
 #[tauri::command]
 pub async fn apply_runtime_profile(
     state: State<'_, AppState>,
     profile: InferenceProfile,
     model_path: Option<String>,
-    project_id: Option<String>,
-    scope: ProfileScope,
 ) -> AppResult<ValidationReport> {
     let mut settings = state.registry()?.settings.clone();
     let facts = gather(&state, &settings, model_path.as_deref());
-    let project = project_id.as_deref();
-    let model = facts.model.clone();
 
-    let mut report = validate_draft(&state, &profile, &facts, scope, &settings, project);
+    let mut report = validate_draft(&state, &profile, &facts);
     if report.has_errors() {
         let detail = report
             .messages
@@ -515,10 +456,10 @@ pub async fn apply_runtime_profile(
         )));
     }
 
-    let before = settings.profile_for(model.as_deref(), project).clone();
-    settings.store_profile(scope, model.as_deref(), project, profile)?;
+    let before = settings.performance.clone();
+    settings.performance = profile;
 
-    let after = settings.profile_for(model.as_deref(), project).clone();
+    let after = settings.performance.clone();
     let restarted = resolved(&before, &facts) != resolved(&after, &facts);
     report.requires_restart = restarted;
 
@@ -541,50 +482,11 @@ pub async fn apply_runtime_profile(
     Ok(report)
 }
 
-/// Removes the override of a scope, so the next scope down applies again.
-///
-/// The global default has nothing above it, so clearing it restores the
-/// app's own default instead.
-#[tauri::command]
-pub async fn reset_runtime_profile(
-    state: State<'_, AppState>,
-    model_path: Option<String>,
-    project_id: Option<String>,
-    scope: ProfileScope,
-) -> AppResult<ProfileStorage> {
-    let mut settings = state.registry()?.settings.clone();
-    let project = project_id.as_deref();
-    let model = model_for(&state, &settings, model_path.as_deref());
-
-    let facts = gather(&state, &settings, model_path.as_deref());
-    let before = settings.profile_for(model.as_deref(), project).clone();
-    settings.clear_profile(scope, model.as_deref(), project)?;
-    let after = settings.profile_for(model.as_deref(), project).clone();
-
-    let state_file = state.dirs.state_file.clone();
-    {
-        let mut registry = state.registry()?;
-        registry.settings = settings.clone();
-        registry.save(&state_file)?;
-    }
-
-    if resolved(&before, &facts) != resolved(&after, &facts) {
-        if let Ok(mut supervisor) = state.supervisor.lock() {
-            supervisor.stop();
-        }
-    }
-
-    Ok(ProfileStorage::read(&settings, model.as_deref(), project))
-}
-
 /// Validates a draft against everything the app knows.
 fn validate_draft(
     state: &AppState,
     profile: &InferenceProfile,
     facts: &Facts,
-    scope: ProfileScope,
-    settings: &Settings,
-    project_id: Option<&str>,
 ) -> ValidationReport {
     let running = state
         .supervisor
@@ -594,14 +496,10 @@ fn validate_draft(
 
     let device = backend::resolve_device(profile, &facts.capabilities, facts.shape.as_ref());
 
-    // What will be in effect once the draft is stored in this scope, with
-    // the device settled and an automatic thread count written out. The
-    // running server is compared with this one, so nothing counts as a
-    // change while the draft still says "automatic" — and a profile for a
-    // model does not ask for a restart while a project profile sits on top
-    // of it and would change nothing.
-    let effective = effective_after(settings, scope, facts.model.as_deref(), project_id, profile);
-    let effective = resolved(&effective, facts);
+    // The live profile is what runs; the device is settled and an automatic
+    // thread count written out, so the running server is compared against
+    // this resolved profile.
+    let effective = resolved(profile, facts);
 
     let context = ValidationContext {
         profile,
@@ -619,31 +517,6 @@ fn validate_draft(
     };
 
     crate::config::validation::validate(&context)
-}
-
-/// The profile that would be in effect if a draft were stored in a scope.
-///
-/// A project profile sits on top of everything, a model profile on top of
-/// the global default, and the global default on top of nothing.
-fn effective_after(
-    settings: &Settings,
-    scope: ProfileScope,
-    model: Option<&Path>,
-    project_id: Option<&str>,
-    draft: &InferenceProfile,
-) -> InferenceProfile {
-    match scope {
-        ProfileScope::Project => draft.clone(),
-        ProfileScope::Model => settings
-            .project_profile(project_id)
-            .cloned()
-            .unwrap_or_else(|| draft.clone()),
-        ProfileScope::Global => settings
-            .project_profile(project_id)
-            .cloned()
-            .or_else(|| settings.model_profile(model).cloned())
-            .unwrap_or_else(|| draft.clone()),
-    }
 }
 
 /// A profile with its device and thread count settled, so two profiles that
@@ -688,7 +561,6 @@ fn gather(state: &AppState, settings: &Settings, requested: Option<&str>) -> Fac
     });
 
     Facts {
-        model: resolved,
         shape,
         model_error,
         total_ram_bytes: memory.total_bytes,
@@ -713,33 +585,17 @@ fn gather(state: &AppState, settings: &Settings, requested: Option<&str>) -> Fac
 /// profile that fits when the machine cannot honor the current one.
 ///
 /// The profile is sent by the UI so the estimate follows the on-screen draft
-/// live; without it, the saved profile is used.
+/// live; without it, the live profile is used.
 #[tauri::command]
 pub async fn get_profile_estimate(
     state: State<'_, AppState>,
     profile: Option<InferenceProfile>,
     model_path: Option<String>,
-    project_id: Option<String>,
-    scope: ProfileScope,
 ) -> AppResult<ProfileEstimate> {
     let settings = state.registry()?.settings.clone();
-    let draft = profile.unwrap_or_else(|| {
-        settings.base_for(
-            scope,
-            model_for(&state, &settings, model_path.as_deref()).as_deref(),
-            project_id.as_deref(),
-        )
-        .clone()
-    });
+    let draft = profile.unwrap_or_else(|| settings.performance.clone());
     let facts = gather(&state, &settings, model_path.as_deref());
-    let report = validate_draft(
-        &state,
-        &draft,
-        &facts,
-        scope,
-        &settings,
-        project_id.as_deref(),
-    );
+    let report = validate_draft(&state, &draft, &facts);
     let mut estimate = estimate_for(&draft, &facts);
     estimate.report = report;
     Ok(estimate)

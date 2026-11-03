@@ -14,7 +14,6 @@ import {
   type GpuBuildStatus,
 } from "../../api/models";
 import { isTauri } from "../../api/index";
-import { RuntimeActions } from "./RuntimeActions";
 import { MemoryWarningAlert } from "./MemoryWarningAlert";
 import { deviceLabel, useRuntimeConfig } from "./runtime-config";
 import { DownloadProgress } from "../ui/DownloadProgress";
@@ -503,8 +502,6 @@ export function HardwareSettings() {
           />
         </div>
       </section>
-
-      <RuntimeActions />
     </div>
   );
 }

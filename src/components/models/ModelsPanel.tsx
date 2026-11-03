@@ -52,7 +52,6 @@ function FileBadges({ entry }: { entry: ModelEntry }) {
         <span className="badge badge--budget">{entry.paramsBillion.toFixed(1)}B</span>
       )}
       {entry.architecture && <span className="badge">{entry.architecture}</span>}
-      {entry.hasProfile && <span className="badge badge--general">Own settings</span>}
     </div>
   );
 }
