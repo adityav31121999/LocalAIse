@@ -93,7 +93,13 @@ pub fn run() {
         ])
         .build();
 
+    #[cfg(windows)]
     let mut builder = tauri::Builder::default()
+        .plugin(log_plugin)
+        .plugin(tauri_plugin_dialog::init());
+
+    #[cfg(not(windows))]
+    let builder = tauri::Builder::default()
         .plugin(log_plugin)
         .plugin(tauri_plugin_dialog::init());
 
