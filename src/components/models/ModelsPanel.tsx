@@ -12,32 +12,48 @@ import {
   addModelFolder,
   deleteModel,
   getHardwareReport,
-  getSelectedModel,
   listModelFolders,
   listModelGroups,
   pickModelFolder,
   removeModelFolder,
-  selectModel,
 } from "../../api/models";
 import type { HardwareReport, ModelEntry, ModelGroup } from "../../api/models";
-import { FolderIcon, TrashIcon } from "../ui/icons";
+import { useRuntimeStore } from "../../state/runtimeStore";
+import { FolderIcon, PlayIcon, StopIcon, TrashIcon } from "../ui/icons";
 
 function humanBytes(bytes: number): string {
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
+/** Bytes of KV cache for the model at its declared context with an f16 cache,
+ * mirroring `budget::kv_cache_bytes` in the core: n_layers · n_kv_heads ·
+ * head_dim · ctx · 2 (K and V), with sliding-window layers bounded by the
+ * window and shared_kv_layers not allocated separately. */
+function kvCacheGb(entry: ModelEntry): number | null {
+  if (entry.nLayers === 0 || entry.nKvHeads === 0 || entry.headDim === 0) return null;
+  const ctx = entry.maxContext > 0 ? entry.maxContext : 8_192;
+  const bpe = 2; // f16
+  const swaCtx = entry.slidingWindow > 0 ? Math.min(ctx, entry.slidingWindow) : ctx;
+  const boundedLayers =
+    entry.slidingWindow > 0 ? Math.min(entry.sharedKvLayers, entry.nLayers) : 0;
+  const fullLayers = entry.nLayers - boundedLayers;
+  const elements =
+    (fullLayers * ctx + boundedLayers * swaCtx) * entry.nKvHeads * entry.headDim * 2;
+  return (elements * bpe) / (1024 ** 3);
+}
+
 /** The badges that describe a weight file, as far as the file says. */
 function FileBadges({ entry }: { entry: ModelEntry }) {
   return (
-    <span className="model-group__badges">
+    <div className="model-file__badges">
       {entry.quantization && <span className="badge">{entry.quantization}</span>}
       {entry.paramsBillion > 0 && (
-        <span className="badge">{entry.paramsBillion.toFixed(1)}B</span>
+        <span className="badge badge--budget">{entry.paramsBillion.toFixed(1)}B</span>
       )}
       {entry.architecture && <span className="badge">{entry.architecture}</span>}
       {entry.hasProfile && <span className="badge badge--general">Own settings</span>}
-    </span>
+    </div>
   );
 }
 
@@ -46,20 +62,22 @@ export function ModelsPanel() {
   const [folders, setFolders] = useState<string[]>([]);
   const [folderDraft, setFolderDraft] = useState("");
   const [hardware, setHardware] = useState<HardwareReport | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const runtime = useRuntimeStore((state) => state.status);
+  const loadModel_ = useRuntimeStore((state) => state.loadModel);
+  const unloadModel_ = useRuntimeStore((state) => state.unloadModel);
+  const loadedPath = runtime.modelPath ?? null;
+
   const refresh = useCallback(async () => {
-    const [groupList, folderList, selected, report] = await Promise.all([
+    const [groupList, folderList, report] = await Promise.all([
       listModelGroups(),
       listModelFolders(),
-      getSelectedModel(),
       getHardwareReport().catch(() => null),
     ]);
     setGroups(groupList);
     setFolders(folderList);
-    setSelectedPath(selected);
     if (report) setHardware(report);
   }, []);
 
@@ -67,14 +85,25 @@ export function ModelsPanel() {
     void refresh().catch(() => setError("Could not read the models folder."));
   }, [refresh]);
 
-  const choose = async (path: string) => {
+  const load = async (path: string) => {
     setBusy(path);
     setError(null);
     try {
-      await selectModel(path);
-      setSelectedPath(path);
-    } catch (chooseError) {
-      setError(chooseError instanceof Error ? chooseError.message : String(chooseError));
+      await loadModel_(path);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const unload = async () => {
+    setBusy("__unload__");
+    setError(null);
+    try {
+      await unloadModel_();
+    } catch (unloadError) {
+      setError(unloadError instanceof Error ? unloadError.message : String(unloadError));
     } finally {
       setBusy(null);
     }
@@ -135,15 +164,15 @@ export function ModelsPanel() {
   return (
     <div className="models">
       {hardware && (
-        <p className="models__machine">
+        <div className="models__machine">
           This machine: <strong>{hardware.recommendedTier}</strong> · {hardware.cpuCores} threads ·{" "}
           {hardware.totalRamGb.toFixed(0)} GB RAM.
-        </p>
+        </div>
       )}
 
       {error && <p className="field__hint perf__error">{error}</p>}
 
-      <section className="field" aria-labelledby="field-folders">
+      <section className="field field--compact" aria-labelledby="field-folders">
         <h2 className="field__label" id="field-folders">
           Your models folder
         </h2>
@@ -200,7 +229,7 @@ export function ModelsPanel() {
 
       <section className="field" aria-labelledby="field-installed">
         <h2 className="field__label" id="field-installed">
-          Installed models <span className="badge">{modelCount}</span>
+          Installed models <span className="badge badge--content">{modelCount}</span>
         </h2>
         {groups.length === 0 ? (
           <p className="muted">
@@ -221,42 +250,64 @@ export function ModelsPanel() {
 
                 <ul className="model-group__files">
                   {group.models.map((entry) => {
-                    const isActive = selectedPath === entry.path;
+                    const isLoaded = loadedPath === entry.path;
+                    const kv = kvCacheGb(entry);
+                    const inFlight = busy !== null;
+                    const loadingThis = busy === entry.path;
+                    const unloading = busy === "__unload__";
                     return (
-                      <li className="model-group__file" key={entry.path}>
-                        <div className="model-group__file-main">
-                          <span className="model-group__file-name truncate">{entry.name}</span>
-                          <FileBadges entry={entry} />
+                      <li className="model-file" key={entry.path}>
+                        <div className="model-file__row">
+                          <div className="model-file__main">
+                            <div className="model-file__identity">
+                              <span className="model-file__name truncate">{entry.name}</span>
+                              <span className="model-file__path mono truncate">{entry.dir}</span>
+                            </div>
+                            <FileBadges entry={entry} />
+                          </div>
+                          <div className="model-file__side">
+                            <div className="model-file__meta">
+                              <span className="model-file__size mono">
+                                {humanBytes(entry.sizeBytes)}
+                              </span>
+                              {kv != null && (
+                                <span className="model-file__kv mono muted" title={`KV cache at ${entry.maxContext > 0 ? entry.maxContext : 8192}-token context, f16`}>
+                                  ≈ {humanBytes(kv * 1024 ** 3)} KV cache
+                                </span>
+                              )}
+                            </div>
+                            <div className="model-file__actions">
+                              <button
+                                type="button"
+                                className={`model-file__btn ${isLoaded ? "model-file__btn--danger" : "model-file__btn--load"}`}
+                                disabled={inFlight}
+                                title={isLoaded ? "Unload the model and stop the runtime" : "Load the model and start the runtime"}
+                                onClick={() => (isLoaded ? void unload() : void load(entry.path))}
+                              >
+                                {isLoaded
+                                  ? unloading ? <><StopIcon size={12} /> Unloading…</> : <><StopIcon size={12} /> Unload</>
+                                  : loadingThis ? <><PlayIcon size={12} /> Loading…</> : <><PlayIcon size={12} /> Load</>}
+                              </button>
+                              {group.internal && (
+                                <button
+                                  type="button"
+                                  className="icon-btn icon-btn--sm model-file__trash"
+                                  title="Remove from the models folder"
+                                  disabled={inFlight}
+                                  onClick={() => remove(entry.path)}
+                                >
+                                  <TrashIcon size={12} />
+                                  <span className="sr-only">Remove {entry.name}</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="model-group__file-side">
-                          <span className="model-group__file-size mono">
-                            {humanBytes(entry.sizeBytes)}
-                          </span>
-                          {isActive ? (
-                            <span className="badge badge--local">Active</span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn btn--secondary btn--sm"
-                              disabled={busy === entry.path}
-                              onClick={() => choose(entry.path)}
-                            >
-                              {busy === entry.path ? "Selecting…" : "Use for chat"}
-                            </button>
-                          )}
-                          {group.internal && (
-                            <button
-                              type="button"
-                              className="icon-btn icon-btn--sm"
-                              title="Remove from the models folder"
-                              disabled={busy === entry.path}
-                              onClick={() => remove(entry.path)}
-                            >
-                              <TrashIcon size={13} />
-                              <span className="sr-only">Remove {entry.name}</span>
-                            </button>
-                          )}
-                        </div>
+                      </div>
+                      {isLoaded && (
+                          <p className="model-file__loaded">
+                            <span className="dot dot--success" aria-hidden="true" /> Loaded for chat
+                          </p>
+                        )}
                       </li>
                     );
                   })}
@@ -265,7 +316,7 @@ export function ModelsPanel() {
                 {group.projectors.length > 0 && (
                   <div className="model-group__projectors">
                     <span className="model-group__projectors-label">
-                      Loaded with the weights
+                      Multimodal projector
                     </span>
                     {group.projectors.map((entry) => (
                       <div className="model-group__projector" key={entry.path}>

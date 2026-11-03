@@ -73,6 +73,13 @@ pub struct ModelShape {
     /// Total bytes of the `per_layer_token_embd` tensor(s), read from the
     /// GGUF header. Kept in system RAM even when layers are offloaded to GPU.
     pub ple_cache_bytes: u64,
+    /// Sliding window size for sliding-window attention layers. KV cache for
+    /// those layers is bounded by this instead of the full context. 0 when
+    /// the model does not use sliding window attention.
+    pub sliding_window: u32,
+    /// Number of layers that share KV cache with another layer (Gemma 4).
+    /// Shared layers do not need a separate KV allocation. 0 when absent.
+    pub shared_kv_layers: u32,
 }
 
 /// Mixture-of-experts specifics, also read from GGUF metadata.
@@ -120,13 +127,39 @@ impl ModelShape {
 }
 
 /// K and V for every layer, for `ctx` tokens.
+///
+/// For models with sliding-window attention (Gemma 4), KV cache for SWA
+/// layers is bounded by the window size instead of the full context.
+/// Layers that share KV cache (`shared_kv_layers`) use the bounded window,
+/// remaining layers use the full context.
 pub fn kv_cache_bytes(shape: &ModelShape, ctx: u32, kv: KvCacheType) -> u64 {
-    let elements = ctx as f64
-        * shape.n_layers as f64
+    let bpe = kv.bytes_per_element();
+
+    // Effective context for sliding-window bounded layers.
+    let swa_ctx = if shape.sliding_window > 0 {
+        ctx.min(shape.sliding_window)
+    } else {
+        ctx
+    };
+
+    // Layers whose KV cache is bounded by the sliding window.
+    let bounded_layers = if shape.sliding_window > 0 {
+        shape.shared_kv_layers.min(shape.n_layers)
+    } else {
+        0
+    };
+    // Remaining layers use the full context.
+    let full_layers = shape.n_layers.saturating_sub(bounded_layers);
+
+    let full_elements =
+        full_layers as f64 * shape.n_kv_heads as f64 * shape.head_dim as f64 * ctx as f64 * 2.0;
+    let bounded_elements = bounded_layers as f64
         * shape.n_kv_heads as f64
         * shape.head_dim as f64
-        * 2.0; // K and V
-    (elements * kv.bytes_per_element()) as u64
+        * swa_ctx as f64
+        * 2.0;
+
+    ((full_elements + bounded_elements) * bpe) as u64
 }
 
 /// The context the memory estimate should assume: the profile's pick, or
@@ -410,6 +443,8 @@ mod tests {
             moe: None,
             ple: false,
             ple_cache_bytes: 0,
+            sliding_window: 0,
+            shared_kv_layers: 0,
         }
     }
 
@@ -519,6 +554,8 @@ mod tests {
             moe: None,
             ple: false,
             ple_cache_bytes: 0,
+            sliding_window: 0,
+            shared_kv_layers: 0,
         };
         assert!(recommend_cpu(&unknown, &host(32), 8_192).is_none());
     }

@@ -60,6 +60,14 @@ export interface ModelEntry {
   architecture: string;
   /** True when the app stores a configuration of its own for this file. */
   hasProfile: boolean;
+  /// GGUF shape facts read from the header, used for memory and KV-cache
+  /// estimates. Zero when the file could not be read as a GGUF.
+  nLayers: number;
+  nKvHeads: number;
+  headDim: number;
+  maxContext: number;
+  slidingWindow: number;
+  sharedKvLayers: number;
 }
 
 /**
@@ -121,6 +129,8 @@ export async function addModelFolder(folder: string): Promise<void> {
     nKvHeads: 8,
     headDim: 128,
     maxContext: 32_768,
+    slidingWindow: 0,
+    sharedKvLayers: 0,
   };
   const group: ModelGroup = {
     id: folder,
@@ -139,6 +149,12 @@ export async function addModelFolder(folder: string): Promise<void> {
         quantization: "Q4_K_M",
         architecture: "granite",
         hasProfile: false,
+        nLayers: 36,
+        nKvHeads: 8,
+        headDim: 128,
+        maxContext: 32_768,
+        slidingWindow: 0,
+        sharedKvLayers: 0,
       },
     ],
     projectors: [],
@@ -177,6 +193,41 @@ export async function getSelectedModel(): Promise<string | null> {
   if (isTauri) return invoke<string | null>("get_selected_model");
   await delay(60);
   return mockSelectedPath;
+}
+
+/** Selects a model and starts the runtime server for it, returning the new runtime status. */
+export async function loadModel(modelPath: string): Promise<RuntimeStatus> {
+  if (isTauri) return invoke<RuntimeStatus>("load_model", { modelPath });
+  await delay(200);
+  const entry = mockGroups
+    .flatMap((group) => [...group.models, ...group.projectors])
+    .find((item) => item.path === modelPath);
+  mockSelectedPath = modelPath;
+  return {
+    model: entry?.name ?? "model",
+    modelPath,
+    state: "ready",
+    port: 51234,
+    profile: null,
+    device: null,
+    error: null,
+  };
+}
+
+/** Stops the running runtime server and clears the selected model. */
+export async function unloadModel(): Promise<RuntimeStatus> {
+  if (isTauri) return invoke<RuntimeStatus>("unload_model");
+  await delay(200);
+  mockSelectedPath = null;
+  return {
+    model: "No model",
+    modelPath: null,
+    state: "stopped",
+    port: null,
+    profile: null,
+    device: null,
+    error: null,
+  };
 }
 
 export async function deleteModel(modelPath: string): Promise<void> {
@@ -218,6 +269,7 @@ export async function runtimeStatus(): Promise<RuntimeStatus> {
   await delay(120);
   return {
     model: MOCK_RUNNING.model,
+    modelPath: null,
     state: "ready",
     port: 51234,
     profile: MOCK_RUNNING.profile,
@@ -485,6 +537,8 @@ interface MockShape {
   nKvHeads: number;
   headDim: number;
   maxContext: number;
+  slidingWindow: number;
+  sharedKvLayers: number;
 }
 
 const LLAMA_8B_PATH =
@@ -498,6 +552,8 @@ const MOCK_SHAPES: Record<string, MockShape> = {
     nKvHeads: 8,
     headDim: 128,
     maxContext: 131_072,
+    slidingWindow: 0,
+    sharedKvLayers: 0,
   },
   [QWEN_VL_PATH]: {
     fileBytes: 5_100_000_000,
@@ -505,6 +561,8 @@ const MOCK_SHAPES: Record<string, MockShape> = {
     nKvHeads: 4,
     headDim: 128,
     maxContext: 32_768,
+    slidingWindow: 0,
+    sharedKvLayers: 0,
   },
 };
 
@@ -525,6 +583,12 @@ let mockGroups: ModelGroup[] = [
         quantization: "Q4_K_M",
         architecture: "llama",
         hasProfile: false,
+        nLayers: 32,
+        nKvHeads: 8,
+        headDim: 128,
+        maxContext: 131_072,
+        slidingWindow: 0,
+        sharedKvLayers: 0,
       },
     ],
     projectors: [],
@@ -547,6 +611,12 @@ let mockGroups: ModelGroup[] = [
         quantization: "Q4_K_M",
         architecture: "qwen2vl",
         hasProfile: false,
+        nLayers: 28,
+        nKvHeads: 4,
+        headDim: 128,
+        maxContext: 32_768,
+        slidingWindow: 0,
+        sharedKvLayers: 0,
       },
     ],
     projectors: [
@@ -562,6 +632,12 @@ let mockGroups: ModelGroup[] = [
         quantization: "F16",
         architecture: "clip",
         hasProfile: false,
+        nLayers: 0,
+        nKvHeads: 0,
+        headDim: 0,
+        maxContext: 0,
+        slidingWindow: 0,
+        sharedKvLayers: 0,
       },
     ],
     totalBytes: 6_300_000_000,
@@ -651,10 +727,31 @@ const MOCK_RUNNING: {
   device: { device: "cpu" },
 };
 
-/** K and V for every layer, for `ctx` tokens. */
+/** K and V for every layer, for `ctx` tokens.
+ *
+ * For models with sliding-window attention (Gemma 4), KV cache for SWA
+ * layers is bounded by the window size instead of the full context.
+ * Layers that share KV cache (shared_kv_layers) use the bounded window,
+ * remaining layers use the full context.
+ */
 function mockKvBytes(shape: MockShape, ctx: number, kv: KvCacheType): number {
-  const elements = ctx * shape.nLayers * shape.nKvHeads * shape.headDim * 2;
-  return Math.floor(elements * KV_BYTES[kv]);
+  const bpe = KV_BYTES[kv];
+
+  // Effective context for sliding-window bounded layers.
+  const swaCtx = shape.slidingWindow > 0 ? Math.min(ctx, shape.slidingWindow) : ctx;
+
+  // Layers whose KV cache is bounded by the sliding window.
+  const boundedLayers =
+    shape.slidingWindow > 0 ? Math.min(shape.sharedKvLayers, shape.nLayers) : 0;
+  // Remaining layers use the full context.
+  const fullLayers = shape.nLayers - boundedLayers;
+
+  const fullElements =
+    fullLayers * shape.nKvHeads * shape.headDim * ctx * 2;
+  const boundedElements =
+    boundedLayers * shape.nKvHeads * shape.headDim * swaCtx * 2;
+
+  return Math.floor((fullElements + boundedElements) * bpe);
 }
 
 /** Classifies how much of a budget a configuration uses. */

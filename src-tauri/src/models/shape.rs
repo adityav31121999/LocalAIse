@@ -74,7 +74,7 @@ fn read_u64(r: &mut impl Read) -> Result<u64, String> {
 
 fn read_string(r: &mut impl Read) -> Result<String, String> {
     let len = read_u64(r)?;
-    if len > 1 << 20 {
+    if len > 1 << 24 {
         return Err("string too long for GGUF metadata".into());
     }
     let mut buf = vec![0u8; len as usize];
@@ -99,6 +99,8 @@ pub fn read_shape(path: &Path) -> ShapeResult {
         moe: None,
         ple: false,
         ple_cache_bytes: 0,
+        sliding_window: 0,
+        shared_kv_layers: 0,
     };
     let mut meta = ModelMeta::default();
 
@@ -161,6 +163,14 @@ fn read_shape_into<R: Read>(
     // The context length the model was trained for; 0 when the file does
     // not declare it.
     shape.max_context = metadata.num("context_length");
+
+    // Sliding window attention (Gemma 4). KV cache for SWA layers is bounded
+    // by this instead of the full context.
+    shape.sliding_window = metadata.num("sliding_window");
+
+    // Layers that share KV cache (Gemma 4 shared_kv_layers). These do not
+    // need a separate KV allocation.
+    shape.shared_kv_layers = metadata.num("shared_kv_layers");
 
     // Mixture-of-experts facts. expert_count 0 means a dense model; the
     // tensor list is then not parsed at all.

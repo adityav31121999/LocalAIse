@@ -294,18 +294,17 @@ pub async fn get_hardware_report() -> crate::hardware::HardwareReport {
 
 /// The runtime as it actually is: what is loaded, where it runs and whether
 /// it failed.
-#[tauri::command]
-pub fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
-    let settings = state
-        .registry()
-        .map(|registry| registry.settings.clone())
-        .unwrap_or_default();
-
+///
+/// `model_path` is the path of the model the server is running, so the model
+/// list can mark the loaded model. When nothing is running it reports the
+/// selected (or first installed) model's label without a path.
+fn runtime_status_for(state: &AppState, settings: &Settings) -> RuntimeStatus {
     let supervisor = match state.supervisor.lock() {
         Ok(supervisor) => supervisor,
         Err(_) => {
             return RuntimeStatus {
                 model: models::selected_label(&state.dirs, &settings),
+                model_path: None,
                 state: RuntimeState::Error,
                 port: None,
                 profile: None,
@@ -325,9 +324,17 @@ pub fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
     };
 
     let profile = supervisor.running_profile().cloned();
+    let model_path = supervisor
+        .running_model()
+        .map(|path| path.to_string_lossy().into_owned());
+    let model = model_path
+        .as_deref()
+        .map(|path| models::label(Path::new(path)))
+        .unwrap_or_else(|| models::selected_label(&state.dirs, &settings));
 
     RuntimeStatus {
-        model: models::selected_label(&state.dirs, &settings),
+        model,
+        model_path,
         state: state_,
         port,
         device: profile.as_ref().map(|profile| profile.device),
@@ -335,6 +342,74 @@ pub fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
         error: supervisor.last_error(),
         fallback_notice: supervisor.fallback_notice(),
     }
+}
+
+/// The runtime as it actually is: what is loaded, where it runs and whether
+/// it failed.
+#[tauri::command]
+pub fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
+    let settings = state
+        .registry()
+        .map(|registry| registry.settings.clone())
+        .unwrap_or_default();
+    runtime_status_for(&state, &settings)
+}
+
+/// Selects a model and starts the runtime server for it right away, so it is
+/// ready for chat instead of waiting for the first turn. Returns the runtime
+/// status after loading.
+#[tauri::command]
+pub async fn load_model(state: State<'_, AppState>, model_path: String) -> AppResult<RuntimeStatus> {
+    let path = PathBuf::from(&model_path);
+    if !path.is_file() {
+        return Err(AppError::msg(format!("Model file not found: {model_path}")));
+    }
+
+    // Persist the selection so chat and the runtime resolve to this model.
+    let state_file = state.dirs.state_file.clone();
+    {
+        let mut registry = state.registry()?;
+        registry.settings.selected_model = Some(path.clone());
+        registry.save(&state_file)?;
+    }
+
+    let settings = state
+        .registry()
+        .map(|registry| registry.settings.clone())
+        .unwrap_or_default();
+    let projector = models::projector_for(&path);
+
+    // Start (or restart) the server for this model immediately.
+    let _serving = crate::commands::runtime::ensure(&state, &settings, None, projector.as_deref())
+        .map_err(|error| {
+            if let Ok(mut supervisor) = state.supervisor() {
+                supervisor.mark_failed(error.to_string());
+            }
+            error
+        })?;
+
+    Ok(runtime_status_for(&state, &settings))
+}
+
+/// Stops the running runtime server and clears the selected model, so nothing
+/// is loaded for chat until a model is loaded again. Returns the new status.
+#[tauri::command]
+pub async fn unload_model(state: State<'_, AppState>) -> AppResult<RuntimeStatus> {
+    let settings = state
+        .registry()
+        .map(|registry| registry.settings.clone())
+        .unwrap_or_default();
+
+    if let Ok(mut supervisor) = state.supervisor() {
+        supervisor.stop();
+    }
+
+    let state_file = state.dirs.state_file.clone();
+    let mut registry = state.registry()?;
+    registry.settings.selected_model = None;
+    registry.save(&state_file)?;
+
+    Ok(runtime_status_for(&state, &settings))
 }
 
 /// The profiles the app has stored, and the one that is in effect.

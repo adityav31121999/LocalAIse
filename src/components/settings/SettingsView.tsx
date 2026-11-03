@@ -8,12 +8,9 @@
 
 import { useState, useEffect } from "react";
 import { AppearanceSettings } from "./AppearanceSettings";
-import { InferenceSettings } from "./InferenceSettings";
-import { HardwareSettings } from "./HardwareSettings";
-import { RuntimeConfigProvider } from "./runtime-config";
-import { ModelsPanel } from "../models/ModelsPanel";
 import { UpdateSettings } from "./UpdateSettings";
 import { ChevronLeftIcon, SettingsIcon } from "../ui/icons";
+import { ModelConfig } from "./ModelConfig";
 import { useNavStore } from "../../state/navStore";
 
 type SettingsTab = "appearance" | "model-runtime" | "updates";
@@ -65,7 +62,7 @@ export function SettingsView() {
         <span className="settings__bar-title">Settings</span>
       </header>
 
-      <div className="settings__inner">
+      <div className="settings__inner settings__inner--full">
         <span className="settings__eyebrow">
           <SettingsIcon size={13} />
           Settings
@@ -89,17 +86,9 @@ export function SettingsView() {
           ))}
         </div>
 
-        <div id={`settings-panel-${active.id}`} role="tabpanel" className="settings__panel">
+        <div id={`settings-panel-${active.id}`} role="tabpanel" className="settings__panel settings__panel--full">
           {tab === "appearance" && <AppearanceSettings />}
-          {tab === "model-runtime" && (
-            <RuntimeConfigProvider active={true}>
-              <div className="model-runtime-panel">
-                <ModelsPanel />
-                <InferenceSettings />
-                <HardwareSettings />
-              </div>
-            </RuntimeConfigProvider>
-          )}
+          {tab === "model-runtime" && <ModelConfig />}
           {tab === "updates" && <UpdateSettings />}
         </div>
       </div>

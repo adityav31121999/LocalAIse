@@ -16,7 +16,7 @@ use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
 use crate::models::naming;
 use crate::models::quant::Quant;
-use crate::models::shape::read_meta;
+use crate::models::shape::{read_meta, read_shape};
 
 /// How deep the scan walks below a registered folder.
 const MAX_DEPTH: usize = 8;
@@ -54,6 +54,14 @@ pub struct ModelEntry {
     /// True when the app stores a configuration of its own for this file.
     #[serde(default)]
     pub has_profile: bool,
+    /// GGUF shape facts read from the header, used for memory and KV-cache
+    /// estimates. Zero when the file could not be read as a GGUF.
+    pub n_layers: u32,
+    pub n_kv_heads: u32,
+    pub head_dim: u32,
+    pub max_context: u32,
+    pub sliding_window: u32,
+    pub shared_kv_layers: u32,
 }
 
 /// A model and everything that belongs to it.
@@ -91,6 +99,24 @@ fn file_name_looks_like_projector(file_name: &str) -> bool {
         || lowered.contains("mmproj-")
 }
 
+/// True when a file name has an image extension.
+///
+/// Image is the only supported multimodal modality — audio and video
+/// attachments do not trigger projector loading.
+pub fn is_image_file(path: &Path) -> bool {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("jpg") | Some("jpeg") | Some("png") | Some("gif")
+        | Some("webp") | Some("bmp") | Some("tiff") | Some("tif")
+        | Some("svg") | Some("ico") => true,
+        _ => false,
+    }
+}
+
+/// Whether any of the given paths point at an image file.
+pub fn has_image_attachment(paths: &[std::path::PathBuf]) -> bool {
+    paths.iter().any(|p| is_image_file(p))
+}
+
 fn has_gguf_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -109,7 +135,9 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
 
 /// Reads a file's metadata into a registry entry.
 fn describe(path: &Path, internal: bool) -> ModelEntry {
-    let meta = read_meta(path);
+    let result = read_shape(path);
+    let meta = &result.meta;
+    let shape = &result.shape;
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
 
     let kind = if meta.is_projector || file_name_looks_like_projector(file_name) {
@@ -127,7 +155,7 @@ fn describe(path: &Path, internal: bool) -> ModelEntry {
     ModelEntry {
         name: label(path),
         path: path.to_path_buf(),
-        size_bytes: std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0),
+        size_bytes: shape.file_bytes,
         internal,
         dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
         kind,
@@ -135,8 +163,14 @@ fn describe(path: &Path, internal: bool) -> ModelEntry {
         quantization: Quant::from_filename(file_name)
             .map(|quant| quant.as_label().to_string())
             .unwrap_or_default(),
-        architecture: meta.architecture,
+        architecture: meta.architecture.clone(),
         has_profile: false,
+        n_layers: shape.n_layers,
+        n_kv_heads: shape.n_kv_heads,
+        head_dim: shape.head_dim,
+        max_context: shape.max_context,
+        sliding_window: shape.sliding_window,
+        shared_kv_layers: shape.shared_kv_layers,
     }
 }
 

@@ -39,6 +39,9 @@ pub enum RuntimeState {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {
     pub model: String,
+    /// The path of the model the running server was started with, when there
+    /// is one. The UI uses it to mark the loaded model in the model list.
+    pub model_path: Option<String>,
     pub state: RuntimeState,
     pub port: Option<u16>,
     /// The profile the running server was started with.

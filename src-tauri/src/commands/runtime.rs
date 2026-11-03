@@ -2,10 +2,12 @@
 //!
 //! Chat and research both need the same thing: the model the app loads, the
 //! llama-server build that will serve it, the profile with its device
-//! resolved, and the multimodal projector that belongs to the weights. The
-//! work lives here so the two commands cannot drift apart.
+//! resolved, and — when images are attached — the multimodal projector.
+//! The projector is not loaded at server startup; it is passed in by the
+//! caller only when a turn needs it. The work lives here so the two
+//! commands cannot drift apart.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::app_config::Settings;
 use crate::error::{AppError, AppResult};
@@ -26,9 +28,6 @@ pub struct RuntimeSetup {
     /// The saved profile with its device already resolved — `Auto` never
     /// reaches the argument builder.
     pub profile: InferenceProfile,
-    /// The multimodal projector that lives next to the weights, when the
-    /// model has one.
-    pub projector: Option<PathBuf>,
 }
 
 /// Resolves what the runtime will run for the saved profile.
@@ -40,6 +39,9 @@ pub struct RuntimeSetup {
 /// The profile is the one in effect for this model in this project — a
 /// project's own settings win over the model's, and both win over the
 /// app-wide default.
+///
+/// The multimodal projector is deliberately not resolved here: it is loaded
+/// only when a chat turn actually attaches an image.
 pub fn resolve(
     state: &AppState,
     settings: &Settings,
@@ -67,28 +69,31 @@ pub fn resolve(
     }
     .map_err(AppError::msg)?;
 
-    let projector = models::projector_for(&model);
-
     Ok(RuntimeSetup {
         model,
         server: plan.server,
         profile: plan.profile,
-        projector,
     })
 }
 
 /// Resolves the runtime and starts the server, reusing a healthy one.
+///
+/// `projector` is passed through to the supervisor: when it is `Some`, the
+/// server is started (or restarted) with `--mmproj`; when `None`, the server
+/// runs without a multimodal projector. The caller decides based on whether
+/// the current turn attaches an image.
 pub fn ensure(
     state: &AppState,
     settings: &Settings,
     project_id: Option<&str>,
+    projector: Option<&Path>,
 ) -> AppResult<Serving> {
     let setup = resolve(state, settings, project_id)?;
 
     let mut supervisor = state.supervisor()?;
     match supervisor.ensure(&LaunchRequest {
         model: setup.model.as_path(),
-        projector: setup.projector.as_deref(),
+        projector,
         server: setup.server.as_path(),
         profile: &setup.profile,
     }) {

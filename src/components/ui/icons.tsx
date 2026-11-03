@@ -200,6 +200,14 @@ export function PaperclipIcon(props: IconProps) {
   );
 }
 
+export function PlayIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <polygon points="6 4 6 20 18 12" />
+    </Base>
+  );
+}
+
 export function StopIcon(props: IconProps) {
   return (
     <Base {...props}>

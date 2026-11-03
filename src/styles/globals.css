@@ -1548,9 +1548,18 @@ button.net:hover {
 .thinking__body {
   padding: 0 var(--space-3) var(--space-3);
   color: var(--text-muted);
-  line-height: var(--leading-relaxed);
-  white-space: pre-wrap;
+  line-height: var(--leading-tight);
   word-break: break-word;
+}
+
+.thinking__body .md > p,
+.thinking__body .md > ul,
+.thinking__body .md > ol {
+  margin-bottom: var(--space-1);
+}
+
+.thinking__body .md li {
+  margin: 0 0 var(--space-1);
 }
 
 /* Markdown output inside assistant bubbles lives in a .md wrapper that opts
@@ -2738,18 +2747,52 @@ button.net:hover {
   max-width: 720px;
 }
 
-/* Model & Runtime combined panel — uses full available width */
-.model-runtime-panel {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: var(--space-6);
+/* Model & Runtime combined panel — full screen width, two equal columns */
+.settings__inner--full {
   max-width: none;
-  width: 100%;
 }
 
-.model-runtime-panel .models,
-.model-runtime-panel .perf {
+.settings__panel--full {
+  max-width: none;
+}
+
+.model-config__main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  width: 100%;
   min-width: 0;
+}
+
+.model-config__column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each column fills available vertical space and scrolls independently */
+.model-config__column--models,
+.model-config__column--runtime {
+  overflow-y: auto;
+  max-height: calc(100vh - 330px);
+  scrollbar-width: thin;
+}
+
+.model-config__column--models::-webkit-scrollbar,
+.model-config__column--runtime::-webkit-scrollbar {
+  width: 10px;
+}
+
+.model-config__column--models::-webkit-scrollbar-thumb,
+.model-config__column--runtime::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius);
+  border: 2px solid var(--bg);
+}
+
+.model-config__column--models::-webkit-scrollbar-thumb:hover,
+.model-config__column--runtime::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 /* Performance: sliders, checkboxes, selects */
@@ -3371,6 +3414,156 @@ button.net:hover {
   color: var(--text-secondary);
 }
 
+/* Individual model rows within a group: name + badges on the left, size +
+   KV estimate + actions on the right, with a "loaded" state below. */
+.model-file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* One row: main (name + badges) on the left, side (size + KV + actions) on the right. */
+.model-file__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.model-file__main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.model-file__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.model-file__name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.model-file__path {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+.model-file__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.model-file__side {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.model-file__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.model-file__size {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.model-file__kv {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+.model-file__actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.model-file__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  background: var(--background);
+  color: var(--text);
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+
+.model-file__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.model-file__btn--load {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.model-file__btn--load:hover:not(:disabled) {
+  background: var(--accent-primary-soft);
+}
+
+.model-file__btn--danger {
+  background: var(--accent-danger);
+  border-color: var(--accent-danger);
+  color: #fff;
+}
+
+.model-file__btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.model-file__trash {
+  padding: var(--space-1);
+  color: var(--text-muted);
+}
+
+.model-file__trash:hover {
+  color: var(--accent-danger);
+  background: var(--accent-danger-soft);
+}
+
+.model-file__loaded {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-1);
+  background: var(--accent-success-soft);
+  color: var(--accent-success);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 /* ------------------------------------------------------------------ *
  * Compact windows
  * ------------------------------------------------------------------ */
@@ -3978,9 +4171,8 @@ button.net:hover {
 
 .model-config__main {
   display: grid;
-  /* The runtime side carries denser numeric controls, so it gets the wider
-     share; the model list only needs to show names, sizes and the picker. */
-  grid-template-columns: minmax(320px, 0.85fr) minmax(560px, 1.85fr);
+  /* Split the panel exactly in half so both columns use the full width evenly. */
+  grid-template-columns: 1fr 1fr;
   flex: 1;
   min-height: 0;
   overflow: hidden;

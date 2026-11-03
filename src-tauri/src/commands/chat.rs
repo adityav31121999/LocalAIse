@@ -99,10 +99,29 @@ pub async fn chat_send(
 
     let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
 
-    // The runtime resolves the device, loads the projector that belongs to
-    // the weights and starts the server with the validated flags. A project
-    // with its own settings gets those.
-    let serving = crate::commands::runtime::ensure(&state, &settings, Some(&project_id))?;
+    // Image is the only supported multimodal modality. The projector is not
+    // loaded at server startup — it is only passed when this turn attaches
+    // an image, so text-only chats run without --mmproj.
+    let needs_projector = attached_files
+        .as_ref()
+        .map_or(false, |files| {
+            models::has_image_attachment(
+                &files
+                    .iter()
+                    .map(|f| record.path.join(f))
+                    .collect::<Vec<_>>(),
+            )
+        });
+    let projector_path = models::projector_for(&model);
+    let projector = if needs_projector {
+        projector_path.as_deref()
+    } else {
+        None
+    };
+
+    // The runtime resolves the device and starts the server. The projector
+    // is passed through only when an image needs to be embedded.
+    let serving = crate::commands::runtime::ensure(&state, &settings, Some(&project_id), projector)?;
 
     // 1. Load or start the session that this turn belongs to.
     let paths = ProjectPaths::new(record.path.clone());
@@ -261,13 +280,12 @@ pub async fn chat_send(
 
                 let cpu_server = crate::runtime::backend::resolve_server(&state.dirs, &cpu_settings)
                     .ok_or(AppError::msg("no CPU-capable llama-server found"))?;
-                let projector = models::projector_for(&model);
 
                 let cpu_serving = {
                     let mut supervisor = state.supervisor()?;
                     supervisor.ensure(&crate::runtime::supervisor::LaunchRequest {
                         model: model.as_path(),
-                        projector: projector.as_deref(),
+                        projector,
                         server: cpu_server.as_path(),
                         profile: &cpu_profile,
                     })?

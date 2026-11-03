@@ -27,10 +27,13 @@ struct Running {
 
 /// Two launches with the same model and profile can share a server; anything
 /// else requires a restart so the profile change actually takes effect.
+/// Loading or unloading the multimodal projector also requires a restart,
+/// since `--mmproj` is a server startup flag.
 #[derive(Debug, PartialEq, Eq)]
 struct LaunchFingerprint {
     model: PathBuf,
     profile: InferenceProfile,
+    projector: Option<PathBuf>,
 }
 
 /// What the supervisor needs to start a server.
@@ -87,6 +90,7 @@ impl Supervisor {
         let fingerprint = LaunchFingerprint {
             model: request.model.to_path_buf(),
             profile: request.profile.clone(),
+            projector: request.projector.map(|p| p.to_path_buf()),
         };
 
         if let Some(run) = self.running.as_mut() {
@@ -158,6 +162,7 @@ impl Supervisor {
             fingerprint: LaunchFingerprint {
                 model: request.model.to_path_buf(),
                 profile: profile.clone(),
+                projector: request.projector.map(|p| p.to_path_buf()),
             },
         });
         self.last_error = None;

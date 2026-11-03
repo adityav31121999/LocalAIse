@@ -501,6 +501,8 @@ mod tests {
             moe: None,
             ple: false,
             ple_cache_bytes: 0,
+            sliding_window: 0,
+            shared_kv_layers: 0,
         }
     }
 

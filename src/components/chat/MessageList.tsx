@@ -53,7 +53,9 @@ export function MessageList({ messages, streaming, showThinking }: MessageListPr
                     />
                     Thinking
                   </summary>
-                  <div className="thinking__body">{reasoning}</div>
+                  <div className="thinking__body">
+                    <Markdown text={reasoning} />
+                  </div>
                 </details>
               ) : null}
 

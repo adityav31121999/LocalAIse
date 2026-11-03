@@ -160,6 +160,8 @@ pub fn run() {
             commands::research::run_deep_research,
             commands::chat::chat_send,
             commands::models::select_model,
+            commands::models::load_model,
+            commands::models::unload_model,
             commands::models::delete_model,
             commands::models::list_available_models,
             commands::models::get_selected_model,

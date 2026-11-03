@@ -143,6 +143,9 @@ export type RuntimeState = "starting" | "ready" | "stopped" | "error";
 
 export interface RuntimeStatus {
   model: string;
+  /** The path of the model the server is running, when there is one. The UI
+   * uses it to mark the loaded model in the model list. */
+  modelPath: string | null;
   state: RuntimeState;
   port: number | null;
   /** The profile the running server was started with. */
