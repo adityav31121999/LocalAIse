@@ -7,10 +7,27 @@ interface MarkdownPreviewProps {
   markdown: string;
 }
 
+/** Boilerplate headings/footers that LLMs tack onto generated summaries. */
+const SUMMARY_BOILERPLATE = [
+  /^#+\s*Executive Summary: Comprehensive Synthesis of Section Summaries\s*$/im,
+  /^This summary provides a complete, actionable, and well-structured executive overview[\s\S]*?ready for use by technical leads, product managers, or research directors to guide implementation, resource allocation, and validation\.\s*$/im,
+];
+
+/** Strips LLM-added summary boilerplate so the preview shows only real content. */
+function stripSummaryBoilerplate(markdown: string): string {
+  let cleaned = markdown;
+  for (const pattern of SUMMARY_BOILERPLATE) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+  return cleaned;
+}
+
 export function MarkdownPreview({ markdown }: MarkdownPreviewProps) {
   if (!markdown?.trim()) {
     return null;
   }
+
+  const cleanedMarkdown = stripSummaryBoilerplate(markdown);
 
   return (
     <ReactMarkdown
@@ -203,7 +220,7 @@ export function MarkdownPreview({ markdown }: MarkdownPreviewProps) {
         ),
       }}
     >
-      {markdown}
+      {cleanedMarkdown}
     </ReactMarkdown>
   );
 }

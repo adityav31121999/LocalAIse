@@ -54,6 +54,12 @@ pub struct ModelEntry {
     /// GGUF shape facts read from the header, used for memory and KV-cache
     /// estimates. Zero when the file could not be read as a GGUF.
     pub n_layers: u32,
+    /// Blocks that hold a KV cache (hybrid architectures), 0 = every block.
+    pub n_kv_layers: u32,
+    /// Window-bounded attention blocks among the allocating ones.
+    pub n_swa_layers: u32,
+    /// Head size of the SWA blocks when it differs from `head_dim`.
+    pub swa_head_dim: u32,
     pub n_kv_heads: u32,
     pub head_dim: u32,
     pub max_context: u32,
@@ -159,6 +165,9 @@ fn describe(path: &Path, internal: bool) -> ModelEntry {
             .unwrap_or_default(),
         architecture: meta.architecture.clone(),
         n_layers: shape.n_layers,
+        n_kv_layers: shape.n_kv_layers,
+        n_swa_layers: shape.n_swa_layers,
+        swa_head_dim: shape.swa_head_dim,
         n_kv_heads: shape.n_kv_heads,
         head_dim: shape.head_dim,
         max_context: shape.max_context,

@@ -62,6 +62,17 @@ pub fn fit_level(needed_bytes: u64, budget_bytes: u64) -> FitLevel {
 pub struct ModelShape {
     pub file_bytes: u64,
     pub n_layers: u32,
+    /// Blocks that actually hold a KV cache. For hybrid architectures
+    /// (Mamba + attention mixes read from the per-layer `head_count_kv`
+    /// array, or via `full_attention_interval`) this is the attention block
+    /// count; 0 means every block.
+    pub n_kv_layers: u32,
+    /// Attention blocks allocated from the start whose keys live in a
+    /// sliding window; their cache is bounded by `sliding_window`.
+    pub n_swa_layers: u32,
+    /// Head size of the sliding-window blocks when it differs from
+    /// `head_dim` (Gemma 4 full = 512, SWA = 256). 0 means "same".
+    pub swa_head_dim: u32,
     pub n_kv_heads: u32,
     pub head_dim: u32,
     /// Context length the file declares, 0 when absent.
@@ -128,38 +139,63 @@ impl ModelShape {
 
 /// K and V for every layer, for `ctx` tokens.
 ///
-/// For models with sliding-window attention (Gemma 4), KV cache for SWA
-/// layers is bounded by the window size instead of the full context.
-/// Layers that share KV cache (`shared_kv_layers`) use the bounded window,
-/// remaining layers use the full context.
+/// Model-specific: only attention blocks with a KV cache price in.
+/// Hybrid architectures (Mamba + attention) report their attention block
+/// count, gemma-style models share the trailing blocks' cache with the
+/// first blocks, and SWA blocks are bounded by the sliding window with
+/// their own (often smaller) head size.
 pub fn kv_cache_bytes(shape: &ModelShape, ctx: u32, kv: KvCacheType) -> u64 {
     let bpe = kv.bytes_per_element();
 
-    // Effective context for sliding-window bounded layers.
+    // Only layers with attention keys price into the cache. Hybrid
+    // architectures report the attention block count in `n_kv_layers`;
+    // dense models leave it 0, which falls back to every block.
+    let kv_layers = if shape.n_kv_layers > 0 {
+        shape.n_kv_layers.min(shape.n_layers.max(1))
+    } else {
+        shape.n_layers
+    };
+
+    // Gemma-style shared KV: the trailing blocks reuse the first blocks'
+    // cache, so they price nothing themselves.
+    let allocating = if shape.shared_kv_layers > 0 {
+        kv_layers.saturating_sub(shape.shared_kv_layers.min(kv_layers))
+    } else {
+        kv_layers
+    };
+
+    // Blocks that remain: SWA blocks use the window bound; the rest use the
+    // full context.
+    let swa_layers = if shape.sliding_window > 0 {
+        shape.n_swa_layers.min(allocating)
+    } else {
+        0
+    };
+    let full_layers = allocating.saturating_sub(swa_layers);
+
+    let swa_head_dim = if shape.swa_head_dim > 0 {
+        shape.swa_head_dim
+    } else {
+        shape.head_dim
+    };
     let swa_ctx = if shape.sliding_window > 0 {
         ctx.min(shape.sliding_window)
     } else {
         ctx
     };
 
-    // Layers whose KV cache is bounded by the sliding window.
-    let bounded_layers = if shape.sliding_window > 0 {
-        shape.shared_kv_layers.min(shape.n_layers)
-    } else {
-        0
-    };
-    // Remaining layers use the full context.
-    let full_layers = shape.n_layers.saturating_sub(bounded_layers);
-
-    let full_elements =
-        full_layers as f64 * shape.n_kv_heads as f64 * shape.head_dim as f64 * ctx as f64 * 2.0;
-    let bounded_elements = bounded_layers as f64
+    let full_elements = full_layers as f64
         * shape.n_kv_heads as f64
         * shape.head_dim as f64
+        * ctx as f64
+        * 2.0;
+    let swa_elements = swa_layers as f64
+        * shape.n_kv_heads as f64
+        * swa_head_dim as f64
         * swa_ctx as f64
         * 2.0;
 
-    ((full_elements + bounded_elements) * bpe) as u64
+    ((full_elements + swa_elements) * bpe) as u64
 }
 
 /// The context the memory estimate should assume: the profile's pick, or
@@ -437,6 +473,9 @@ mod tests {
         ModelShape {
             file_bytes: 4 * GIB,
             n_layers: 32,
+            n_kv_layers: 0,
+            n_swa_layers: 0,
+            swa_head_dim: 0,
             n_kv_heads: 8,
             head_dim: 128,
             max_context: 0,
@@ -548,6 +587,9 @@ mod tests {
         let unknown = ModelShape {
             file_bytes: 4 * GIB,
             n_layers: 0,
+            n_kv_layers: 0,
+            n_swa_layers: 0,
+            swa_head_dim: 0,
             n_kv_heads: 0,
             head_dim: 0,
             max_context: 0,
@@ -651,7 +693,71 @@ mod tests {
         assert!(q4 * 100 < f16 * 35, "Q4 should keep at most ~35% of f16");
     }
 
+    #[test]
+    fn hybrid_models_price_only_attention_layers() {
+        // Granite-hybrid style: 32 blocks, but only 8 carry attention head
+        // counts — the rest are recurrent and hold no KV cache.
+        let mut hybrid = shape();
+        hybrid.n_kv_layers = 8;
+        let dense = shape();
+        let ctx = 32_768;
+        assert_eq!(
+            kv_cache_bytes(&hybrid, ctx, KvCacheType::F16),
+            kv_cache_bytes(&dense, ctx, KvCacheType::F16) * 8 / 32
+        );
+        // 0 falls back to every block.
+        let mut fallback = hybrid.clone();
+        fallback.n_kv_layers = 0;
+        assert_eq!(
+            kv_cache_bytes(&fallback, ctx, KvCacheType::F16),
+            kv_cache_bytes(&dense, ctx, KvCacheType::F16)
+        );
+    }
+
+    #[test]
+    fn an_interval_hybrid_counts_only_full_attention_blocks() {
+        // qwen35-style: 32 blocks, every 4th keeps attention.
+        let mut hybrid = shape();
+        hybrid.n_kv_layers = 8;
+        let dense = shape();
+        assert_eq!(
+            kv_cache_bytes(&hybrid, 32_768, KvCacheType::Q4_0),
+            kv_cache_bytes(&dense, 32_768, KvCacheType::Q4_0) * 8 / 32
+        );
+    }
+
+    #[test]
+    fn shared_kv_and_swa_follow_the_writing_pattern() {
+        // Gemma-style: 6 blocks, trailing 2 share KV, SWA on the first two,
+        // head sizes differ per block type.
+        let mut gemma = shape();
+        gemma.n_layers = 6;
+        gemma.shared_kv_layers = 2; // blocks 4 and 5 reuse block 3's cache
+        gemma.sliding_window = 512;
+        gemma.n_swa_layers = 2; // first two blocks are SWA
+        gemma.swa_head_dim = 128;
+        gemma.head_dim = 256;
+        gemma.n_kv_heads = 1;
+
+        let ctx = 32_768;
+        // Cached elements (K and V) follow the block type:
+        // full blocks 2 + 3: 2 * 256 * ctx * 2
+        // swa blocks 0 + 1: 2 * 128 * min(ctx, 512) * 2
+        let elements = 2.0 * 256.0 * ctx as f64 * 2.0
+            + 2.0 * 128.0 * 512.0 * 2.0;
+        // f16 stores every element; q4_0 packs 32 into 18 bytes.
+        assert_eq!(
+            kv_cache_bytes(&gemma, ctx, KvCacheType::F16),
+            (elements * 2.0) as u64
+        );
+        assert_eq!(
+            kv_cache_bytes(&gemma, ctx, KvCacheType::Q4_0),
+            (elements * 18.0 / 32.0) as u64
+        );
+    }
+
     // --- checks: context handling --------------------------------------------
+
 
     #[test]
     fn context_zero_falls_back_to_the_declared_context() {

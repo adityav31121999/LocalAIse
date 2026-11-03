@@ -27,19 +27,29 @@ function humanBytes(bytes: number): string {
 }
 
 /** Bytes of KV cache for the model at its declared context with an f16 cache,
- * mirroring `budget::kv_cache_bytes` in the core: n_layers · n_kv_heads ·
- * head_dim · ctx · 2 (K and V), with sliding-window layers bounded by the
- * window and shared_kv_layers not allocated separately. */
+ * mirroring `budget::kv_cache_bytes` in the core. Only blocks that hold a KV
+ * cache price in: hybrid architectures (Mamba + attention mixes) report their
+ * attention block count; gemma-style shared blocks reuse the first blocks'
+ * cache; sliding-window blocks are bounded by the window with their own
+ * (often smaller) head size. */
 function kvCacheGb(entry: ModelEntry): number | null {
   if (entry.nLayers === 0 || entry.nKvHeads === 0 || entry.headDim === 0) return null;
+  const kvLayers = (entry.nKvLayers ?? 0) > 0
+    ? Math.min(entry.nKvLayers ?? entry.nLayers, entry.nLayers)
+    : entry.nLayers;
+  const shared = Math.min(entry.sharedKvLayers, kvLayers);
+  const allocating = entry.sharedKvLayers > 0 ? kvLayers - shared : kvLayers;
   const ctx = entry.maxContext > 0 ? entry.maxContext : 8_192;
   const bpe = 2; // f16
-  const swaCtx = entry.slidingWindow > 0 ? Math.min(ctx, entry.slidingWindow) : ctx;
-  const boundedLayers =
-    entry.slidingWindow > 0 ? Math.min(entry.sharedKvLayers, entry.nLayers) : 0;
-  const fullLayers = entry.nLayers - boundedLayers;
+  const window = entry.slidingWindow > 0 ? Math.min(ctx, entry.slidingWindow) : 0;
+  const swaLayers = window > 0
+    ? Math.min(entry.nSwaLayers ?? allocating, allocating)
+    : 0;
+  const fullLayers = allocating - swaLayers;
+  const swaHeadDim = (entry.swaHeadDim ?? 0) > 0 ? (entry.swaHeadDim ?? entry.headDim) : entry.headDim;
   const elements =
-    (fullLayers * ctx + boundedLayers * swaCtx) * entry.nKvHeads * entry.headDim * 2;
+    (fullLayers * ctx * entry.headDim + swaLayers * window * swaHeadDim)
+    * entry.nKvHeads * 2;
   return (elements * bpe) / (1024 ** 3);
 }
 
@@ -175,11 +185,6 @@ export function ModelsPanel() {
         <h2 className="field__label" id="field-folders">
           Your models folder
         </h2>
-        <p className="field__hint">
-          Keep the GGUF files you downloaded anywhere on this machine — type the folder path below
-          or pick it with Browse. Every GGUF inside it shows up, including the ones in sub-folders
-          such as <span className="mono">llm/&lt;model-name&gt;/</span>.
-        </p>
         <div className="models__folderbar input">
           <FolderIcon size={14} />
           <input
@@ -323,10 +328,6 @@ export function ModelsPanel() {
                         <span className="mono">{humanBytes(entry.sizeBytes)}</span>
                       </div>
                     ))}
-                    <p className="field__hint">
-                      The projector gives this model its eyes — it is passed to llama-server next to
-                      the weights.
-                    </p>
                   </div>
                 )}
               </article>

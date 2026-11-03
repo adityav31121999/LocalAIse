@@ -235,12 +235,17 @@ export function RuntimeConfigProvider({
   }, []);
 
   /** The runtime changes on its own — the server starts when a chat turn
-   * arrives — so its state is polled instead of fetched once. */
+   * arrives — so its state is polled instead of fetched once. The selected
+   * model is polled along with it, so switching models re-estimates the
+   * profile against the right file. */
   useEffect(() => {
     if (!active) return;
     const timer = window.setInterval(() => {
       runtimeStatus()
         .then(setStatus)
+        .catch(() => undefined);
+      getSelectedModel()
+        .then(setModelPath)
         .catch(() => undefined);
     }, 4_000);
     return () => window.clearInterval(timer);

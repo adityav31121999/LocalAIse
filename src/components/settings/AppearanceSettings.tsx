@@ -78,10 +78,6 @@ export function AppearanceSettings() {
           <h2 className="field__label" id="field-mode">
             Color mode
           </h2>
-          <p className="field__hint">
-            Applies to whichever theme is selected. “Use system preference” follows your operating
-            system.
-          </p>
           <div className="segmented" role="group" aria-labelledby="field-mode">
             {MODES.map((option) => (
               <button
@@ -101,10 +97,6 @@ export function AppearanceSettings() {
           <h2 className="field__label" id="field-theme">
             Theme
           </h2>
-          <p className="field__hint">
-            One shared component system with six visual identities. Each theme supports both color
-            modes, so any combination works.
-          </p>
           <div className="theme-grid" role="group" aria-labelledby="field-theme">
             {THEME_ORDER.map((name) => {
               const theme = THEMES[name];
@@ -136,9 +128,6 @@ export function AppearanceSettings() {
           <h2 className="field__label" id="field-density">
             Interface density
           </h2>
-          <p className="field__hint">
-            Adjusts spacing and control sizes only — never the layout or the available features.
-          </p>
           <div className="density-grid" role="group" aria-labelledby="field-density">
             {DENSITIES.map((option) => (
               <button

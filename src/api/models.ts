@@ -59,6 +59,12 @@ export interface ModelEntry {
   /// GGUF shape facts read from the header, used for memory and KV-cache
   /// estimates. Zero when the file could not be read as a GGUF.
   nLayers: number;
+  /** Blocks that hold a KV cache (hybrid architectures); 0 means every block. */
+  nKvLayers?: number;
+  /** Window-bounded attention blocks among the allocating ones. */
+  nSwaLayers?: number;
+  /** Head size of the SWA blocks when it differs from headDim. */
+  swaHeadDim?: number;
   nKvHeads: number;
   headDim: number;
   maxContext: number;

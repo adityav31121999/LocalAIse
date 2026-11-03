@@ -157,11 +157,6 @@ export function HardwareSettings() {
   const isCpu = device.device === "cpu";
   const gpuLayers = device.device === "user_gpu" ? device.gpu_layers : 0;
 
-  // What automatic mode resolves to right now: the core answers this from
-  // the build and the model.
-  const resolved = estimate?.device ?? null;
-  const resolvedLayers = resolved?.device === "user_gpu" ? resolved.gpu_layers : 0;
-
   const chooseBuild = async () => {
     setPicking(true);
     try {
@@ -200,10 +195,7 @@ export function HardwareSettings() {
         <h2 className="field__label" id="field-device">
           Compute device
         </h2>
-        <p className="field__hint">
-          Automatic uses the graphics card when this machine has one and the llama-server build in
-          use can offload to it, and the CPU otherwise. CPU never allocates VRAM.
-        </p>
+        <p className="field__hint">Automatic offloads to GPU when available, else CPU.</p>
         <div className="segmented" role="group" aria-labelledby="field-device">
           <button
             type="button"
@@ -231,23 +223,9 @@ export function HardwareSettings() {
           </button>
         </div>
 
-        <p className="field__hint">
-          {resolved ? (
-            <>
-              This configuration runs on <strong>{deviceLabel(resolved)}</strong>
-              {resolvedLayers > 0 && resolvedLayers < 999
-                ? ` — ${resolvedLayers} of the model's layers are offloaded.`
-                : "."}
-            </>
-          ) : (
-            "The device is resolved once a model is selected."
-          )}
-        </p>
-
         {device.device === "user_gpu" && (
           <>
             <div className="perf__slider-row">
-              <span className="field__hint">GPU layers (-ngl):</span>
               <input
                 className="slider"
                 type="range"
@@ -264,32 +242,16 @@ export function HardwareSettings() {
                 {gpuLayers >= 999 ? "auto" : gpuLayers}
               </span>
             </div>
-            <p className="field__hint">
-              {gpuLayers >= 999
-                ? "As many layers as fit in the graphics memory are offloaded."
-                : `${gpuLayers} layer${gpuLayers === 1 ? "" : "s"} run on the graphics card; the rest stay on the CPU.`}
-            </p>
           </>
         )}
 
-        {device.device === "user_gpu" && capabilities?.probed && !capabilities.supportsGpu && (
-          <p className="field__hint perf__error">
-            The llama-server build in use reports no GPU device. Install a Vulkan or CUDA build
-            below, or point the app at your own GPU build.
-          </p>
-        )}
       </section>
 
       <section className="field" aria-labelledby="field-build">
         <h2 className="field__label" id="field-build">
           llama-server build
         </h2>
-        <p className="field__hint">
-          The installer ships a CPU-only build of llama.cpp. For the graphics card, the app can
-          install the official llama.cpp build that matches this machine — CUDA on NVIDIA, Vulkan
-          everywhere else — verified against the checksums pinned in the app, or you can point
-          it at your own build.
-        </p>
+        <p className="field__hint">Server binary in use and available GPU builds.</p>
         <div className="caps">
           <div className="caps__row">
             <span className="caps__key">Build in use</span>
@@ -384,6 +346,7 @@ export function HardwareSettings() {
         <h2 className="field__label" id="field-machine">
           This machine
         </h2>
+        <p className="field__hint">Detected CPU cores, RAM, and graphics card.</p>
         <div className="caps">
           <div className="caps__row">
             <span className="caps__key">Processor</span>
@@ -422,16 +385,13 @@ export function HardwareSettings() {
             </div>
           )}
         </div>
-        <p className="field__hint">
-          The graphics card is detected by the system, but the build's own device list decides what
-          the runtime can actually use.
-        </p>
       </section>
 
       <section className="field" aria-labelledby="field-status">
         <h2 className="field__label" id="field-status">
           Runtime status
         </h2>
+        <p className="field__hint">Current server state, port, and running model.</p>
         {status ? (
           <div className="runtime-status">
             <div className="runtime-status__head">
@@ -467,22 +427,14 @@ export function HardwareSettings() {
         ) : (
           <p className="muted">The runtime state is not known yet.</p>
         )}
-        <p className="field__hint">
-          The server starts on the next chat turn. Changing the profile and applying stops the
-          running one, so the next turn starts it again with the new flags.
-        </p>
       </section>
 
       <section className="field" aria-labelledby="field-advanced">
         <h2 className="field__label" id="field-advanced">
           Batching
         </h2>
-        <p className="field__hint">
-          The batch size decides how many tokens are processed at once, and the number of slots how
-          many conversations can be served in parallel. Both are rarely worth changing.
-        </p>
+        <p className="field__hint">Tokens per batch and parallel conversation slots.</p>
         <div className="perf__slider-row">
-          <span className="field__hint">Batch size:</span>
           <NumberField
             className="input perf__threads"
             min={1}
@@ -491,7 +443,6 @@ export function HardwareSettings() {
             onChange={(n) => patch({ batchSize: n })}
             label="Batch size"
           />
-          <span className="field__hint">Parallel slots:</span>
           <NumberField
             className="input perf__threads"
             min={1}

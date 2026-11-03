@@ -14,9 +14,6 @@ import { MemoryBudgetBar } from "./MemoryBudgetBar";
 import { NumberField } from "../ui/NumberField";
 import { RuntimeActions } from "./RuntimeActions";
 import {
-  FIT_LABELS,
-  deviceLabel,
-  effectiveThreads,
   useRuntimeConfig,
 } from "./runtime-config";
 
@@ -46,7 +43,6 @@ export function InferenceSettings() {
   const {
     draft,
     estimate,
-    capabilities,
     hardware,
     patch,
     setKvType,
@@ -54,7 +50,6 @@ export function InferenceSettings() {
   } = useRuntimeConfig();
   const [expertLayers, setExpertLayers] = useState(4);
 
-  const fit = estimate?.fit ?? "comfortable";
   const onGpu = estimate?.device.device === "user_gpu";
   const quantized = draft.kvType !== "f16";
 
@@ -77,8 +72,6 @@ export function InferenceSettings() {
       ? 0
       : draft.contextTokens;
 
-  const flashSupport = capabilities?.flashAttn ?? null;
-
   return (
     <div className="perf">
       <MemoryWarningAlert />
@@ -86,12 +79,8 @@ export function InferenceSettings() {
         <h2 className="field__label" id="field-context">
           Context window &amp; KV cache
         </h2>
-        <p className="field__hint">
-          How much text the model can see at once — files pasted into chat, long citations and
-          multi-turn research all count against this. 0 lets the model use its own default context.
-          The KV cache type below chooses how much memory each cached token costs.
-        </p>
-        <div className="perf__slider-row" style={{ gap: "var(--space-2)" }}>
+        <p className="field__hint">Max text the model sees at once; 0 = model default.</p>
+        <div className="perf__slider-row" style={{ gap: "var(--space-4)", flexWrap: "wrap" }}>
           <NumberField
             className="input"
             style={{ maxWidth: "140px" }}
@@ -99,99 +88,49 @@ export function InferenceSettings() {
             step={1024}
             value={draft.contextTokens}
             onChange={(n) => {
-              // 0 is "model default"; anything else is at least a 512-token
-              // window, the smallest the core accepts.
               patch({ contextTokens: n === 0 ? 0 : Math.max(512, n) });
             }}
             label="Context window in tokens"
           />
-          <span className="field__hint">
-            {draft.contextTokens === 0 ? "0 = model default" : "tokens"}
-          </span>
-        </div>
-        <div className="chip-row" role="group" aria-label="Context window presets">
-          {[4_096, 8_192, 16_384, 32_768]
-            .filter((preset) => declared === 0 || preset <= declared)
-            .map((preset) => (
+          <div className="chip-row chip-row--compact" role="group" aria-label="Context window presets">
+            {[4_096, 8_192, 16_384, 32_768]
+              .filter((preset) => declared === 0 || preset <= declared)
+              .map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className="chip"
+                  aria-pressed={draft.contextTokens === preset}
+                  onClick={() => patch({ contextTokens: preset })}
+                >
+                  {preset >= 1024 ? `${preset / 1024}K` : String(preset)}
+                </button>
+              ))}
+            {declared > 0 ? (
               <button
-                key={preset}
                 type="button"
                 className="chip"
-                aria-pressed={draft.contextTokens === preset}
-                onClick={() => patch({ contextTokens: preset })}
+                aria-pressed={draft.contextTokens === declared}
+                onClick={() => patch({ contextTokens: declared })}
+                title={`The model's own limit: ${formatTokens(declared)} tokens`}
               >
-                {preset >= 1024 ? `${preset / 1024}K` : String(preset)}
+                {formatTokens(declared)} · model max
               </button>
-            ))}
-          {declared > 0 ? (
+            ) : null}
             <button
               type="button"
               className="chip"
-              aria-pressed={draft.contextTokens === declared}
-              onClick={() => patch({ contextTokens: declared })}
-              title={`The model's own limit: ${formatTokens(declared)} tokens`}
+              aria-pressed={draft.contextTokens === 0}
+              onClick={() => patch({ contextTokens: 0 })}
+              title="Let the model use its own default context"
             >
-              {formatTokens(declared)} · model max
+              Auto
             </button>
-          ) : null}
-          <button
-            type="button"
-            className="chip"
-            aria-pressed={draft.contextTokens === 0}
-            onClick={() => patch({ contextTokens: 0 })}
-            title="Let the model use its own default context"
-          >
-            Auto
-          </button>
-        </div>
-
-        {/* The estimate follows the window chosen above: how much cache it
-            needs, and whether that fits on this machine. */}
-        <div className="ctx-readout">
-          <div className="ctx-readout__row">
-            <span className="ctx-readout__key">Runtime context</span>
-            <span className="ctx-readout__value mono">
-              {runtimeContext === 0
-                ? "Model default"
-                : `${formatTokens(runtimeContext)} tokens`}
-            </span>
           </div>
-          <div className="ctx-readout__row">
-            <span className="ctx-readout__key">KV cache ({kvLabel(draft.kvType)}, estimated)</span>
-            <span className="ctx-readout__value mono">
-              {estimate && estimate.modelShapeKnown
-                ? `≈ ${gigabytes(estimate.kvCacheGb)}`
-                : "not known yet"}
-            </span>
-          </div>
-          <div className="ctx-readout__row">
-            <span className="ctx-readout__key">Total memory used</span>
-            <span className="ctx-readout__value mono">
-              {estimate && estimate.modelShapeKnown
-                ? onGpu
-                  ? `≈ ${gigabytes(estimate.vramNeededGb)} VRAM + ${gigabytes(estimate.ramNeededGb)} RAM`
-                  : `≈ ${gigabytes(estimate.ramNeededGb)} RAM`
-                : "not known yet"}
-            </span>
-          </div>
-          <div className="ctx-readout__row">
-            <span className="ctx-readout__key">Model declares</span>
-            <span className="ctx-readout__value mono">
-              {declared > 0 ? `${formatTokens(declared)} tokens` : "no limit in the file"}
-            </span>
-          </div>
-          <p className={`ctx-readout__fit ctx-readout__fit--${fit}`}>{FIT_LABELS[fit]}</p>
-          <p className="ctx-readout__note">
-            Estimates are approximate — they are worked out from the model file and the free memory,
-            not measured from a running server.
-          </p>
         </div>
 
         <h3 id="field-kv">KV cache type</h3>
-        <p className="field__hint">
-          A quantized cache keeps long contexts affordable on CPU-sized memory. It costs a little
-          answer quality, and it only works together with flash attention.
-        </p>
+        <p className="field__hint">Quantized cache trades slight quality for memory savings.</p>
         <div className="segmented" role="group" aria-labelledby="field-kv">
           {KV_OPTIONS.map((option) => {
             const cost = kvCost(option.value);
@@ -208,14 +147,45 @@ export function InferenceSettings() {
             );
           })}
         </div>
-        {estimate?.modelShapeKnown && kvCost(draft.kvType) != null && kvCost("f16") != null && (
-          <p className="field__hint">
-            Cache at {formatTokens(runtimeContext)} tokens.{" "}
-            {draft.kvType === "f16"
-              ? "Every quantized type below trades a little quality for memory."
-              : `${kvLabel(draft.kvType)} saves ${gigabytes((kvCost("f16") ?? 0) - (kvCost(draft.kvType) ?? 0))} of cache versus f16 (${gigabytes(kvCost("f16") ?? 0)}).`}
-          </p>
-        )}
+        {/* Memory calculator below the quantisation option — uses remaining space. */}
+        <div className="memory-calculator">
+          <div className="memory-calculator__rows">
+            <div className="memory-calculator__row">
+              <span className="memory-calculator__key">Runtime context</span>
+              <span className="memory-calculator__value mono">
+                {runtimeContext === 0
+                  ? "Model default"
+                  : `${formatTokens(runtimeContext)} tokens`}
+              </span>
+            </div>
+            <div className="memory-calculator__row">
+              <span className="memory-calculator__key">
+                KV cache ({kvLabel(draft.kvType)}, estimated)
+              </span>
+              <span className="memory-calculator__value mono">
+                {estimate && estimate.modelShapeKnown
+                  ? `≈ ${gigabytes(estimate.kvCacheGb)}`
+                  : "not known yet"}
+              </span>
+            </div>
+            <div className="memory-calculator__row">
+              <span className="memory-calculator__key">Total memory used</span>
+              <span className="memory-calculator__value mono">
+                {estimate && estimate.modelShapeKnown
+                  ? onGpu
+                    ? `≈ ${gigabytes(estimate.vramNeededGb)} VRAM + ${gigabytes(estimate.ramNeededGb)} RAM`
+                    : `≈ ${gigabytes(estimate.ramNeededGb)} RAM`
+                  : "not known yet"}
+              </span>
+            </div>
+            <div className="memory-calculator__row">
+              <span className="memory-calculator__key">Model declares</span>
+              <span className="memory-calculator__value mono">
+                {declared > 0 ? `${formatTokens(declared)} tokens` : "no limit in the file"}
+              </span>
+            </div>
+          </div>
+        </div>
 
         <label className="perf__check">
           <input
@@ -232,32 +202,13 @@ export function InferenceSettings() {
 
         {/* Flash attention is a property of the build, not of the app: the
             core asks the server what it can do. */}
-        {flashSupport === false && (
-          <p className="field__hint perf__error">
-            The llama-server build in use does not offer flash attention. Turn it off, or point the
-            app at a build that supports it.
-          </p>
-        )}
-        {flashSupport === null && (
-          <p className="field__hint">
-            The build did not answer when it was asked about flash attention, so the app cannot
-            promise that the setting takes effect.
-          </p>
-        )}
-        {flashSupport === true && (
-          <p className="field__hint">This build supports flash attention.</p>
-        )}
       </section>
 
       <section className="field" aria-labelledby="field-budgets">
         <h2 className="field__label" id="field-budgets">
           Token budgets
         </h2>
-        <p className="field__hint">
-          The same caps for every role — plain chat, the tool-using agent and the
-          subagent workers all run under one budget. 0 means unlimited: the
-          model's own server settings decide.
-        </p>
+        <p className="field__hint">Per-role caps for prompt, response, and thinking tokens.</p>
         <div className="limits-table">
           <span className="limits-table__cell--row">All roles</span>
           <span className="limits-table__cell--head">Max prompt</span>
@@ -296,10 +247,7 @@ export function InferenceSettings() {
         <h2 className="field__label" id="field-threads">
           CPU threads
         </h2>
-        <p className="field__hint">
-          Auto leaves one core free for the interface. Resolved right now:{" "}
-          {effectiveThreads(draft, hardware?.cpuCores)} threads.
-        </p>
+        <p className="field__hint">Auto leaves one core free for the interface.</p>
         <div className="perf__slider-row">
           <label className="perf__check">
             <input
@@ -330,6 +278,7 @@ export function InferenceSettings() {
         <h2 className="field__label" id="field-loading">
           Loading
         </h2>
+        <p className="field__hint">Partial loading and memory-mapped weight files.</p>
         <label className="perf__check">
           <input
             type="checkbox"
@@ -338,11 +287,6 @@ export function InferenceSettings() {
           />
           <span>
             Partial loading
-            <span className="field__hint">
-              {" "}— when the context bloats the KV cache past what fits, llama-server lowers the
-              context automatically instead of failing to load. The window input
-              becomes a minimum.
-            </span>
           </span>
         </label>
         <label className="perf__check">
@@ -353,10 +297,6 @@ export function InferenceSettings() {
           />
           <span>
             Memory-mapped weights
-            <span className="field__hint">
-              {" "}— the model file is read straight from disk, which keeps start-up fast. Turning
-              it off loads the whole file into memory.
-            </span>
           </span>
         </label>
       </section>
@@ -366,10 +306,7 @@ export function InferenceSettings() {
           <h2 className="field__label" id="field-moe">
             Expert tensors
           </h2>
-          <p className="field__hint">
-            This model is mixture-of-experts: most of its parameters sit in expert feed-forward
-            tensors, and only a few of them are used per token.
-          </p>
+          <p className="field__hint">MoE tensor placement across VRAM and RAM.</p>
           {onGpu ? (
             <>
               <div className="segmented" role="group" aria-labelledby="field-moe">
@@ -403,7 +340,6 @@ export function InferenceSettings() {
               </div>
               {draft.moe.mode === "first_layers" && (
                 <div className="perf__slider-row">
-                  <span className="field__hint">Layers in RAM:</span>
                   <NumberField
                     className="input perf__threads"
                     min={1}
@@ -417,17 +353,8 @@ export function InferenceSettings() {
                   />
                 </div>
               )}
-              <p className="field__hint">
-                Keeping experts in system RAM frees VRAM for the cache but slows generation
-                somewhat.
-              </p>
             </>
-          ) : (
-            <p className="field__hint">
-              On the CPU every tensor already lives in system RAM, so there is nothing to move. Turn
-              on the GPU in the hardware settings to place the experts separately.
-            </p>
-          )}
+          ) : null}
         </section>
       )}
 
@@ -435,10 +362,7 @@ export function InferenceSettings() {
         <h2 className="field__label" id="field-memory">
           Memory estimate
         </h2>
-        <p className="field__hint">
-          Follows the controls above, live. Measured against{" "}
-          {estimate ? deviceLabel(estimate.device) : "the selected device"}.
-        </p>
+        <p className="field__hint">Live VRAM/RAM breakdown for the current draft.</p>
         {estimate?.modelShapeKnown ? (
           <>
             <MemoryBudgetBar estimate={estimate} />

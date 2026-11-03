@@ -10,7 +10,6 @@ import { useRuntimeConfig } from "./runtime-config";
 
 export function RuntimeActions() {
   const {
-    report,
     messages,
     blocked,
     dirty,
@@ -39,13 +38,6 @@ export function RuntimeActions() {
       )}
 
       {error && <p className="perf__error">{error}</p>}
-
-      {report.requiresRestart && !error && (
-        <p className="field__hint">
-          The running server uses different settings. Applying stores these settings and restarts it
-          — the next chat turn starts it again.
-        </p>
-      )}
 
       <div className="perf__actions">
         {recommended && (

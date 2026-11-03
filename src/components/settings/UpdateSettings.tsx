@@ -83,10 +83,6 @@ export function UpdateSettings() {
             <h2 className="field__label" id="field-auto-update">
               Automatic update checks
             </h2>
-            <p className="field__hint">
-              LocalAIse contacts GitHub once per day (when online) to check for new versions. No machine
-              identifiers are sent — only a generic User-Agent header.
-            </p>
           </div>
           <label className="toggle toggle--inline">
             <input
@@ -110,9 +106,6 @@ export function UpdateSettings() {
             <h3 className="status-card__title" id="field-manual-check">
               Manual check
             </h3>
-            <p className="status-card__hint">
-              Check immediately, bypassing the 24-hour rule. Respects GitHub rate limits.
-            </p>
             <button
               type="button"
               className="btn btn--primary btn--sm"
@@ -141,9 +134,6 @@ export function UpdateSettings() {
               <InfoIcon size={14} />
               <span>{formatTimestamp(lastCheck)}</span>
             </div>
-            <p className="status-card__hint">
-              Updates are only checked once per 24 hours.
-            </p>
           </div>
         </div>
       </section>
@@ -191,18 +181,6 @@ export function UpdateSettings() {
           </div>
         </section>
       )}
-
-      <div className="updates-note">
-        <InfoIcon size={13} />
-        <span>
-          Updates are verified with cryptographic signatures. The app will never install an update
-          without your explicit confirmation. See the{" "}
-          <a href="https://github.com/adityav31121999/LocalAIse#updates" target="_blank" rel="noopener">
-            README
-          </a>{" "}
-          for details.
-        </span>
-      </div>
     </div>
   );
 }

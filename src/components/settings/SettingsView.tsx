@@ -9,7 +9,7 @@
 import { useState, useEffect } from "react";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { UpdateSettings } from "./UpdateSettings";
-import { ChevronLeftIcon, SettingsIcon } from "../ui/icons";
+import { ChevronLeftIcon } from "../ui/icons";
 import { ModelConfig } from "./ModelConfig";
 import { useNavStore } from "../../state/navStore";
 
@@ -39,7 +39,6 @@ const TAB_META: { id: SettingsTab; label: string; title: string; subtitle: strin
 export function SettingsView() {
   const settingsTab = useNavStore((state) => state.settingsTab);
   const [tab, setTab] = useState<SettingsTab>(settingsTab);
-  const active = TAB_META.find((item) => item.id === tab) ?? TAB_META[0];
   const showHome = useNavStore((state) => state.showHome);
 
   // Sync with navStore if it changes externally
@@ -63,13 +62,6 @@ export function SettingsView() {
       </header>
 
       <div className="settings__inner settings__inner--full">
-        <span className="settings__eyebrow">
-          <SettingsIcon size={13} />
-          Settings
-        </span>
-        <h1 className="settings__title">{active.title}</h1>
-        <p className="settings__subtitle">{active.subtitle}</p>
-
         <div className="settings__tabs" role="tablist" aria-label="Settings sections">
           {TAB_META.map((item) => (
             <button
@@ -86,7 +78,7 @@ export function SettingsView() {
           ))}
         </div>
 
-        <div id={`settings-panel-${active.id}`} role="tabpanel" className="settings__panel settings__panel--full">
+        <div id={`settings-panel-${tab}`} role="tabpanel" className="settings__panel settings__panel--full">
           {tab === "appearance" && <AppearanceSettings />}
           {tab === "model-runtime" && <ModelConfig />}
           {tab === "updates" && <UpdateSettings />}

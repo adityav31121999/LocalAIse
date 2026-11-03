@@ -495,6 +495,9 @@ mod tests {
         ModelShape {
             file_bytes: 4 * 1_073_741_824,
             n_layers: 32,
+            n_kv_layers: 0,
+            n_swa_layers: 0,
+            swa_head_dim: 0,
             n_kv_heads: 8,
             head_dim: 128,
             max_context: 32_768,

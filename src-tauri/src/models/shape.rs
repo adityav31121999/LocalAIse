@@ -16,7 +16,7 @@ const MAGIC: u32 = 0x46554747; // "GGUF" little-endian
 /// The facts the UI needs sit at the front of the file, but the tokenizer
 /// vocabulary that follows can run into megabytes. Reading a bounded prefix
 /// keeps a folder scan fast even with a few dozen models on disk.
-const META_BUDGET_BYTES: u64 = 512 * 1024;
+const META_BUDGET_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Metadata the model list shows next to a file.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -74,7 +74,7 @@ fn read_u64(r: &mut impl Read) -> Result<u64, String> {
 
 fn read_string(r: &mut impl Read) -> Result<String, String> {
     let len = read_u64(r)?;
-    if len > 1 << 24 {
+    if len > 1 << 28 {
         return Err("string too long for GGUF metadata".into());
     }
     let mut buf = vec![0u8; len as usize];
@@ -93,6 +93,9 @@ pub fn read_shape(path: &Path) -> ShapeResult {
     let mut shape = ModelShape {
         file_bytes,
         n_layers: 0,
+        n_kv_layers: 0,
+        n_swa_layers: 0,
+        swa_head_dim: 0,
         n_kv_heads: 0,
         head_dim: 0,
         max_context: 0,
@@ -153,6 +156,16 @@ fn read_shape_into<R: Read>(
     };
     shape.head_dim = metadata.num("key_length");
 
+    // Layers that actually hold a KV cache. Dense architectures declare
+    // `head_count_kv` once as a scalar, so every block caches. Hybrid
+    // architectures (granite hybrid, mamba mixes) declare it once per block
+    // as an array, where recurrent/Mamba blocks carry 0 — pricing every
+    // block would grossly overstate the cache, so count the attention
+    // blocks only. 0 here means "all blocks" for the budget.
+    if metadata.len("head_count_kv") > 1 {
+        shape.n_kv_layers = metadata.count_positive("head_count_kv");
+    }
+
     if shape.head_dim == 0 && n_heads > 0 {
         let embedding_length = metadata.num("embedding_length");
         if embedding_length > 0 {
@@ -164,13 +177,63 @@ fn read_shape_into<R: Read>(
     // not declare it.
     shape.max_context = metadata.num("context_length");
 
-    // Sliding window attention (Gemma 4). KV cache for SWA layers is bounded
-    // by this instead of the full context.
+    // Layers that actually hold a KV cache. Dense architectures declare
+    // `head_count_kv` once as a scalar, so every block caches. Hybrid
+    // architectures (granite hybrid, mamba mixes) declare it once per block
+    // as an array, where recurrent/Mamba blocks carry 0 — pricing every
+    // block would grossly overstate the cache, so count the attention
+    // blocks only. 0 here means "all blocks" for the budget.
+    if metadata.len("head_count_kv") > 1 {
+        shape.n_kv_layers = metadata.count_positive("head_count_kv");
+    } else {
+        // qwen35-style hybrids: `full_attention_interval` declares that only
+        // every Nth block keeps attention (and thus a KV cache); the rest
+        // are recurrent with SSM state instead.
+        let interval = metadata.num("full_attention_interval");
+        if interval > 1 {
+            shape.n_kv_layers = shape.n_layers / interval;
+        }
+    }
+
+    // Sliding-window attention facts. `sliding_window_pattern` is a
+    // per-block bool array, now recorded as numbers; the blocks that keep
+    // a full-context cache are priced with `key_length`, the SWA blocks
+    // with `key_length_swa` and the window bound.
     shape.sliding_window = metadata.num("sliding_window");
 
-    // Layers that share KV cache (Gemma 4 shared_kv_layers). These do not
-    // need a separate KV allocation.
+    // Layers that share KV cache (Gemma 4 `shared_kv_layers`). The trailing
+    // blocks reuse the cache of the first blocks, so they do not allocate
+    // their own: n_layer_kv_from_start in llama.cpp.
     shape.shared_kv_layers = metadata.num("shared_kv_layers");
+
+    if shape.sliding_window > 0 {
+        // Blocks that allocate: the first (n_layers - shared) blocks.
+        let alloc = shape
+            .n_layers
+            .saturating_sub(shape.shared_kv_layers.min(shape.n_layers))
+            .max(shape.n_kv_layers.min(shape.n_layers).max(1));
+        let collecting = shape.n_kv_layers > 0
+            && shape.n_kv_layers < shape.n_layers;
+        let alloc = if collecting {
+            shape.n_kv_layers
+        } else {
+            alloc
+        };
+
+        let pattern = metadata.values("sliding_window_pattern");
+        if pattern.is_empty() {
+            // No pattern: every allocating block is window-bounded.
+            shape.n_swa_layers = alloc;
+        } else {
+            shape.n_swa_layers = pattern
+                .iter()
+                .take(alloc as usize)
+                .filter(|value| **value > 0.0)
+                .count() as u32;
+        }
+        // SWA blocks can run a smaller head size than full blocks.
+        shape.swa_head_dim = metadata.num("key_length_swa");
+    }
 
     // Mixture-of-experts facts. expert_count 0 means a dense model; the
     // tensor list is then not parsed at all.
@@ -316,6 +379,37 @@ impl Metadata {
             .map(|value| value as u64)
     }
 
+    /// How many values a key holds. One for a scalar, one per element for a
+    /// per-layer array (hybrid architectures store `head_count_kv` once per
+    /// block).
+    fn len(&self, suffix: &str) -> usize {
+        self.numbers
+            .iter()
+            .filter(|(key, _)| key.rsplit('.').next() == Some(suffix))
+            .count()
+    }
+
+    /// Values of a suffix key in file order — for per-layer arrays where the
+    /// position is the block index (sliding-window pattern, kv-head counts).
+    fn values(&self, suffix: &str) -> Vec<f64> {
+        self.numbers
+            .iter()
+            .filter(|(key, _)| key.rsplit('.').next() == Some(suffix))
+            .map(|(_, value)| *value)
+            .collect()
+    }
+
+    /// Positive values of a suffix key (recurrent blocks store 0 in a
+    /// per-layer `head_count_kv` array; attention blocks store their head
+    /// count).
+    fn count_positive(&self, suffix: &str) -> u32 {
+        self.numbers
+            .iter()
+            .filter(|(key, _)| key.rsplit('.').next() == Some(suffix))
+            .filter(|(_, value)| *value > 0.0)
+            .count() as u32
+    }
+
     /// A string value, matched by the full key first and by suffix after.
     fn text(&self, key: &str) -> Option<&str> {
         self.strings
@@ -337,10 +431,12 @@ fn read_value(
     metadata: &mut Metadata,
 ) -> Result<(), String> {
     match value_type {
-        // u8 / bool
+        // u8 / bool — recorded so per-block bool arrays (sliding-window
+        // pattern, recurrent layers) can be counted later.
         0 | 7 => {
             let mut buf = [0u8; 1];
             reader.read_exact(&mut buf).map_err(io_string)?;
+            metadata.put(key, buf[0] as f64);
         }
         // i8 / u16 / i16
         1..=3 => {
@@ -480,7 +576,146 @@ mod tests {
     }
 
     #[test]
+    fn a_hybrid_per_layer_kv_array_counts_attention_blocks() {
+        // granitehybrid-style metadata: `head_count_kv` once per block,
+        // recurrent blocks carrying 0, attention blocks their head count.
+        let path = std::env::temp_dir().join(format!("LocalAIse-hyb-{}.gguf", std::process::id()));
+        write_gguf(
+            &path,
+            &[("general.architecture", "granitehybrid")],
+            &[
+                ("granitehybrid.block_count", 32),
+                ("granitehybrid.head_count", 32),
+                // 8 attention layers at every 4th block; recurrent ones 0.
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 0),
+                ("granitehybrid.head_count_kv", 8),
+                ("granitehybrid.key_length", 128),
+                ("granitehybrid.context_length", 131_072),
+            ],
+        );
+
+        let result = read_shape(&path);
+        assert_eq!(result.shape.n_layers, 32);
+        assert_eq!(result.shape.n_kv_layers, 8, "only attention blocks cache");
+        assert_eq!(result.shape.n_kv_heads, 8);
+        assert_eq!(result.shape.head_dim, 128);
+        assert_eq!(result.shape.max_context, 131_072);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_dense_scalar_kv_head_count_means_every_layer_caches() {
+        let path = std::env::temp_dir().join(format!("LocalAIse-dense-{}.gguf", std::process::id()));
+        write_gguf(
+            &path,
+            &[("general.architecture", "llama")],
+            &[
+                ("llama.block_count", 32),
+                ("llama.head_count", 32),
+                ("llama.head_count_kv", 8),
+                ("llama.key_length", 128),
+            ],
+        );
+
+        let result = read_shape(&path);
+        assert_eq!(result.shape.n_layers, 32);
+        assert_eq!(result.shape.n_kv_layers, 0, "scalar means every block");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_interval_marked_hybrid_uses_every_nth_block() {
+        // qwen35-style: scalar head_count_kv but full_attention_interval 4,
+        // with SSM keys declaring the recurrent blocks.
+        let path = std::env::temp_dir().join(format!("LocalAIse-int-{}.gguf", std::process::id()));
+        write_gguf(
+            &path,
+            &[("general.architecture", "qwen35")],
+            &[
+                ("qwen35.block_count", 32),
+                ("qwen35.attention.head_count", 16),
+                ("qwen35.attention.head_count_kv", 4),
+                ("qwen35.attention.key_length", 256),
+                ("qwen35.full_attention_interval", 4),
+                ("qwen35.ssm.conv_kernel", 4),
+            ],
+        );
+
+        let result = read_shape(&path);
+        assert_eq!(result.shape.n_layers, 32);
+        assert_eq!(result.shape.n_kv_layers, 8, "every 4th block keeps attention");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_gemma_shared_swa_layout_frees_the_shared_blocks() {
+        // gemma4-style: sliding window 512, key_length 512 vs 256 for SWA,
+        // 20 trailing blocks sharing KV out of 35, SWA on every block except
+        // i % 6 == 5.
+        let path = std::env::temp_dir().join(format!("LocalAIse-swa-{}.gguf", std::process::id()));
+        let mut numbers: Vec<(&str, u64)> = vec![
+            ("gemma4.block_count", 35),
+            ("gemma4.attention.head_count_kv", 1),
+            ("gemma4.attention.key_length", 512),
+            ("gemma4.attention.sliding_window", 512),
+            ("gemma4.attention.shared_kv_layers", 20),
+            ("gemma4.attention.key_length_swa", 256),
+        ];
+        // 35 bools: layer i%6 == 5 is full attention.
+        for i in 0..35 {
+            numbers.push(("gemma4.attention.sliding_window_pattern", u64::from(i % 6 != 5)));
+        }
+        write_gguf(&path, &[("general.architecture", "gemma4")], &numbers);
+
+        let result = read_shape(&path);
+        assert_eq!(result.shape.n_layers, 35);
+        assert_eq!(result.shape.shared_kv_layers, 20);
+        assert_eq!(result.shape.sliding_window, 512);
+        // 15 blocks allocate; of those, i%6==5 for i in 0..15 -> i=5, 11 full.
+        assert_eq!(result.shape.n_kv_layers, 0, "scalar head_count_kv");
+        assert_eq!(result.shape.n_swa_layers, 13);
+        assert_eq!(result.shape.swa_head_dim, 256);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn a_clip_architecture_is_a_projector() {
+
+
         let path = std::env::temp_dir().join(format!("LocalAIse-clip-{}.gguf", std::process::id()));
         write_gguf(&path, &[("general.architecture", "clip")], &[]);
 
