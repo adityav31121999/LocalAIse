@@ -57,6 +57,56 @@ pub struct ChatStreamResult {
 /// Files smaller than this are read in full; larger files are indexed.
 const ATTACHMENT_FULL_READ_THRESHOLD: u64 = 10_000; // 10 KB
 
+// Maximum characters per chunk when feeding a large attached file to the
+// model as consecutive inputs. Roughly 4000 chars ~ 1000 tokens, which keeps
+// each chunk safely inside most models' per-message input limits.
+const FILE_CHUNK_CHARS: usize = 4000;
+
+/// Splits text into consecutive chunks of at most `max_chars` characters,
+/// splitting on whitespace where possible so words are not broken mid-chunk.
+fn split_into_chunks(text: &str, max_chars: usize) -> Vec<String> {
+    let mut chunks: Vec<String> = Vec::new();
+    let mut start = 0;
+    let char_indices: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+    let total = char_indices.len();
+    while start < total {
+        // Find the farthest char index within max_chars from start.
+        let mut end = (start + max_chars).min(total);
+        // If we're not at the end of the text, back off to the last whitespace
+        // so we don't split a word in half.
+        if end < total {
+            while end > start {
+                let prev_byte = char_indices[end - 1];
+                let prev_char = text[prev_byte..].chars().next().unwrap();
+                if prev_char.is_ascii_whitespace() {
+                    break;
+                }
+                end -= 1;
+            }
+            if end == start {
+                end = (start + max_chars).min(total);
+            }
+        }
+        let start_byte = char_indices[start];
+        let end_byte = if end < total { char_indices[end] } else { text.len() };
+        let chunk = text[start_byte..end_byte].to_string();
+        if !chunk.trim().is_empty() {
+            chunks.push(chunk);
+        }
+        start = end;
+        // Skip leading whitespace of the next chunk.
+        while start < total {
+            let byte = char_indices[start];
+            let ch = text[byte..].chars().next().unwrap();
+            if !ch.is_ascii_whitespace() {
+                break;
+            }
+            start += 1;
+        }
+    }
+    chunks
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn chat_send(
@@ -141,8 +191,11 @@ pub async fn chat_send(
     let max_tool_steps = record.chat_settings.max_tool_steps;
 
     // 2. Process attached files: read small files fully, index large files for RAG.
+    // Files that exceed the per-message input limit are split into chunks and fed
+    // to the model as consecutive inputs before the actual question.
     let mut attached_context = String::new();
     let mut attached_citations: Vec<Citation> = Vec::new();
+    let mut file_chunks: Vec<(String, String)> = Vec::new();
     if let Some(files) = attached_files {
         let project_root = &record.path;
         let index_db = IndexDb::new(project_root);
@@ -171,6 +224,13 @@ pub async fn chat_send(
                                 content.clone()
                             }),
                         });
+                        // If the content itself exceeds the per-message limit,
+                        // chunk it as consecutive inputs as well.
+                        if content.len() > FILE_CHUNK_CHARS {
+                            for chunk in split_into_chunks(&content, FILE_CHUNK_CHARS) {
+                                file_chunks.push((file_rel.clone(), chunk));
+                            }
+                        }
                     }
                 }
             } else {
@@ -190,6 +250,16 @@ pub async fn chat_send(
                     }
                     Err(e) => {
                         eprintln!("Failed to ingest attached file {}: {}", file_rel, e);
+                    }
+                }
+                // Read the full content and chunk it as consecutive inputs so
+                // the model sees the whole file even when it is too large for
+                // a single message.
+                if let Ok(content) = fs::read_to_string(&file_path) {
+                    if !content.trim().is_empty() {
+                        for chunk in split_into_chunks(&content, FILE_CHUNK_CHARS) {
+                            file_chunks.push((file_rel.clone(), chunk));
+                        }
                     }
                 }
             }
@@ -246,12 +316,25 @@ pub async fn chat_send(
         system
     };
 
-    // 3. Replay the tail of the conversation, then ask the new question.
+    // 3. Replay the tail of the conversation, then feed attached file chunks
+    // as consecutive inputs, and finally ask the new question.
     let mut messages = vec![client::message("system", system.clone())];
     let history_start = session.messages.len().saturating_sub(history_limit);
     for turn in &session.messages[history_start..] {
         let role = if turn.role == "assistant" { "assistant" } else { "user" };
         messages.push(client::message(role, turn.content.clone()));
+    }
+    // Each chunk of an oversized attached file is sent as its own user message
+    // so the model processes the file in consecutive inputs that fit within
+    // the per-message context limit.
+    for (file_name, chunk) in &file_chunks {
+        messages.push(client::message(
+            "user",
+            &format!(
+                "--- Attached file: {} (continued) ---\n{}",
+                file_name, chunk
+            ),
+        ));
     }
     messages.push(client::message("user", user_prompt.clone()));
 

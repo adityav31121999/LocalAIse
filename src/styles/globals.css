@@ -1811,6 +1811,7 @@ button.net:hover {
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius-lg);
   transition: border-color var(--dur-1) var(--ease);
+  position: relative;
 }
 
 .composer__box:focus-within {
@@ -1952,6 +1953,59 @@ button.net:hover {
 .composer__attach-remove:hover {
   background: var(--accent-danger-soft);
   color: var(--accent-danger);
+}
+
+/* @ / # mention autocomplete dropdown */
+.composer__mentions {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: var(--space-1);
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 50;
+}
+.composer__mention-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  margin: var(--space-1) 0;
+}
+.composer__mention-item:hover,
+.composer__mention-item--active {
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+.composer__mention-item--active {
+  outline: none;
+}
+.composer__mention-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer__mention-status {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }
 
 /* Per-project system prompt editor */

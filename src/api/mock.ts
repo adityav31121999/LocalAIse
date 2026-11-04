@@ -12,6 +12,9 @@ import type {
   SourceStatus,
 } from "../types";
 
+/** Root directories the app owns; excluded from recursive file listing. */
+const EXCLUDE_DIRS = new Set(["chats", "data", "diary", "outputs", "summary"]);
+
 function minutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60_000).toISOString();
 }
@@ -203,6 +206,39 @@ function seedMockTree(projectId: string): MockNode[] {
     });
   }
 
+  // Add additional mock directories and files for dev-mode testing
+  const extraDirs = [
+    "src/components",
+    "src/hooks",
+    "src/state",
+    "src/api",
+    "src/util",
+    "docs/guides",
+    "tests/unit",
+  ];
+  for (const dir of extraDirs) {
+    addDir(dir);
+  }
+
+  const extraFiles = [
+    ["src/components/ChatView.tsx", 3500],
+    ["src/components/Composer.tsx", 4200],
+    ["src/components/MessageList.tsx", 2800],
+    ["src/hooks/useStream.ts", 1900],
+    ["src/state/chatStore.ts", 5100],
+    ["src/api/chat.ts", 3300],
+    ["src/api/files.ts", 2100],
+    ["src/util/format.ts", 1600],
+    ["docs/guides/getting-started.md", 4500],
+    ["docs/guides/advanced.md", 6200],
+    ["tests/unit/chat.test.ts", 2700],
+  ] as const;
+  for (const [name, size] of extraFiles) {
+    if (!nodes.some((node) => node.path === name)) {
+      nodes.push({ path: name, isDir: false, sizeBytes: size, modifiedAt: daysAgo(3) });
+    }
+  }
+
   for (const [name, size] of [
     ["project.json", 512],
     ["README.md", 1024],
@@ -291,6 +327,45 @@ export function mockListDirectory(projectId: string, path: string): DirectoryEnt
       sizeBytes: node.sizeBytes,
       modifiedAt: node.modifiedAt,
     }));
+}
+
+/**
+ * Recursively lists all files in the project directory (excluding app-owned dirs).
+ * Returns a flat list of files with their relative paths from the project root.
+ */
+export function mockListAllFiles(projectId: string): DirectoryEntry[] {
+  const nodes = mockTree(projectId);
+  const rootNodes = nodes.filter((node) => !mockParent(node.path));
+  const result: DirectoryEntry[] = [];
+
+  function walk(nodePath: string, isExcluded: boolean): void {
+    if (isExcluded) return;
+    const node = nodes.find((n) => n.path === nodePath);
+    if (!node) return;
+    if (node.isDir) {
+      const children = nodes.filter((n) => mockParent(n.path) === nodePath);
+      for (const child of children) {
+        walk(child.path, false);
+      }
+    } else {
+      result.push({
+        name: node.path, // full relative path
+        path: node.path,
+        isDir: false,
+        sizeBytes: node.sizeBytes,
+        modifiedAt: node.modifiedAt,
+      });
+    }
+  }
+
+  for (const rootNode of rootNodes) {
+    if (!EXCLUDE_DIRS.has(rootNode.path.toLowerCase())) {
+      walk(rootNode.path, false);
+    }
+  }
+
+  result.sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
+  return result;
 }
 
 export function mockCreateEntry(

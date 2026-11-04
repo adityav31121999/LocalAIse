@@ -32,6 +32,15 @@ pub async fn list_project_directory(
 }
 
 #[tauri::command]
+pub async fn list_all_project_files(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> AppResult<Vec<DirectoryEntry>> {
+    let root = project_root(&state, &project_id)?;
+    files::list_all_files(&root)
+}
+
+#[tauri::command]
 pub fn create_project_entry(
     state: State<'_, AppState>,
     project_id: String,

@@ -5,6 +5,7 @@ import {
   mockCopyEntry,
   mockCreateEntry,
   mockDeleteEntry,
+  mockListAllFiles,
   mockListDirectory,
   mockRenameEntry,
 } from "./mock";
@@ -17,6 +18,18 @@ export async function listDirectory(
   if (isTauri) return invoke<DirectoryEntry[]>("list_project_directory", { projectId, path });
   await delay(110);
   return mockListDirectory(projectId, path);
+}
+
+/**
+ * Recursively lists ALL files in the project directory (excluding app-owned dirs).
+ * Returns a flat list of files with their relative paths from the project root.
+ */
+export async function listAllFiles(projectId: string): Promise<DirectoryEntry[]> {
+  if (isTauri) {
+    return invoke<DirectoryEntry[]>("list_all_project_files", { projectId });
+  }
+  await delay(110);
+  return mockListAllFiles(projectId);
 }
 
 export async function createEntry(

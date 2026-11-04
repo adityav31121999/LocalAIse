@@ -14,6 +14,8 @@ use crate::projects::DirectoryEntry;
 use crate::sandbox::paths::ensure_within;
 use crate::util::time;
 
+const EXCLUDE_DIRS: &[&str] = &["chats", "data", "diary", "outputs", "summary"];
+
 /// Normalizes a relative path from the UI to `/` separators without leading or
 /// trailing slashes. The empty string means the project root.
 fn clean_relative(path: &str) -> String {
@@ -156,6 +158,69 @@ pub fn list(root: &Path, relative: &str) -> AppResult<Vec<DirectoryEntry>> {
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     Ok(entries)
+}
+
+/// Recursively lists all files in the project directory (excluding app-owned dirs).
+/// Returns a flat list of files with their relative paths from the project root.
+pub fn list_all_files(root: &Path) -> AppResult<Vec<DirectoryEntry>> {
+    if !root.is_dir() {
+        return Err(AppError::msg("project root is not a directory"));
+    }
+
+    let mut result = Vec::new();
+
+    fn walk(
+        current_dir: &Path,
+        relative_prefix: &str,
+        result: &mut Vec<DirectoryEntry>,
+    ) -> AppResult<()> {
+        for item in fs::read_dir(current_dir)? {
+            let item = item?;
+            let name = item.file_name().to_string_lossy().to_string();
+
+            // Skip app-owned directories at root level
+            if relative_prefix.is_empty() && EXCLUDE_DIRS.iter().any(|d| d.eq_ignore_ascii_case(&name)) {
+                continue;
+            }
+            // Skip internal state dir anywhere
+            if name.eq_ignore_ascii_case(STATE_DIR) {
+                continue;
+            }
+
+            let Ok(metadata) = item.metadata() else {
+                continue;
+            };
+
+            let rel_path = if relative_prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{relative_prefix}/{name}")
+            };
+
+            if metadata.is_dir() {
+                walk(&item.path(), &rel_path, result)?;
+            } else {
+                let modified_at = metadata
+                    .modified()
+                    .map(time::to_iso)
+                    .unwrap_or_else(|_| time::now_iso());
+                result.push(DirectoryEntry {
+                    name: rel_path.clone(),
+                    path: rel_path,
+                    is_dir: false,
+                    size_bytes: metadata.len(),
+                    modified_at,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    walk(root, "", &mut result)?;
+
+    // Sort by path case-insensitively
+    result.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+    Ok(result)
 }
 
 pub fn create(root: &Path, parent: &str, name: &str, is_dir: bool) -> AppResult<()> {

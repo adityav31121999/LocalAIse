@@ -155,6 +155,7 @@ pub fn run() {
             commands::projects::create_project_folder,
             commands::projects::read_document,
             commands::files::list_project_directory,
+            commands::files::list_all_project_files,
             commands::files::create_project_entry,
             commands::files::rename_project_entry,
             commands::files::copy_project_entry,

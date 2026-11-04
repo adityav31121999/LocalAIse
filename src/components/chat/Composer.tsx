@@ -4,6 +4,7 @@ import { useProjectStore } from "../../state/projectStore";
 import { useNavStore } from "../../state/navStore";
 import { formatBytes } from "../../util/format";
 import { invoke } from "../../api";
+import { MentionAutocomplete } from "./MentionAutocomplete";
 import type { Project } from "../../types";
 
 /** Default system prompt for chat mode (mirrors the Rust `system_prompt` function). */
@@ -96,9 +97,11 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
   const [topKDisplay, setTopKDisplay] = useState("40");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const [mentionedFilePaths, setMentionedFilePaths] = useState<string[]>([]);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const [cursorPosition, setCursorPosition] = useState<number | null>(null);
   const setSystemPrompt = useProjectStore((state) => state.setSystemPrompt);
   const composerInsert = useNavStore((state) => state.composerInsert);
   const consumeComposerInsert = useNavStore((state) => state.consumeComposerInsert);
@@ -131,7 +134,10 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
     if (promptOpen) promptRef.current?.focus();
   }, [promptOpen]);
 
-  const canSend = (value.trim().length > 0 || attachedFiles.length > 0) && !streaming && !uploadingAttachments;
+  const canSend =
+    (value.trim().length > 0 || attachedFiles.length > 0 || mentionedFilePaths.length > 0) &&
+    !streaming &&
+    !uploadingAttachments;
 
   const submit = async () => {
     if (!canSend) return;
@@ -144,14 +150,22 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
       try {
         const uploadPromises = attachedFiles.map(async (file) => {
           const base64 = await fileToBase64(file);
+          if (!base64) {
+            throw new Error(`Failed to read file content: ${file.name}`);
+          }
           const path = await invoke<string>("attach_file_to_project", {
             projectId: project.id,
             fileName: file.name,
             fileBytesBase64: base64,
           });
+          if (!path) {
+            throw new Error(`attach_file_to_project returned empty path for: ${file.name}`);
+          }
           return path;
         });
         attachedFilePaths = await Promise.all(uploadPromises);
+        // Filter out any empty paths
+        attachedFilePaths = attachedFilePaths.filter(Boolean);
       } catch (error) {
         console.error("Failed to attach files:", error);
         alert("Failed to attach files. Please try again.");
@@ -160,12 +174,19 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
       }
       setUploadingAttachments(false);
     }
+
+    // Append paths for files mentioned with @ or # (already on disk in the project)
+    if (mentionedFilePaths.length > 0) {
+      attachedFilePaths = [...attachedFilePaths, ...mentionedFilePaths];
+    }
     
-    const prompt = value.trim();
+    const prompt = value.trim() || (attachedFilePaths.length > 0 ? `Review the attached files.` : "");
     onSend(prompt, { temperature, top_p: topP, top_k: topK }, attachedFilePaths);
     setValue("");
     setAttachedFiles([]);
+    setMentionedFilePaths([]);
     textareaRef.current?.focus();
+    setCursorPosition(null);
   };
 
   const openAttachments = () => {
@@ -194,6 +215,38 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
 
   const removeAttachment = (file: File) => {
     setAttachedFiles((previous) => previous.filter((item) => item !== file));
+  };
+
+  const removeMention = (filePath: string) => {
+    setMentionedFilePaths((previous) => previous.filter((p) => p !== filePath));
+  };
+
+  const handleMentionSelect = (filePath: string, displayText: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = cursorPosition ?? 0;
+    const before = value.slice(0, start);
+    const after = value.slice(start);
+
+    // Trim any trailing trigger/query text already typed before the cursor.
+    const cleanedBefore = before.replace(/[@#][^\s]*$/, "");
+
+    const prefix = cleanedBefore && !cleanedBefore.endsWith(" ") && !cleanedBefore.endsWith("\n") ? " " : "";
+    const next = `${cleanedBefore}${prefix}${displayText}${after}`;
+
+    setValue(next);
+    setMentionedFilePaths((previous) => {
+      if (previous.includes(filePath)) return previous;
+      return [...previous, filePath];
+    });
+
+    const newCursor = cleanedBefore.length + prefix.length + displayText.length;
+    textarea.value = next;
+    textarea.setSelectionRange(newCursor, newCursor);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.focus();
+    setCursorPosition(newCursor);
   };
 
   const openPromptEditor = () => {
@@ -270,7 +323,19 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             ref={textareaRef}
             rows={1}
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              const target = event.target as HTMLTextAreaElement;
+              setValue(target.value);
+              setCursorPosition(target.selectionStart ?? null);
+            }}
+            onSelect={(event) => {
+              const target = event.target as HTMLTextAreaElement;
+              setCursorPosition(target.selectionStart ?? null);
+            }}
+            onClick={(event) => {
+              const target = event.target as HTMLTextAreaElement;
+              setCursorPosition(target.selectionStart ?? null);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -302,6 +367,13 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             <PaperclipIcon size={14} />
             <span className="sr-only">Attach files</span>
           </button>
+
+          <MentionAutocomplete
+            project={project}
+            value={value}
+            cursor={cursorPosition}
+            onSelect={handleMentionSelect}
+          />
 
           {streaming ? (
             <button
@@ -338,6 +410,24 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
                   className="composer__attach-remove"
                   onClick={() => removeAttachment(file)}
                   aria-label={`Remove ${file.name}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {mentionedFilePaths.length > 0 && (
+          <div className="composer__attachments">
+            <span className="composer__attachments-label">Mentioned files:</span>
+            {mentionedFilePaths.map((filePath) => (
+              <span key={filePath} className="composer__attach-chip">
+                @{filePath}
+                <button
+                  type="button"
+                  className="composer__attach-remove"
+                  onClick={() => removeMention(filePath)}
+                  aria-label={`Remove mention ${filePath}`}
                 >
                   ×
                 </button>

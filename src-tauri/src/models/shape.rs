@@ -75,7 +75,21 @@ fn read_u64(r: &mut impl Read) -> Result<u64, String> {
 fn read_string(r: &mut impl Read) -> Result<String, String> {
     let len = read_u64(r)?;
     if len > 1 << 28 {
-        return Err("string too long for GGUF metadata".into());
+        // Some GGUF files (e.g. Gemma 4 E2B) contain oversized metadata
+        // strings that are not needed for shape estimation. Instead of
+        // failing the entire read, skip the content in chunks so the
+        // remaining metadata can still be parsed.
+        let mut remaining = len;
+        let mut scratch = [0u8; 64 * 1024];
+        while remaining > 0 {
+            let chunk = remaining.min(scratch.len() as u64) as usize;
+            let n = r.read(&mut scratch[..chunk]).map_err(io_string)?;
+            if n == 0 {
+                break; // EOF — nothing more to skip
+            }
+            remaining -= n as u64;
+        }
+        return Ok(String::new());
     }
     let mut buf = vec![0u8; len as usize];
     r.read_exact(&mut buf).map_err(io_string)?;
