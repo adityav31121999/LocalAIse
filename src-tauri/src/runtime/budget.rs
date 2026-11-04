@@ -706,7 +706,7 @@ mod tests {
             kv_cache_bytes(&dense, ctx, KvCacheType::F16) * 8 / 32
         );
         // 0 falls back to every block.
-        let mut fallback = hybrid.clone();
+        let mut fallback = hybrid;
         fallback.n_kv_layers = 0;
         assert_eq!(
             kv_cache_bytes(&fallback, ctx, KvCacheType::F16),
