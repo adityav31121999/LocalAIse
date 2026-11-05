@@ -175,6 +175,7 @@ pub fn run() {
             commands::research::execute_research_plan,
             commands::research::run_deep_research,
             commands::chat::chat_send,
+            commands::chat::chat_stop,
             commands::models::select_model,
             commands::models::load_model,
             commands::models::unload_model,

@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { streamChat } from "../api/chat";
+import { stopChat, streamChat } from "../api/chat";
 import * as projectsApi from "../api/projects";
-import type { ChatMessage, ChatSummary } from "../types";
+import type { AgentStreamEvent, ChatMessage, ChatSummary } from "../types";
 
 let activeController: AbortController | null = null;
 
@@ -11,6 +11,68 @@ function newId(): string {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Appends a reasoning or answer delta to the step for the model call that
+ * produced it. A new call therefore starts a fresh block instead of growing
+ * the previous call's thinking.
+ */
+function appendAgentText(
+  chat: ChatMessage,
+  call: number,
+  kind: "reasoning" | "content",
+  delta: string,
+): ChatMessage {
+  const steps = [...(chat.steps ?? [])];
+  let index = -1;
+  for (let position = steps.length - 1; position >= 0; position -= 1) {
+    const step = steps[position];
+    if (step.kind === "tool") break;
+    if (step.kind === kind && step.call === call) {
+      index = position;
+      break;
+    }
+  }
+  if (index < 0) {
+    steps.push({ id: newId(), kind, call, text: delta });
+  } else {
+    steps[index] = { ...steps[index], text: `${steps[index].text ?? ""}${delta}` };
+  }
+  return { ...chat, steps };
+}
+
+/** Adds a live tool row, then updates it in place when the call finishes. */
+function applyAgentEvent(chat: ChatMessage, event: AgentStreamEvent): ChatMessage {
+  const steps = [...(chat.steps ?? [])];
+  if (event.type === "toolStart") {
+    steps.push({
+      id: event.id,
+      kind: "tool",
+      call: event.call,
+      tool: {
+        id: event.id,
+        name: event.name,
+        input: event.input,
+        status: "running",
+        summary: "",
+      },
+    });
+  } else {
+    const index = steps.findIndex((step) => step.kind === "tool" && step.tool?.id === event.id);
+    if (index >= 0) {
+      const step = steps[index];
+      steps[index] = {
+        ...step,
+        tool: {
+          ...step.tool!,
+          status: event.ok ? "done" : "error",
+          summary: event.summary,
+        },
+      };
+    }
+  }
+  return { ...chat, steps };
 }
 
 interface ChatState {
@@ -88,6 +150,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             role: stored.role,
             content: stored.content,
             reasoning: stored.reasoning,
+            steps: stored.steps,
             createdAt: stored.createdAt,
             citations: stored.citations,
             promptTokens: stored.promptTokens,
@@ -200,13 +263,21 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         prompt,
         {
           signal: controller.signal,
-          onToken: (token) =>
-            patchAnswer((message) => ({ ...message, content: message.content + token })),
-          onReasoning: (delta) =>
-            patchAnswer((message) => ({
-              ...message,
-              reasoning: (message.reasoning ?? "") + delta,
-            })),
+          onToken: (token, call) =>
+            patchAnswer((message) => {
+              const next = { ...message, content: message.content + token };
+              return call === undefined ? next : appendAgentText(next, call, "content", token);
+            }),
+          onReasoning: (delta, call) =>
+            patchAnswer((message) => {
+              const next = {
+                ...message,
+                reasoning: (message.reasoning ?? "") + delta,
+              };
+              return call === undefined ? next : appendAgentText(next, call, "reasoning", delta);
+            }),
+          onAgentEvent: (event) =>
+            patchAnswer((message) => applyAgentEvent(message, event)),
         },
         chatSessionId,
         sampling,
@@ -216,6 +287,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         ...message,
         content: result.content,
         reasoning: result.reasoning || message.reasoning,
+        steps: result.steps?.length ? result.steps : message.steps,
         citations: result.citations,
         promptTokens: result.promptTokens,
         completionTokens: result.completionTokens,
@@ -237,14 +309,32 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         pending: false,
       }));
     } finally {
-      if (activeController === controller) activeController = null;
-      set({ streamingProjectId: null });
+      // A stopped turn has already handed streaming back; a newer turn may
+      // own it now, so only the controller that is still current clears it.
+      if (activeController === controller) {
+        activeController = null;
+        set({ streamingProjectId: null });
+      }
     }
   },
 
   stop: () => {
+    const projectId = get().streamingProjectId;
+    // The Rust loop keeps running until it is told to stop; aborting the
+    // listener alone would only hide its output.
+    if (projectId) void stopChat(projectId);
     activeController?.abort();
     activeController = null;
-    set({ streamingProjectId: null });
+    set((state) => ({
+      streamingProjectId: null,
+      byProject: projectId
+        ? {
+            ...state.byProject,
+            [projectId]: (state.byProject[projectId] ?? []).map((chat) =>
+              chat.pending ? { ...chat, pending: false } : chat,
+            ),
+          }
+        : state.byProject,
+    }));
   },
 }));

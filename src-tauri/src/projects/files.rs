@@ -14,7 +14,10 @@ use crate::projects::DirectoryEntry;
 use crate::sandbox::paths::ensure_within;
 use crate::util::time;
 
-const EXCLUDE_DIRS: &[&str] = &["chats", "data", "diary", "outputs", "summary"];
+/// Only the app's chat sessions are hidden from mentions. Everything else in
+/// the project folder (sources, diary pages, outputs, summaries and custom
+/// folders) is fair game for `@` references.
+const EXCLUDE_DIRS: &[&str] = &["chats"];
 
 /// Normalizes a relative path from the UI to `/` separators without leading or
 /// trailing slashes. The empty string means the project root.
@@ -463,6 +466,39 @@ mod tests {
         let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
         assert_eq!(names, vec!["data", "notes.md"]);
         assert!(entries[0].is_dir);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn mention_list_includes_managed_folders_but_not_chats() {
+        let root = temp_root("mentions");
+        for folder in ["data", "diary", "outputs", "summary", "chats"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        fs::create_dir_all(root.join(STATE_DIR)).unwrap();
+        fs::write(root.join("data").join("report.txt"), "source").unwrap();
+        fs::write(root.join("diary").join("2026-11-05.md"), "diary").unwrap();
+        fs::write(root.join("outputs").join("file.txt"), "output").unwrap();
+        fs::write(root.join("summary").join("digest.md"), "digest").unwrap();
+        fs::write(root.join("chats").join("chat-001.json"), "{}").unwrap();
+
+        let paths: Vec<String> = list_all_files(&root)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+
+        for expected in [
+            "data/report.txt",
+            "diary/2026-11-05.md",
+            "outputs/file.txt",
+            "summary/digest.md",
+        ] {
+            assert!(paths.iter().any(|path| path == expected), "missing {expected}");
+        }
+        assert!(paths.iter().all(|path| !path.starts_with("chats/")));
+        assert!(paths.iter().all(|path| !path.starts_with(STATE_DIR)));
 
         let _ = fs::remove_dir_all(&root);
     }

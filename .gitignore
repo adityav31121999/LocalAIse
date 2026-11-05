@@ -3,7 +3,7 @@
 /resources/
 /src-tauri/bundle-llama/*
 !/src-tauri/bundle-llama/.gitkeep
-/docs
+/docs/
 
 # Build output
 /dist/

@@ -71,7 +71,10 @@ export function MentionAutocomplete({
   const filtered = useMemo(() => {
     if (!mention) return [];
     const q = mention.query.toLowerCase();
-    return entries.filter((e) => e.name.toLowerCase().includes(q));
+    return entries.filter((e) => 
+      e.name.toLowerCase().includes(q) || 
+      e.path.toLowerCase().includes(q)
+    );
   }, [mention, entries]);
 
   // Re-detect on every value/cursor change.
@@ -88,7 +91,7 @@ export function MentionAutocomplete({
   const handleSelect = useCallback(
     (file: DirectoryEntry) => {
       if (!mention) return;
-      onSelect(file.name, `${mention.trigger}${file.name}`);
+      onSelect(file.path, `${mention.trigger}${file.name}`);
       setMention(null);
       setHighlighted(0);
     },

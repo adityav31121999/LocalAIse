@@ -465,6 +465,7 @@ pub async fn complete_stream(
     reuse_cache: bool,
     sampling: SamplingParams,
     allow_empty: bool,
+    should_stop: impl Fn() -> bool,
     mut on_delta: impl FnMut(&str),
     mut on_reasoning: impl FnMut(&str),
 ) -> AppResult<StreamedCompletion> {
@@ -510,7 +511,14 @@ pub async fn complete_stream(
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     let mut done = false;
+    let mut stopped = false;
     while !done {
+        // The user's stop button sets this flag; keep whatever text already
+        // reached the screen instead of waiting for the model to finish.
+        if should_stop() {
+            stopped = true;
+            break;
+        }
         let chunk = match stream.next().await {
             Some(chunk) => chunk,
             // Connection ended without a [DONE] marker; keep what we have.
@@ -559,27 +567,17 @@ pub async fn complete_stream(
     }
 
     drop(stream);
-    if full.trim().is_empty() {
-        if allow_empty {
-            Ok(StreamedCompletion {
-                content: String::new(),
-                reasoning,
-                usage,
-                timings,
-            })
-        } else {
-            Err(AppError::ServerRejected(
-                "the model returned an empty answer".to_string(),
-            ))
-        }
-    } else {
-        Ok(StreamedCompletion {
-            content: full,
-            reasoning,
-            usage,
-            timings,
-        })
+    if full.trim().is_empty() && !allow_empty && !stopped {
+        return Err(AppError::ServerRejected(
+            "the model returned an empty answer".to_string(),
+        ));
     }
+    Ok(StreamedCompletion {
+        content: full,
+        reasoning,
+        usage,
+        timings,
+    })
 }
 
 #[derive(Serialize)]
@@ -612,6 +610,7 @@ pub async fn complete_stream_with_tools(
     messages: &[serde_json::Value],
     tools: &serde_json::Value,
     sampling: SamplingParams,
+    should_stop: impl Fn() -> bool,
     mut on_delta: impl FnMut(&str),
     mut on_reasoning: impl FnMut(&str),
 ) -> AppResult<StreamedToolCompletion> {
@@ -661,8 +660,15 @@ pub async fn complete_stream_with_tools(
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     let mut done = false;
+    let mut stopped = false;
 
     while !done {
+        // A pause mid-thought keeps the partial reasoning and skips the tool
+        // calls this model call was still assembling.
+        if should_stop() {
+            stopped = true;
+            break;
+        }
         let chunk = match stream.next().await {
             Some(chunk) => chunk,
             None => break,
@@ -731,7 +737,7 @@ pub async fn complete_stream_with_tools(
     }
 
     drop(stream);
-    if full.trim().is_empty() && calls.is_empty() {
+    if full.trim().is_empty() && calls.is_empty() && !stopped {
         return Err(AppError::ServerRejected(
             "the model returned an empty answer".to_string(),
         ));

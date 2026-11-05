@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../ui/icons";
+import { ArrowUpIcon, PaperclipIcon, PauseIcon, StopIcon } from "../ui/icons";
 import { useProjectStore } from "../../state/projectStore";
 import { useNavStore } from "../../state/navStore";
-import { formatBytes } from "../../util/format";
 import { invoke } from "../../api";
 import { MentionAutocomplete } from "./MentionAutocomplete";
 import type { Project } from "../../types";
@@ -10,9 +9,19 @@ import type { Project } from "../../types";
 /** Default system prompt for chat mode (mirrors the Rust `system_prompt` function). */
 function defaultChatSystemPrompt(projectName: string): string {
   return (
-    `You are localAIse, a private assistant that works only inside the folder “${projectName}”. ` +
-    `The files in that folder never leave this machine. Answer in clear, plain prose, and say ` +
-    `when you are not sure instead of guessing.`
+    `You are localAIse, a private assistant that works only inside the ` +
+    `project folder “${projectName}”. The files in that folder never leave this machine.\n\n` +
+    `HOW FILES ARE NAMED HERE:\n` +
+    `1. Every file is named by its path relative to the project root, such as ` +
+    `"data/notes.md" or "outputs/report.md". These name the format; which files ` +
+    `actually exist is a separate question.\n` +
+    `2. The user mentions files with a leading @, such as @outputs/file.txt. The @ is ` +
+    `only this app's chat marker: the real path is exactly what follows it, ` +
+    `outputs/file.txt. This mapping is fixed — @something always means just ` +
+    `"something", in every message, with no exceptions.\n` +
+    `3. When you name a file — in an answer, a citation, or anything else — use the ` +
+    `plain relative path. Never add @, quotes, backslashes, or absolute paths.\n\n` +
+    `Answer in clear, plain prose, and say when you are not sure instead of guessing.`
   );
 }
 
@@ -20,12 +29,26 @@ function defaultChatSystemPrompt(projectName: string): string {
 function defaultAgentSystemPrompt(projectName: string, internetEnabled: boolean, hasRagContext: boolean): string {
   let text = defaultChatSystemPrompt(projectName);
   text +=
-    "\n\nAGENT RULES: You are in agent mode on this private, local folder. " +
-    "Before answering, you may act with the offered tools: read files, list folders " +
-    "or search the project's indexed sources when the answer needs them, and use " +
-    "the diary and calendar tools when the question touches the user's days. " +
-    "write_file only when the user asked for something to be written. Cite files by " +
-    "their relative path. Answer in plain prose; keep tool calls to one at a time.\n\n" +
+    "\n\nAGENT RULES — these remove all guesswork about files and tools:\n\n" +
+    "HOW TO TURN A MENTION INTO A PATH: Chat messages name files with a leading @, " +
+    "such as @outputs/file.txt. The @ is only this app's chat marker; the real path " +
+    "is exactly what follows it, outputs/file.txt. This mapping is fixed — when a " +
+    "message says @name, the request is about \"name\", every time, with no " +
+    "exceptions. Reading it any other way (as a literal file name, as a special " +
+    "directory, as something to ask about) is always wrong. Replace nothing but the " +
+    "@, and keep the rest of the path character for character.\n\n" +
+    "HOW TO CALL TOOLS: Tools accept only plain relative paths like " +
+    "outputs/file.txt — never @, quotes, backslashes, or absolute paths. read_file " +
+    "and list_files take such a path as given; write_file always saves inside " +
+    "outputs/, so \"file.txt\" and \"outputs/file.txt\" both mean outputs/file.txt, " +
+    "and you tell the user that location when you confirm. Keep the user's file, " +
+    "folder, or text request exactly as given: to write \"Hello World!\" into " +
+    "@outputs/file.txt you call write_file with path \"outputs/file.txt\" and " +
+    "content \"Hello World!\", once. Call one tool at a time; write_file only when " +
+    "the user asked for something to be written.\n\n" +
+    "THINKING: Keep thinking to a few short sentences, then act. A request that " +
+    "names a file needs no debate — turn @name into \"name\", call the tool with " +
+    "that exact path, and move on.\n\n" +
     "IMPORTANT: For greetings, simple questions, and casual conversation, do NOT use " +
     "any tools. Answer directly without searching, reading files, or calling any " +
     "tools. Only use tools when the question genuinely requires accessing the " +
@@ -60,19 +83,27 @@ function isTextFile(name: string): boolean {
   return TEXT_EXTENSIONS.includes(ext);
 }
 
-/** Converts a File to base64 string. */
+/** Converts a File to base64 string. An empty file resolves to "" (valid). */
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      // Remove data URL prefix (e.g., "data:text/plain;base64,")
-      const base64 = result.split(",")[1] ?? result;
-      resolve(base64);
+      // Remove data URL prefix (e.g., "data:text/plain;base64,"). A 0-byte
+      // file still yields a valid data URL whose payload is the empty string.
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
-    reader.onerror = () => reject(reader.error);
+    reader.onerror = () => reject(reader.error ?? new Error(`Failed to read ${file.name}`));
     reader.readAsDataURL(file);
   });
+}
+
+/** A file the user picked with the paperclip, already copied into the project. */
+interface AttachedFile {
+  file: File;
+  /** Path relative to the project root, e.g. `data/report.txt`. */
+  path: string;
 }
 
 interface ComposerProps {
@@ -95,7 +126,7 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
   const [temperatureDisplay, setTemperatureDisplay] = useState("0.7");
   const [topPDisplay, setTopPDisplay] = useState("0.9");
   const [topKDisplay, setTopKDisplay] = useState("40");
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [mentionedFilePaths, setMentionedFilePaths] = useState<string[]>([]);
   const attachInputRef = useRef<HTMLInputElement>(null);
@@ -141,45 +172,13 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
 
   const submit = async () => {
     if (!canSend) return;
-    
-    let attachedFilePaths: string[] = [];
-    
-    // Upload attached files to project first
-    if (attachedFiles.length > 0) {
-      setUploadingAttachments(true);
-      try {
-        const uploadPromises = attachedFiles.map(async (file) => {
-          const base64 = await fileToBase64(file);
-          if (!base64) {
-            throw new Error(`Failed to read file content: ${file.name}`);
-          }
-          const path = await invoke<string>("attach_file_to_project", {
-            projectId: project.id,
-            fileName: file.name,
-            fileBytesBase64: base64,
-          });
-          if (!path) {
-            throw new Error(`attach_file_to_project returned empty path for: ${file.name}`);
-          }
-          return path;
-        });
-        attachedFilePaths = await Promise.all(uploadPromises);
-        // Filter out any empty paths
-        attachedFilePaths = attachedFilePaths.filter(Boolean);
-      } catch (error) {
-        console.error("Failed to attach files:", error);
-        alert("Failed to attach files. Please try again.");
-        setUploadingAttachments(false);
-        return;
-      }
-      setUploadingAttachments(false);
-    }
 
-    // Append paths for files mentioned with @ or # (already on disk in the project)
-    if (mentionedFilePaths.length > 0) {
-      attachedFilePaths = [...attachedFilePaths, ...mentionedFilePaths];
-    }
-    
+    // Paths from the paperclip and from `@`/`#` mentions are both relative to
+    // the project root. Deduplicate in case a file was picked and mentioned.
+    const attachedFilePaths = Array.from(
+      new Set([...attachedFiles.map((item) => item.path), ...mentionedFilePaths]),
+    );
+
     const prompt = value.trim() || (attachedFilePaths.length > 0 ? `Review the attached files.` : "");
     onSend(prompt, { temperature, top_p: topP, top_k: topK }, attachedFilePaths);
     setValue("");
@@ -210,11 +209,42 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
           "\n\nAdd documents and other binaries to the Files view so they are indexed and searchable instead.",
       );
     }
-    setAttachedFiles((previous) => [...previous, ...textFiles]);
+    if (!textFiles.length) return;
+
+    // Copy each file into the project right away so the composer can show the
+    // real relative path (data/…) exactly like an `@` mention. Uploading on
+    // send used to lose that path when the message reached the model.
+    setUploadingAttachments(true);
+    const uploaded: AttachedFile[] = [];
+    try {
+      for (const file of textFiles) {
+        // An empty string is valid for a 0-byte file; only a rejected
+        // FileReader counts as a failure.
+        const base64 = await fileToBase64(file);
+        const path = await invoke<string>("attach_file_to_project", {
+          projectId: project.id,
+          fileName: file.name,
+          fileBytesBase64: base64,
+        });
+        if (!path) {
+          throw new Error(`attach_file_to_project returned empty path for: ${file.name}`);
+        }
+        uploaded.push({ file, path });
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error("Failed to attach files:", detail);
+      alert(`Failed to attach files: ${detail}`);
+    } finally {
+      if (uploaded.length) {
+        setAttachedFiles((previous) => [...previous, ...uploaded]);
+      }
+      setUploadingAttachments(false);
+    }
   };
 
-  const removeAttachment = (file: File) => {
-    setAttachedFiles((previous) => previous.filter((item) => item !== file));
+  const removeAttachment = (path: string) => {
+    setAttachedFiles((previous) => previous.filter((item) => item.path !== path));
   };
 
   const removeMention = (filePath: string) => {
@@ -361,8 +391,8 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
             type="button"
             className="composer__attach"
             onClick={openAttachments}
-            disabled={streaming}
-            title="Attach files"
+            disabled={streaming || uploadingAttachments}
+            title={uploadingAttachments ? "Uploading…" : "Attach files"}
           >
             <PaperclipIcon size={14} />
             <span className="sr-only">Attach files</span>
@@ -378,12 +408,22 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
           {streaming ? (
             <button
               type="button"
-              className="composer__send composer__send--stop"
+              className={`composer__send composer__send--stop${
+                project.chatMode === "agent" ? " composer__send--pause" : ""
+              }`}
               onClick={onStop}
-              title="Stop generating"
+              title={
+                project.chatMode === "agent"
+                  ? "Pause the agent after the current step"
+                  : "Stop generating"
+              }
             >
-              <StopIcon size={15} />
-              <span className="sr-only">Stop generating</span>
+              {project.chatMode === "agent" ? <PauseIcon size={14} /> : <StopIcon size={15} />}
+              {project.chatMode === "agent" ? (
+                <span>Pause</span>
+              ) : (
+                <span className="sr-only">Stop generating</span>
+              )}
             </button>
           ) : (
             <button
@@ -401,14 +441,13 @@ export function Composer({ project, streaming, onSend, onStop }: ComposerProps) 
         {attachedFiles.length > 0 && (
           <div className="composer__attachments">
             <span className="composer__attachments-label">Attached files:</span>
-            {attachedFiles.map((file) => (
-              <span key={`${file.name}-${file.size}`} className="composer__attach-chip">
-                {file.name}
-                <span className="composer__attach-size">({formatBytes(file.size)})</span>
+            {attachedFiles.map(({ file, path }) => (
+              <span key={path} className="composer__attach-chip" title={file.name}>
+                @{path}
                 <button
                   type="button"
                   className="composer__attach-remove"
-                  onClick={() => removeAttachment(file)}
+                  onClick={() => removeAttachment(path)}
                   aria-label={`Remove ${file.name}`}
                 >
                   ×

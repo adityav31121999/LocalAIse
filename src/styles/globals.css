@@ -1603,6 +1603,71 @@ button.net:hover {
   margin: 0 0 var(--space-1);
 }
 
+/* Agent turns keep thinking, tool calls, and answers in the order they ran. */
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-self: stretch;
+}
+
+.agent-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.agent-tool__icon {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.agent-tool__name {
+  flex: none;
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+.agent-tool__input {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+}
+
+.agent-tool__status {
+  margin-left: auto;
+  flex: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.agent-tool--running .agent-tool__status {
+  color: var(--accent-ai);
+  animation: pulse 1.4s var(--ease) infinite;
+}
+
+.agent-tool--error {
+  border-color: var(--accent-danger);
+}
+
+.agent-tool--error .agent-tool__status {
+  color: var(--accent-danger);
+}
+
 /* Markdown output inside assistant bubbles lives in a .md wrapper that opts
    back out of the pre-wrap above; every element sets its own spacing. */
 .msg__body .md {
@@ -1860,6 +1925,15 @@ button.net:hover {
 .composer__send--stop {
   background: var(--accent-danger-soft);
   color: var(--accent-danger);
+}
+
+/* Agent runs can loop over many tools, so the pause control is labelled. */
+.composer__send--pause {
+  width: auto;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
 }
 
 .composer__foot {

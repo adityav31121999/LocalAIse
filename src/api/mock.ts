@@ -12,8 +12,8 @@ import type {
   SourceStatus,
 } from "../types";
 
-/** Root directories the app owns; excluded from recursive file listing. */
-const EXCLUDE_DIRS = new Set(["chats", "data", "diary", "outputs", "summary"]);
+/** Root directories hidden from recursive file listing (chat sessions only). */
+const EXCLUDE_DIRS = new Set(["chats"]);
 
 function minutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60_000).toISOString();

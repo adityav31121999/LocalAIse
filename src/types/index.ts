@@ -61,12 +61,40 @@ export interface Citation {
 
 export type ChatRole = "user" | "assistant";
 
+export type AgentStepKind = "reasoning" | "content" | "tool";
+export type AgentToolStatus = "running" | "done" | "error";
+
+export interface AgentToolStep {
+  id: string;
+  name: string;
+  input: string;
+  status: AgentToolStatus;
+  summary?: string;
+}
+
+/** One ordered segment of an agent turn. */
+export interface AgentStep {
+  id: string;
+  kind: AgentStepKind;
+  /** The model call inside the turn that produced this segment. */
+  call: number;
+  text?: string;
+  tool?: AgentToolStep;
+}
+
+/** Live structure events for agent turns (tool call start and end). */
+export type AgentStreamEvent =
+  | { type: "toolStart"; call: number; id: string; name: string; input: string }
+  | { type: "toolEnd"; call: number; id: string; ok: boolean; summary: string };
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
   /** The model's reasoning trace, when the runtime exposed one. */
   reasoning?: string;
+  /** Ordered reasoning, tool, and answer segments for agent turns. */
+  steps?: AgentStep[];
   createdAt: string;
   citations?: Citation[];
   pending?: boolean;
@@ -89,6 +117,8 @@ export interface ChatStreamResult {
   content: string;
   /** Reasoning the model produced before answering, if any. */
   reasoning?: string;
+  /** Ordered reasoning, tool, and answer segments (agent mode only). */
+  steps?: AgentStep[];
   citations: Citation[];
   /** Token and speed accounting for the turn. */
   promptTokens?: number;
@@ -96,6 +126,8 @@ export interface ChatStreamResult {
   totalTokens?: number;
   contextTokens?: number;
   tokensPerSecond?: number;
+  /** True when the user stopped the turn before the model finished. */
+  cancelled?: boolean;
 }
 
 /** One saved chat session, as listed in the chats/ folder. */
@@ -113,6 +145,7 @@ export interface StoredChatMessage {
   role: ChatRole;
   content: string;
   reasoning?: string;
+  steps?: AgentStep[];
   createdAt: string;
   citations?: Citation[];
   promptTokens?: number;

@@ -9,12 +9,20 @@
  */
 
 import { isTauri, listen } from "../api/index";
+import type { AgentStreamEvent } from "../types";
 
 export interface ChatTokenEvent {
   projectId: string;
   delta: string;
   /** True when the delta belongs to the reasoning trace, not the answer. */
   reasoning?: boolean;
+  /** The model call this delta belongs to (agent turns only). */
+  call?: number;
+}
+
+export interface AgentStreamEnvelope {
+  projectId: string;
+  event: AgentStreamEvent;
 }
 
 type Unsubscribe = () => void;
@@ -23,4 +31,15 @@ export function subscribeChatTokens(onToken: (event: ChatTokenEvent) => void): P
   if (!isTauri) return Promise.resolve(() => undefined);
 
   return listen<ChatTokenEvent>("chat://token", (event) => onToken(event)).catch(() => () => undefined);
+}
+
+/** Subscribes to agent-only tool events (call started, call finished). */
+export function subscribeAgentEvents(
+  onEvent: (event: AgentStreamEnvelope) => void,
+): Promise<Unsubscribe> {
+  if (!isTauri) return Promise.resolve(() => undefined);
+
+  return listen<AgentStreamEnvelope>("chat://agent", (event) => onEvent(event)).catch(
+    () => () => undefined,
+  );
 }

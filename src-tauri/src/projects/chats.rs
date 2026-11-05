@@ -15,6 +15,39 @@ use crate::util::time;
 #[cfg(test)]
 use crate::util::hash;
 
+/// One segment of an agent turn, kept in the order the model produced it.
+///
+/// Agent mode can think, call tools, and answer several times in a single
+/// turn. Saving the segments keeps that shape when the chat is reopened
+/// instead of flattening everything into one reasoning string and one answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStep {
+    pub id: String,
+    /// `reasoning`, `content`, or `tool`.
+    pub kind: String,
+    /// Which model call inside the turn produced this segment.
+    #[serde(default)]
+    pub call: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<AgentToolStep>,
+}
+
+/// One tool call inside an agent turn.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentToolStep {
+    pub id: String,
+    pub name: String,
+    pub input: String,
+    /// `running`, `done`, or `error`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub summary: String,
+}
+
 /// One turn as it is written to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +59,9 @@ pub struct StoredMessage {
     /// The model's reasoning trace, when it produced one.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reasoning: String,
+    /// Ordered reasoning, tool, and answer segments (agent turns only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<AgentStep>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<Citation>,
@@ -238,6 +274,7 @@ mod tests {
             role: role.to_string(),
             content: content.to_string(),
             reasoning: String::new(),
+            steps: Vec::new(),
             created_at: time::now_iso(),
             citations: Vec::new(),
             prompt_tokens: 0,

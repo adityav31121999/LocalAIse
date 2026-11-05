@@ -17,27 +17,52 @@
 //! every path stays inside the project folder, and the web pair refuses to run
 //! unless the internet toggle is on. Tool results go back to the model as
 //! tool messages; the user sees the answer stream live and each tool framed
-//! with a short note. Every piece the user saw is part of the returned
-//! content, so the streamed text and the saved turn always agree.
+//! as its own row. The returned turn keeps ordered reasoning, tool, and answer
+//! segments, so the live transcript and the saved chat agree.
 
 use std::path::Path;
 
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::error::AppResult;
+use crate::projects::chats::{AgentStep, AgentToolStep};
 use crate::runtime::client::{self, SamplingParams, Timings, Usage};
 use crate::runtime::Serving;
 use crate::tools;
+use crate::util::hash;
 
 /// Tool notes and answers are clipped, so one tool call cannot flood a line
 /// of the transcript.
 const MAX_NOTE_CHARS: usize = 80;
 
-/// What one agent turn produced. `content` already contains the tool notes.
+/// Live agent events that carry structure the plain token stream cannot:
+/// where one tool call starts and how it finished.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum AgentEvent {
+    ToolStart {
+        call: u32,
+        id: String,
+        name: String,
+        input: String,
+    },
+    ToolEnd {
+        call: u32,
+        id: String,
+        ok: bool,
+        summary: String,
+    },
+}
+
+/// What one agent turn produced.
 pub struct AgentTurn {
+    /// The model's answer text across every call, without the tool notes.
     pub content: String,
     /// The model's thinking across the turn, empty when it did not think.
     pub reasoning: String,
+    /// Ordered reasoning, tool, and answer segments.
+    pub steps: Vec<AgentStep>,
     pub tools_used: Vec<String>,
     /// Tokens spent across every model call of the turn.
     pub usage: Usage,
@@ -45,6 +70,8 @@ pub struct AgentTurn {
     pub timings: Timings,
     /// Prompt plus completion of the last call: what the context held.
     pub context_tokens: u32,
+    /// True when the user stopped the turn before it finished.
+    pub cancelled: bool,
 }
 
 /// One replayed turn of the saved conversation.
@@ -58,12 +85,26 @@ pub struct HistoryTurn {
 pub fn instructions(base: &str, internet_enabled: bool, has_rag_context: bool) -> String {
     let mut text = String::from(base.trim());
     text.push_str(
-        "\n\nAGENT RULES: You are in agent mode on this private, local folder. \
-Before answering, you may act with the offered tools: read files, list folders \
-or search the project's indexed sources when the answer needs them, and use \
-the diary and calendar tools when the question touches the user's days. \
-write_file only when the user asked for something to be written. Cite files by \
-their relative path. Answer in plain prose; keep tool calls to one at a time.\n\n\
+        "\n\nAGENT RULES — these remove all guesswork about files and tools:\n\n\
+HOW TO TURN A MENTION INTO A PATH: Chat messages name files with a leading @, \
+such as @outputs/file.txt. The @ is only this app's chat marker; the real path \
+is exactly what follows it, outputs/file.txt. This mapping is fixed — when a \
+message says @name, the request is about \"name\", every time, with no \
+exceptions. Reading it any other way (as a literal file name, as a special \
+directory, as something to ask about) is always wrong. Replace nothing but the \
+@, and keep the rest of the path character for character.\n\n\
+HOW TO CALL TOOLS: Tools accept only plain relative paths like \
+outputs/file.txt — never @, quotes, backslashes, or absolute paths. read_file \
+and list_files take such a path as given; write_file always saves inside \
+outputs/, so \"file.txt\" and \"outputs/file.txt\" both mean outputs/file.txt, \
+and you tell the user that location when you confirm. Keep the user's file, \
+folder, or text request exactly as given: to write \"Hello World!\" into \
+@outputs/file.txt you call write_file with path \"outputs/file.txt\" and \
+content \"Hello World!\", once. Call one tool at a time; write_file only when \
+the user asked for something to be written.\n\n\
+THINKING: Keep thinking to a few short sentences, then act. A request that \
+names a file needs no debate — turn @name into \"name\", call the tool with \
+that exact path, and move on.\n\n\
 IMPORTANT: For greetings, simple questions, and casual conversation, do NOT use \
 any tools. Answer directly without searching, reading files, or calling any \
 tools. Only use tools when the question genuinely requires accessing the \
@@ -98,11 +139,11 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "read_file",
-                "description": "Reads one file of the project and returns its text. Paths are relative to the project root, e.g. \"data/notes.md\".",
+                "description": "Reads one file of the project and returns its text. Pass `path` as a plain path relative to the project root, e.g. \"data/notes.md\" — never with a leading @.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": { "type": "string", "description": "File path relative to the project root" }
+                        "path": { "type": "string", "description": "File path relative to the project root, without any @ or quotes — e.g. \"outputs/report.md\"" }
                     },
                     "required": ["path"]
                 }
@@ -112,11 +153,11 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "list_files",
-                "description": "Lists the files of a folder of the project, one per line, so an empty subdir lists the project root itself.",
+                "description": "Lists the files of a folder of the project, one per line, so an empty subdir lists the project root itself. Pass `subdir` as a plain relative folder name like \"outputs\", never with a leading @.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "subdir": { "type": "string", "description": "Folder relative to the project root; empty lists the root" }
+                        "subdir": { "type": "string", "description": "Folder relative to the project root, without any @ — e.g. \"outputs\"; empty lists the root" }
                     }
                 }
             }
@@ -125,11 +166,11 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "write_file",
-                "description": "Creates or overwrites one file of the project. Only use it when the user asked for something to be written.",
+                "description": "Creates or overwrites one file of the project. The file is always saved inside the outputs/ folder, so pass `path` relative to the project root (e.g. \"file.txt\" writes outputs/file.txt, \"outputs/file.txt\" writes outputs/file.txt) — never with a leading @. Only use it when the user asked for something to be written.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": { "type": "string", "description": "File path relative to the project root" },
+                        "path": { "type": "string", "description": "Target file path relative to the project root, without any @ or quotes — e.g. \"file.txt\"" },
                         "content": { "type": "string", "description": "Full text to write" }
                     },
                     "required": ["path", "content"]
@@ -211,9 +252,11 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
 /// The chat agent turn. Runs as long as the model keeps calling tools, bound
 /// by `max_tool_steps` (0 falls back to the app default).
 ///
-/// `deliver` receives exactly the text the user should see, in order — streamed
-/// answer text plus one short note per tool call. `deliver_reasoning` receives
-/// the model's thinking deltas so the transcript can show them.
+/// `deliver` receives streamed answer text and `deliver_reasoning` receives
+/// thinking deltas, both tagged with the model call that produced them so the
+/// UI can keep one thinking block per call. `deliver_event` reports tool calls
+/// as they run. `should_stop` is checked between calls so the user's pause ends
+/// the loop without losing the steps already produced.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     serving: &Serving,
@@ -221,13 +264,16 @@ pub async fn run(
     system: String,
     history: Vec<HistoryTurn>,
     user_prompt: String,
+    prefill_messages: Vec<String>,
     project_root: &Path,
     personal_space: &Path,
     internet_enabled: bool,
     sampling: SamplingParams,
     max_tool_steps: u32,
-    mut deliver: impl FnMut(&str),
-    mut deliver_reasoning: impl FnMut(&str),
+    should_stop: impl Fn() -> bool,
+    mut deliver: impl FnMut(u32, &str),
+    mut deliver_reasoning: impl FnMut(u32, &str),
+    mut deliver_event: impl FnMut(AgentEvent),
 ) -> AppResult<AgentTurn> {
     let mut messages: Vec<Value> = Vec::new();
     messages.push(json!({ "role": "system", "content": system }));
@@ -237,6 +283,11 @@ pub async fn run(
             "content": turn.content,
         }));
     }
+    // Insert file chunks as consecutive user messages before the question
+    // so the model sees the full content of large attached files.
+    for chunk in &prefill_messages {
+        messages.push(json!({ "role": "user", "content": chunk }));
+    }
     messages.push(json!({ "role": "user", "content": user_prompt }));
 
     let tools = Value::Array(tool_specs(internet_enabled));
@@ -244,26 +295,41 @@ pub async fn run(
 
     let mut content = String::new();
     let mut reasoning = String::new();
+    let mut steps: Vec<AgentStep> = Vec::new();
     let mut tools_used: Vec<String> = Vec::new();
     let mut usage = Usage::default();
     let mut timings = Timings::default();
     let mut context_tokens = 0u32;
     let mut step = 0u32;
+    let mut cancelled = false;
 
     loop {
+        // Stop between model calls so a paused turn never starts another one.
+        if should_stop() {
+            cancelled = true;
+            break;
+        }
+        // One model call can think, then answer or ask for tools. Keeping the
+        // call index on every delta lets the transcript start a fresh thinking
+        // block for each call instead of merging them into one wall of text.
+        let mut call_content = String::new();
+        let mut call_reasoning = String::new();
         let turn = client::complete_stream_with_tools(
             serving,
             model_label,
             &messages,
             &tools,
             sampling.clone(),
+            &should_stop,
             |delta| {
-                deliver(delta);
+                deliver(step, delta);
                 content.push_str(delta);
+                call_content.push_str(delta);
             },
             |delta| {
-                deliver_reasoning(delta);
+                deliver_reasoning(step, delta);
                 reasoning.push_str(delta);
+                call_reasoning.push_str(delta);
             },
         )
         .await?;
@@ -276,6 +342,34 @@ pub async fn run(
         }
         if let Some(speed) = turn.timings {
             timings.add(speed);
+        }
+
+        // Keep this call's thinking and text in the persisted transcript, in
+        // the order the model produced them.
+        if !call_reasoning.trim().is_empty() {
+            steps.push(AgentStep {
+                id: hash::unique_id("step"),
+                kind: "reasoning".to_string(),
+                call: step,
+                text: call_reasoning,
+                tool: None,
+            });
+        }
+        if !call_content.trim().is_empty() {
+            steps.push(AgentStep {
+                id: hash::unique_id("step"),
+                kind: "content".to_string(),
+                call: step,
+                text: call_content,
+                tool: None,
+            });
+        }
+
+        // A pause ends the turn here: the thinking above stays visible, and no
+        // new tool runs for a request the user already stopped.
+        if should_stop() {
+            cancelled = true;
+            break;
         }
 
         // No tool calls: the streamed text is the answer, and the turn is done.
@@ -302,13 +396,27 @@ pub async fn run(
             "tool_calls": calls_json,
         }));
 
-        for call in &turn.tool_calls {
+        'tools: for call in &turn.tool_calls {
+            // Check before every tool, so a long batch stops at the next one.
+            if should_stop() {
+                cancelled = true;
+                break 'tools;
+            }
             if !tools_used.contains(&call.name) {
                 tools_used.push(call.name.clone());
             }
-            let note = format!("> 🔧 `{}` — {}\n\n", call.name, short_input(&call.arguments));
-            deliver(&note);
-            content.push_str(&note);
+            let call_id = if call.id.is_empty() {
+                hash::unique_id("tool")
+            } else {
+                call.id.clone()
+            };
+            let input = short_input(&call.arguments);
+            deliver_event(AgentEvent::ToolStart {
+                call: step,
+                id: call_id.clone(),
+                name: call.name.clone(),
+                input: input.clone(),
+            });
 
             let args = serde_json::from_str::<Value>(&call.arguments)
                 .ok()
@@ -316,15 +424,45 @@ pub async fn run(
                 .unwrap_or_else(|| json!({}));
             let result =
                 tools::call(&call.name, &args, project_root, personal_space, internet_enabled).await;
+            let result_content = result.content();
+            let ok = result.error.is_none();
+            let summary = short_output(result_content);
+            // Truncate large tool results to avoid context overflow.
+            const MAX_TOOL_RESULT_CHARS: usize = 8000;
+            let truncated = if result_content.len() > MAX_TOOL_RESULT_CHARS {
+                format!("{}… [truncated]", &result_content[..MAX_TOOL_RESULT_CHARS])
+            } else {
+                result_content.to_string()
+            };
             messages.push(json!({
                 "role": "tool",
                 "tool_call_id": call.id,
-                "content": result.content(),
+                "content": truncated,
             }));
+
+            steps.push(AgentStep {
+                id: call_id.clone(),
+                kind: "tool".to_string(),
+                call: step,
+                text: String::new(),
+                tool: Some(AgentToolStep {
+                    id: call_id.clone(),
+                    name: call.name.clone(),
+                    input,
+                    status: if ok { "done" } else { "error" }.to_string(),
+                    summary: summary.clone(),
+                }),
+            });
+            deliver_event(AgentEvent::ToolEnd {
+                call: step,
+                id: call_id,
+                ok,
+                summary,
+            });
         }
 
         step += 1;
-        if step >= max_steps {
+        if cancelled || step >= max_steps {
             break;
         }
     }
@@ -332,11 +470,24 @@ pub async fn run(
     Ok(AgentTurn {
         content,
         reasoning,
+        steps,
         tools_used,
         usage,
         timings,
         context_tokens,
+        cancelled,
     })
+}
+
+/// A short preview of a tool result, used as the tool row's tooltip.
+fn short_output(output: &str) -> String {
+    const LIMIT: usize = 240;
+    let line = output.lines().next().unwrap_or(output).trim();
+    if line.chars().count() <= LIMIT {
+        return line.to_string();
+    }
+    let clipped: String = line.chars().take(LIMIT).collect();
+    format!("{clipped}…")
 }
 
 /// The visible summary of one tool call: the first meaningful argument, short.
@@ -366,6 +517,12 @@ mod tests {
         assert!(text.contains("AGENT RULES"));
         assert!(text.contains("do NOT use any tools"));
         assert!(text.contains("internet toggle is off"));
+        // The mention-to-path mapping is stated as a fixed rule, with the
+        // worked example so a small model never has to invent it.
+        assert!(text.contains("chat marker"));
+        assert!(text.contains("every time, with no exceptions"));
+        assert!(text.contains("path \"outputs/file.txt\""));
+        assert!(text.contains("few short sentences"));
         assert!(!text.contains("web tools are available when the folders"));
         let with_web = instructions("base", true, false);
         assert!(with_web.contains("web_search and web_fetch are available"));

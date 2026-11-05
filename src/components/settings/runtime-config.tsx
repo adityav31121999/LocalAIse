@@ -206,7 +206,7 @@ export function RuntimeConfigProvider({
         // Reasoning model: ensure thinking budget is enabled (use default if 0)
         setDraft((current) =>
           current.thinkingBudget === 0
-            ? { ...current, thinkingBudget: PROFILE_BUDGET_DEFAULTS.maxOutputTokens ?? 2048 }
+            ? { ...current, thinkingBudget: 2048 }
             : current
         );
       }

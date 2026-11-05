@@ -9,20 +9,71 @@ use crate::error::{AppError, AppResult};
 use crate::tools::ToolResult;
 use crate::sandbox::paths::ensure_within;
 
+/// Normalises a model-supplied relative path.
+///
+/// Chat messages reference files with a leading `@` (for example
+/// `@outputs/file.txt`), where the `@` is only the app's mention marker.
+/// A small model often copies that marker straight into a tool argument —
+/// sometimes even into the middle of one (`outputs/@outputs/file.txt`) — so
+/// every `@` that starts a path segment is stripped here. `@` used inside a
+/// file name (`user@host.txt`) survives untouched. Quotes and stray
+/// whitespace are trimmed for the same reason.
+pub fn normalize_rel(raw: &str) -> String {
+    let mut path = raw.trim().to_string();
+    // Model quotes come and go: "outputs/file.txt".
+    for quote in ['"', '\'', '`'] {
+        while path.starts_with(quote) && path.ends_with(quote) && path.len() >= 2 {
+            path = path[1..path.len() - 1].trim().to_string();
+        }
+    }
+    // Strip a mention marker at the start of every segment. A marker after a
+    // separator (`outputs/@outputs/file.txt`) is the same mistake one level in.
+    let mut cleaned = String::with_capacity(path.len());
+    for part in path.split(['/', '\\']) {
+        let mut part = part.trim();
+        if part.starts_with('@') {
+            part = part[1..].trim();
+        }
+        if part.is_empty() {
+            continue;
+        }
+        if !cleaned.is_empty() {
+            cleaned.push('/');
+        }
+        cleaned.push_str(part);
+    }
+    // Drop a redundant "./" at the front.
+    cleaned
+        .strip_prefix("./")
+        .map(str::to_string)
+        .unwrap_or(cleaned)
+}
+
 /// Read a file relative to the project root. Returns its text content.
 pub fn read_file(project_root: &Path, rel_path: &str) -> ToolResult {
-    if rel_path.is_empty() {
+    if rel_path.trim().is_empty() {
         return ToolResult::err("read_file", "path argument is required");
     }
+    let rel_path = normalize_rel(rel_path);
 
-    let target = match safe_join(project_root, rel_path) {
+    let target = match safe_join(project_root, &rel_path) {
         Some(p) => p,
         None => return ToolResult::err("read_file", "path escapes project folder"),
     };
 
     match std::fs::read_to_string(&target) {
         Ok(content) => ToolResult::ok("read_file", content),
-        Err(e) => ToolResult::err("read_file", format!("Cannot read {rel_path}: {e}")),
+        Err(e) => {
+            // Check if it's a binary file
+            if let Ok(bytes) = std::fs::read(&target) {
+                if bytes.iter().any(|&b| b == 0) {
+                    return ToolResult::err("read_file", format!(
+                        "Cannot read {rel_path}: binary file (not text). Use read_file_bytes for binary content."
+                    ));
+                }
+            }
+            ToolResult::err("read_file", format!("Cannot read {rel_path}: {e}"))
+        }
     }
 }
 
@@ -43,10 +94,11 @@ pub fn read_file_bytes(project_root: &Path, rel_path: &str) -> AppResult<Vec<u8>
 
 /// List files (non-recursively) in `subdir` inside the project folder.
 pub fn list_files(project_root: &Path, subdir: &str) -> ToolResult {
+    let subdir = normalize_rel(subdir);
     let dir = if subdir.is_empty() {
         project_root.to_path_buf()
     } else {
-        match safe_join(project_root, subdir) {
+        match safe_join(project_root, &subdir) {
             Some(p) => p,
             None => return ToolResult::err("list_files", "path escapes project folder"),
         }
@@ -74,11 +126,15 @@ pub fn list_files(project_root: &Path, subdir: &str) -> ToolResult {
 
 /// Write `content` to `rel_path` inside the project folder (outputs/ prefix enforced).
 pub fn write_file(project_root: &Path, rel_path: &str, content: &str) -> ToolResult {
+    let rel_path = normalize_rel(rel_path);
     if rel_path.is_empty() {
         return ToolResult::err("write_file", "path argument is required");
     }
 
     // Agent writes go to outputs/ so user files are never silently overwritten.
+    // A path like `@outputs/file.txt` (mention marker echoed by the model)
+    // normalises to `outputs/file.txt` above and keeps its folder here, instead
+    // of growing into the bogus `outputs/@outputs/file.txt`.
     let safe_path = if rel_path.starts_with("outputs/") || rel_path.starts_with("outputs\\") {
         rel_path.to_string()
     } else {
@@ -112,9 +168,31 @@ fn safe_join(root: &Path, rel: &str) -> Option<std::path::PathBuf> {
     {
         return None;
     }
-    // Canonical, component-validated join: without canonicalizing the result
-    // we stay correct for files that do not exist yet, including on Windows
-    // where canonicalize() rewrites drive paths to \\?\C:\….
-    let canonical_root = root.canonicalize().ok()?;
-    Some(canonical_root.join(relative))
+    // Use the root as-is without canonicalizing, to avoid failures on
+    // Windows/OneDrive paths where canonicalize() can fail.
+    Some(root.to_path_buf().join(relative))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mention_markers_are_stripped_from_paths() {
+        assert_eq!(normalize_rel("@outputs/file.txt"), "outputs/file.txt");
+        assert_eq!(normalize_rel("@data/notes.md"), "data/notes.md");
+        assert_eq!(normalize_rel("file.txt"), "file.txt");
+    }
+
+    #[test]
+    fn quoted_paths_lose_their_quotes() {
+        assert_eq!(normalize_rel("\"outputs/file.txt\""), "outputs/file.txt");
+        assert_eq!(normalize_rel("'data/x.md'"), "data/x.md");
+    }
+
+    #[test]
+    fn relative_prefixes_are_stripped() {
+        assert_eq!(normalize_rel("./outputs/file.txt"), "outputs/file.txt");
+        assert_eq!(normalize_rel("@ ./outputs/file.txt"), "outputs/file.txt");
+    }
 }

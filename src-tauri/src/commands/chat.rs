@@ -20,7 +20,7 @@ use crate::error::{AppError, AppResult};
 use crate::ingest::pipeline::ingest_file;
 use crate::index::db::IndexDb;
 use crate::models::registry as models;
-use crate::projects::chats::{self, ChatSession, StoredMessage};
+use crate::projects::chats::{self, AgentStep, ChatSession, StoredMessage};
 use crate::projects::layout::{ChatMode, ProjectPaths};
 use crate::retrieval::citations::Citation;
 use crate::retrieval::search::search_chunks;
@@ -40,6 +40,8 @@ pub struct ChatStreamResult {
     pub content: String,
     /// The model's reasoning trace, empty when it answered without thinking.
     pub reasoning: String,
+    /// Ordered reasoning, tool, and answer segments (agent mode only).
+    pub steps: Vec<AgentStep>,
     pub citations: Vec<Citation>,
     /// Prompt tokens this turn read, summed over every model call.
     pub prompt_tokens: u32,
@@ -51,6 +53,8 @@ pub struct ChatStreamResult {
     pub context_tokens: u32,
     /// Generated tokens per second, when the server reported timings.
     pub tokens_per_second: f64,
+    /// True when the user stopped the turn before the model finished.
+    pub cancelled: bool,
 }
 
 /// Threshold for deciding whether to read a file fully or index it for RAG.
@@ -107,6 +111,18 @@ fn split_into_chunks(text: &str, max_chars: usize) -> Vec<String> {
     chunks
 }
 
+/// Extracts readable text from an attached file.
+///
+/// Uses the format-aware ingestion parser first so PDFs, DOCX, XLSX and other
+/// supported documents become plain text; code and other plain files fall back
+/// to a direct UTF-8 read. Returns `None` when the file cannot be read at all.
+fn read_attached_text(file_path: &Path) -> Option<String> {
+    if let Ok(text) = crate::ingest::parsers::parse_file(file_path) {
+        return Some(text);
+    }
+    fs::read_to_string(file_path).ok()
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn chat_send(
@@ -127,6 +143,10 @@ pub async fn chat_send(
     if prompt.is_empty() {
         return Err(AppError::msg("Type a question first."));
     }
+
+    // Registers this turn so `chat_stop` can reach its model and tool loop.
+    // The guard clears the registration when the command returns or errors.
+    let run = crate::agent::cancel::RunGuard::begin(&project_id);
 
     // Build sampling params from provided values, using defaults when not specified.
     let sampling = SamplingParams {
@@ -208,7 +228,7 @@ pub async fn chat_send(
             
             if file_size <= ATTACHMENT_FULL_READ_THRESHOLD {
                 // Small file: read full content and add directly to context
-                if let Ok(content) = fs::read_to_string(&file_path) {
+                if let Some(content) = read_attached_text(&file_path) {
                     if !content.trim().is_empty() {
                         attached_context.push_str(&format!(
                             "\n\n--- Attached file: {} ---\n{}",
@@ -255,7 +275,7 @@ pub async fn chat_send(
                 // Read the full content and chunk it as consecutive inputs so
                 // the model sees the whole file even when it is too large for
                 // a single message.
-                if let Ok(content) = fs::read_to_string(&file_path) {
+                if let Some(content) = read_attached_text(&file_path) {
                     if !content.trim().is_empty() {
                         for chunk in split_into_chunks(&content, FILE_CHUNK_CHARS) {
                             file_chunks.push((file_rel.clone(), chunk));
@@ -393,14 +413,26 @@ pub async fn chat_send(
 
     let model_label = models::label(&model);
     let emitter = app.clone();
-    let emit = |reasoning: bool, delta: &str| {
+    let emit = |reasoning: bool, call: Option<u32>, delta: &str| {
+        let mut payload = serde_json::json!({
+            "projectId": project_id,
+            "delta": delta,
+            "reasoning": reasoning,
+        });
+        // Agent turns tag each delta with its model call so the UI can keep
+        // one thinking block per call. Chat mode has a single call.
+        if let Some(call) = call {
+            payload["call"] = serde_json::json!(call);
+        }
+        emitter.emit("chat://token", payload).ok();
+    };
+    let emit_agent_event = |event: &agent_chat::AgentEvent| {
         emitter
             .emit(
-                "chat://token",
+                "chat://agent",
                 serde_json::json!({
                     "projectId": project_id,
-                    "delta": delta,
-                    "reasoning": reasoning,
+                    "event": event,
                 }),
             )
             .ok();
@@ -408,7 +440,7 @@ pub async fn chat_send(
 
     // Agent mode runs the tool loop over the same local server; chat mode is
     // one streamed call. Both report the tokens and the speed they spent.
-    let (content, reasoning, prompt_tokens, completion_tokens, total_tokens, context_tokens, tokens_per_second) =
+    let (mut content, reasoning, steps, prompt_tokens, completion_tokens, total_tokens, context_tokens, tokens_per_second, cancelled) =
         if record.chat_mode == ChatMode::Agent {
             let personal_space = {
                 let registry = state.registry()?;
@@ -421,29 +453,43 @@ pub async fn chat_send(
                     content: turn.content.clone(),
                 })
                 .collect();
+            // Build file chunk messages for agent mode (large attached files
+            // split into consecutive user messages).
+            let file_chunk_messages: Vec<String> = file_chunks
+                .iter()
+                .map(|(file_name, chunk)| {
+                    format!("--- Attached file: {} (continued) ---\n{}", file_name, chunk)
+                })
+                .collect();
+
             let turn = agent_chat::run(
                 &serving,
                 &model_label,
                 system.clone(),
                 history,
                 user_prompt.clone(),
+                file_chunk_messages,
                 &record.path,
                 &personal_space,
                 record.internet_enabled,
                 sampling,
                 max_tool_steps,
-                |delta| emit(false, delta),
-                |delta| emit(true, delta),
+                || run.cancelled(),
+                |call, delta| emit(false, Some(call), delta),
+                |call, delta| emit(true, Some(call), delta),
+                |event| emit_agent_event(&event),
             )
             .await?;
             (
                 turn.content,
                 turn.reasoning,
+                turn.steps,
                 turn.usage.prompt_tokens,
                 turn.usage.completion_tokens,
                 turn.usage.total_tokens,
                 turn.context_tokens,
                 turn.timings.predicted_per_second,
+                turn.cancelled,
             )
         } else {
             let completion = client::complete_stream(
@@ -454,8 +500,9 @@ pub async fn chat_send(
                 !fresh,
                 sampling,
                 false, // allow_empty: reject empty answers (default behavior)
-                |delta| emit(false, delta),
-                |delta| emit(true, delta),
+                || run.cancelled(),
+                |delta| emit(false, None, delta),
+                |delta| emit(true, None, delta),
             )
             .await?;
             let usage = completion.usage.unwrap_or_default();
@@ -463,13 +510,21 @@ pub async fn chat_send(
             (
                 completion.content,
                 completion.reasoning,
+                Vec::new(),
                 usage.prompt_tokens,
                 usage.completion_tokens,
                 usage.total_tokens,
                 usage.prompt_tokens + usage.completion_tokens,
                 timings.predicted_per_second,
+                run.cancelled(),
             )
         };
+
+    // A stop before the model said anything still gets a visible, saved turn
+    // instead of an empty bubble.
+    if cancelled && content.trim().is_empty() && steps.is_empty() {
+        content = "Stopped.".to_string();
+    }
 
     // 4. Save the turn: one JSON file per session in the project's chats folder.
     let now = time::now_iso();
@@ -478,6 +533,7 @@ pub async fn chat_send(
         role: "user".to_string(),
         content: prompt.clone(),
         reasoning: String::new(),
+        steps: Vec::new(),
         created_at: now.clone(),
         citations: Vec::new(),
         prompt_tokens: 0,
@@ -491,6 +547,7 @@ pub async fn chat_send(
         role: "assistant".to_string(),
         content: content.clone(),
         reasoning: reasoning.clone(),
+        steps: steps.clone(),
         created_at: now,
         citations: citations.clone(),
         prompt_tokens,
@@ -513,22 +570,47 @@ pub async fn chat_send(
         title: summary.title,
         content,
         reasoning,
+        steps,
         citations,
         prompt_tokens,
         completion_tokens,
         total_tokens,
         context_tokens,
         tokens_per_second,
+        cancelled,
     })
+}
+
+/// Stops the chat turn currently running for a project.
+///
+/// The loop checks the flag between model calls and tool calls, so the turn
+/// ends after the step in flight and keeps what it produced so far.
+#[tauri::command]
+pub fn chat_stop(project_id: String) {
+    crate::agent::cancel::cancel(&project_id);
 }
 
 /// The chat system prompt the user falls back to when they have not set their
 /// own for this project.
+///
+/// It also teaches the one convention every agent-mode tool call depends on:
+/// how files are named in this app. Agent mode prepends its rules under this
+/// base, so the two modes never disagree about paths.
 fn system_prompt(project_name: &str) -> String {
     format!(
-        "You are localAIse, a private assistant that works only inside the folder “{project_name}”. \
-         The files in that folder never leave this machine. Answer in clear, plain prose, and say \
-         when you are not sure instead of guessing."
+        "You are localAIse, a private assistant that works only inside the \
+project folder “{project_name}”. The files in that folder never leave this machine.\n\n\
+HOW FILES ARE NAMED HERE:\n\
+1. Every file is named by its path relative to the project root, such as \
+\"data/notes.md\" or \"outputs/report.md\". These name the format; which files \
+actually exist is a separate question.\n\
+2. The user mentions files with a leading @, such as @outputs/file.txt. The @ is \
+only this app's chat marker: the real path is exactly what follows it, \
+outputs/file.txt. This mapping is fixed — @something always means just \
+\"something\", in every message, with no exceptions.\n\
+3. When you name a file — in an answer, a citation, or anything else — use the \
+plain relative path. Never add @, quotes, backslashes, or absolute paths.\n\n\
+Answer in clear, plain prose, and say when you are not sure instead of guessing."
     )
 }
 

@@ -27,9 +27,9 @@ pub fn ensure_within(root: &Path, candidate: &Path) -> AppResult<PathBuf> {
         return Err(AppError::OutsideSandbox(candidate.display().to_string()));
     }
 
-    let canonical_root = root.canonicalize().map_err(|error| {
-        AppError::msg(format!("cannot resolve {}: {error}", root.display()))
-    })?;
+    // Fall back to the non-canonicalized root if canonicalize fails
+    // (common on Windows/OneDrive paths).
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
 
     let resolved: PathBuf = if candidate.is_absolute() {
         // Accept absolute candidates only when they live inside the root,
