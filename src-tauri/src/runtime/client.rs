@@ -604,6 +604,7 @@ struct ToolChatRequest<'a> {
 /// Like [`complete_stream`], but offers the model a `tools` array and collects
 /// the tool calls it asks for. Reasoning is streamed the same way as the plain
 /// path, so the agent's thinking reaches the transcript too.
+#[allow(clippy::too_many_arguments)]
 pub async fn complete_stream_with_tools(
     serving: &Serving,
     model: &str,

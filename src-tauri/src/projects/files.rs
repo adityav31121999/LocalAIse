@@ -222,7 +222,7 @@ pub fn list_all_files(root: &Path) -> AppResult<Vec<DirectoryEntry>> {
     walk(root, "", &mut result)?;
 
     // Sort by path case-insensitively
-    result.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+    result.sort_by_key(|a| a.path.to_lowercase());
     Ok(result)
 }
 

@@ -66,7 +66,7 @@ pub fn read_file(project_root: &Path, rel_path: &str) -> ToolResult {
         Err(e) => {
             // Check if it's a binary file
             if let Ok(bytes) = std::fs::read(&target) {
-                if bytes.iter().any(|&b| b == 0) {
+                if bytes.contains(&0) {
                     return ToolResult::err("read_file", format!(
                         "Cannot read {rel_path}: binary file (not text). Use read_file_bytes for binary content."
                     ));

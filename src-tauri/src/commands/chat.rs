@@ -350,7 +350,7 @@ pub async fn chat_send(
     for (file_name, chunk) in &file_chunks {
         messages.push(client::message(
             "user",
-            &format!(
+            format!(
                 "--- Attached file: {} (continued) ---\n{}",
                 file_name, chunk
             ),
