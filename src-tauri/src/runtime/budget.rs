@@ -324,6 +324,8 @@ pub fn recommend_cpu(
                     ple_cache_in_ram: false,
                     thinking_budget: 2_048,
                     partial_load: false,
+                    max_input_tokens: 2_048,
+                    max_output_tokens: 8_192,
                 });
             }
         }
@@ -389,6 +391,8 @@ fn recommend_gpu(
                 ple_cache_in_ram: false,
                 thinking_budget: 2_048,
                 partial_load: false,
+                max_input_tokens: 2_048,
+                max_output_tokens: 8_192,
             };
 
             let kv_bytes = kv_cache_bytes(shape, ctx, kv);

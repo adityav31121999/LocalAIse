@@ -154,7 +154,14 @@ struct ProfileWire {
     ple_cache_in_ram: bool,
     thinking_budget: u32,
     partial_load: bool,
+    #[serde(default = "default_max_input_tokens")]
+    max_input_tokens: u32,
+    #[serde(default = "default_max_output_tokens")]
+    max_output_tokens: u32,
 }
+
+fn default_max_input_tokens() -> u32 { 2_048 }
+fn default_max_output_tokens() -> u32 { 8_192 }
 
 /// Rewrites the one shape that changed.
 ///
@@ -200,6 +207,8 @@ impl From<ProfileWire> for InferenceProfile {
             ple_cache_in_ram: wire.ple_cache_in_ram,
             thinking_budget: wire.thinking_budget,
             partial_load: wire.partial_load,
+            max_input_tokens: wire.max_input_tokens,
+            max_output_tokens: wire.max_output_tokens,
         }
     }
 }
@@ -219,6 +228,8 @@ impl From<InferenceProfile> for ProfileWire {
             ple_cache_in_ram: profile.ple_cache_in_ram,
             thinking_budget: profile.thinking_budget,
             partial_load: profile.partial_load,
+            max_input_tokens: profile.max_input_tokens,
+            max_output_tokens: profile.max_output_tokens,
         }
     }
 }
@@ -267,6 +278,10 @@ pub struct InferenceProfile {
     /// passing an explicit context, so a bloated KV cache lowers the context
     /// rather than failing the load.
     pub partial_load: bool,
+    /// Cap on prompt tokens (app-level, shared with all roles).
+    pub max_input_tokens: u32,
+    /// Cap on response tokens (app-level, shared with all roles).
+    pub max_output_tokens: u32,
 }
 
 impl InferenceProfile {
@@ -286,6 +301,8 @@ impl InferenceProfile {
             ple_cache_in_ram: false,
             thinking_budget: 2_048,
             partial_load: false,
+            max_input_tokens: 2_048,
+            max_output_tokens: 8_192,
         }
     }
 

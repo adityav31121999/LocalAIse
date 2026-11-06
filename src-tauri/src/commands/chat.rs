@@ -149,7 +149,7 @@ pub async fn chat_send(
     let run = crate::agent::cancel::RunGuard::begin(&project_id);
 
     // Build sampling params from provided values, using defaults when not specified.
-    let sampling = SamplingParams {
+    let mut sampling = SamplingParams {
         temperature: temperature.unwrap_or(0.2).clamp(0.0, 2.0),
         top_p: top_p.map(|v| v.clamp(0.0, 1.0)),
         top_k: top_k.map(|v| v.max(0)),
@@ -166,6 +166,10 @@ pub async fn chat_send(
             .ok_or_else(|| AppError::UnknownProject(project_id.clone()))?;
         (record, registry.settings.clone())
     };
+    let perf = settings.performance.clone();
+    if perf.max_output_tokens > 0 {
+        sampling.max_tokens = Some(perf.max_output_tokens);
+    }
 
     let model = models::selected(&state.dirs, &settings).ok_or(AppError::NoModelSelected)?;
 
@@ -315,6 +319,14 @@ pub async fn chat_send(
         context_block.push_str(&attached_context);
     }
 
+    // Honor the prompt budget from settings: trim injected context so the
+    // model is never given more than the configured prompt cap.
+    let max_input_chars = perf.max_input_tokens.saturating_mul(4) as usize;
+    if max_input_chars > 0 && context_block.len() > max_input_chars {
+        context_block.truncate(max_input_chars);
+        context_block.push_str("\n… [context truncated to prompt budget]");
+    }
+
     let user_prompt = if context_block.is_empty() {
         prompt.clone()
     } else {
@@ -323,15 +335,40 @@ pub async fn chat_send(
         )
     };
 
-    let system = match record.system_prompt.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+    let custom = record.system_prompt.as_deref().map(str::trim).filter(|text| !text.is_empty());
+
+    let system = match custom {
         Some(custom) => custom.to_string(),
-        None => system_prompt(&record.name),
+        None => {
+            if record.chat_mode == ChatMode::Agent {
+                agent_chat::agent_system_prompt(&record.name, record.internet_enabled, max_tool_steps as usize)
+            } else {
+                agent_chat::chat_system_prompt(&record.name)
+            }
+        }
     };
 
-    // In agent mode the built-in prompt gains the tool rules; the custom
-    // prompt the user set still leads the model's voice and behaviour.
-    let system = if record.chat_mode == ChatMode::Agent {
-        agent_chat::instructions(&system, record.internet_enabled, !scored_chunks.is_empty())
+    // In agent mode, make sure tool rules are present even when a custom
+    // prompt overrides the default voice.
+    let system = if record.chat_mode == ChatMode::Agent && custom.is_some() {
+        format!(
+            "{}\n\n{}",
+            system,
+            agent_chat::agent_system_prompt(&record.name, record.internet_enabled, max_tool_steps as usize)
+        )
+    } else {
+        system
+    };
+
+    // RAG context guidance for agent mode.
+    let system = if record.chat_mode == ChatMode::Agent && !scored_chunks.is_empty() {
+        format!(
+            "{}\n\nRelevant context from the project's indexed sources has been \
+prepended to this conversation. Use that information first before calling \
+search_local. Only call search_local if you need additional information not \
+covered by the provided context.",
+            system
+        )
     } else {
         system
     };
@@ -590,29 +627,6 @@ pub fn chat_stop(project_id: String) {
     crate::agent::cancel::cancel(&project_id);
 }
 
-/// The chat system prompt the user falls back to when they have not set their
-/// own for this project.
-///
-/// It also teaches the one convention every agent-mode tool call depends on:
-/// how files are named in this app. Agent mode prepends its rules under this
-/// base, so the two modes never disagree about paths.
-fn system_prompt(project_name: &str) -> String {
-    format!(
-        "You are localAIse, a private assistant that works only inside the \
-project folder “{project_name}”. The files in that folder never leave this machine.\n\n\
-HOW FILES ARE NAMED HERE:\n\
-1. Every file is named by its path relative to the project root, such as \
-\"data/notes.md\" or \"outputs/report.md\". These name the format; which files \
-actually exist is a separate question.\n\
-2. The user mentions files with a leading @, such as @outputs/file.txt. The @ is \
-only this app's chat marker: the real path is exactly what follows it, \
-outputs/file.txt. This mapping is fixed — @something always means just \
-\"something\", in every message, with no exceptions.\n\
-3. When you name a file — in an answer, a citation, or anything else — use the \
-plain relative path. Never add @, quotes, backslashes, or absolute paths.\n\n\
-Answer in clear, plain prose, and say when you are not sure instead of guessing."
-    )
-}
 
 /// Keeps the activity row short enough to read at a glance.
 fn summarize(prompt: &str) -> String {
