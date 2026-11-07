@@ -156,6 +156,39 @@ pub fn write_file(project_root: &Path, rel_path: &str, content: &str) -> ToolRes
     }
 }
 
+/// Append `content` to the end of `rel_path` inside the project folder (outputs/
+/// prefix enforced). Creates the file if it does not exist.
+pub fn append_file(project_root: &Path, rel_path: &str, content: &str) -> ToolResult {
+    let rel_path = normalize_rel(rel_path);
+    if rel_path.is_empty() {
+        return ToolResult::err("append_file", "path argument is required");
+    }
+
+    let safe_path = if rel_path.starts_with("outputs/") || rel_path.starts_with("outputs\\") {
+        rel_path.to_string()
+    } else {
+        format!("outputs/{rel_path}")
+    };
+
+    let target = match safe_join(project_root, &safe_path) {
+        Some(p) => p,
+        None => return ToolResult::err("append_file", "path escapes project folder"),
+    };
+
+    if let Some(parent) = target.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    use std::io::Write;
+    match std::fs::OpenOptions::new().create(true).append(true).open(&target) {
+        Ok(mut file) => match file.write_all(content.as_bytes()) {
+            Ok(()) => ToolResult::ok("append_file", format!("Appended to {safe_path}")),
+            Err(e) => ToolResult::err("append_file", format!("Cannot append to {safe_path}: {e}")),
+        },
+        Err(e) => ToolResult::err("append_file", format!("Cannot open {safe_path}: {e}")),
+    }
+}
+
 /// Joins `rel` to `root`, returning `None` if the result escapes `root`.
 fn safe_join(root: &Path, rel: &str) -> Option<std::path::PathBuf> {
     let relative = std::path::Path::new(rel);

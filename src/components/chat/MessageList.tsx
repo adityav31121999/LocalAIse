@@ -48,7 +48,7 @@ function AgentTranscript({
                 Thinking
               </summary>
               <div className="thinking__body">
-                <Markdown text={text} />
+                <Markdown text={text} streaming={pending} />
               </div>
             </details>
           );
@@ -81,7 +81,7 @@ function AgentTranscript({
         if (step.kind === "content") {
           return (
             <div className="msg__body" key={step.id}>
-              <Markdown text={step.text ?? ""} />
+              <Markdown text={step.text ?? ""} streaming={pending} />
             </div>
           );
         }
@@ -145,20 +145,20 @@ export function MessageList({ messages, streaming, showThinking }: MessageListPr
                           Thinking
                         </summary>
                         <div className="thinking__body">
-                          <Markdown text={reasoning} />
+                          <Markdown text={reasoning} streaming={message.pending ?? false} />
                         </div>
                       </details>
                     ) : null}
 
                     <div className="msg__body">
-                      <Markdown text={message.content} />
+                      <Markdown text={message.content} streaming={message.pending ?? false} />
                       {message.pending ? <span className="msg__caret" aria-hidden="true" /> : null}
                     </div>
                   </>
                 )
               ) : (
                 <div className="msg__body">
-                  {message.content}
+                  <Markdown text={message.content} streaming={message.pending ?? false} mentions />
                   {message.pending ? <span className="msg__caret" aria-hidden="true" /> : null}
                 </div>
               )}

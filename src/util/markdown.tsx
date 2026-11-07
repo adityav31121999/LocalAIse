@@ -38,28 +38,64 @@ function safeLinkHref(raw: string): string | null {
   return null;
 }
 
+// `@path` mentions typed or picked in the composer. The lookbehind keeps
+// email addresses (name@host) from becoming capsules.
+const MENTION_RE = /(?<![\w])@[\w.\\/-]+/g;
+
+/** Splits plain text into capsule-sized `@path` tokens and the text between. */
+function mentionNodes(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let index = 0;
+  const re = new RegExp(MENTION_RE.source, "g");
+
+  for (let match = re.exec(text); match; match = re.exec(text)) {
+    if (match.index > index) nodes.push(text.slice(index, match.index));
+    // A sentence mark typed after the path is not part of the path.
+    const trailing = /[.,;:!?]+$/.exec(match[0])?.[0] ?? "";
+    const token = trailing ? match[0].slice(0, -trailing.length) : match[0];
+    nodes.push(
+      createElement(
+        "span",
+        { key: `${keyPrefix}-m${match.index}`, className: "md__mention", title: token },
+        token,
+      ),
+    );
+    if (trailing) nodes.push(trailing);
+    index = match.index + match[0].length;
+  }
+
+  if (index < text.length) nodes.push(text.slice(index));
+  return nodes;
+}
+
 /** One inline tokenizer pass. `depth` guards against runaway recursion. */
-function parseInline(text: string, keyPrefix: string, depth = 0): ReactNode[] {
+function parseInline(text: string, keyPrefix: string, depth = 0, mentions = false): ReactNode[] {
   if (!text || depth > 3) return [];
   const inlineRe = new RegExp(INLINE_SOURCE, "g");
   const nodes: ReactNode[] = [];
+  let segment = 0;
+  const pushText = (plain: string) => {
+    if (mentions) nodes.push(...mentionNodes(plain, `${keyPrefix}-s${segment}`));
+    else nodes.push(plain);
+    segment += 1;
+  };
   let index = 0;
 
   for (let match = inlineRe.exec(text); match; match = inlineRe.exec(text)) {
     const [token, code, strong, emStar, del, emUnderscore, link] = match;
-    if (match.index > index) nodes.push(text.slice(index, match.index));
+    if (match.index > index) pushText(text.slice(index, match.index));
     index = match.index + token.length;
     const key = `${keyPrefix}-${match.index}`;
 
     if (code !== undefined) {
       nodes.push(createElement("code", { key }, token.slice(1, -1)));
     } else if (strong !== undefined) {
-      nodes.push(createElement("strong", { key }, parseNested(token.slice(2, -2), key, depth)));
+      nodes.push(createElement("strong", { key }, parseNested(token.slice(2, -2), key, depth, mentions)));
     } else if (emStar !== undefined || emUnderscore !== undefined) {
       const body = emStar !== undefined ? token.slice(1, -1) : token.slice(1, -1);
-      nodes.push(createElement("em", { key }, parseNested(body, key, depth)));
+      nodes.push(createElement("em", { key }, parseNested(body, key, depth, mentions)));
     } else if (del !== undefined) {
-      nodes.push(createElement("del", { key }, parseNested(token.slice(2, -2), key, depth)));
+      nodes.push(createElement("del", { key }, parseNested(token.slice(2, -2), key, depth, mentions)));
     } else if (link !== undefined) {
       const labelEnd = token.indexOf("](");
       const label = token.slice(1, labelEnd);
@@ -79,20 +115,29 @@ function parseInline(text: string, keyPrefix: string, depth = 0): ReactNode[] {
 }
 
 /** Contents of **bold** / *em* / ~~del~~ runs: nested emphasis, no links. */
-function parseNested(text: string, keyPrefix: string, depth: number): ReactNode[] {
+function parseNested(
+  text: string,
+  keyPrefix: string,
+  depth: number,
+  mentions = false,
+): ReactNode[] {
   if (depth > 3) return [text];
   const nodes: ReactNode[] = [];
   let index = 0;
+  const pushText = (plain: string) => {
+    if (mentions) nodes.push(...mentionNodes(plain, `${keyPrefix}-t${index}`));
+    else nodes.push(plain);
+  };
   const pattern = /(\*[^*\n]+\*)|(~~[^~\n]+~~)/g;
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
     const [token, em] = match;
-    if (match.index > index) nodes.push(text.slice(index, match.index));
+    if (match.index > index) pushText(text.slice(index, match.index));
     index = match.index + token.length;
     const key = `${keyPrefix}-n${match.index}`;
     if (em) nodes.push(createElement("em", { key }, token.slice(1, -1)));
     else nodes.push(createElement("del", { key }, token.slice(2, -2)));
   }
-  if (index < text.length) nodes.push(text.slice(index));
+  if (index < text.length) pushText(text.slice(index));
   return nodes;
 }
 
@@ -102,7 +147,7 @@ function parseNested(text: string, keyPrefix: string, depth: number): ReactNode[
 
 const HR_RE = /^[ \t]*([-*+_])[ \t]*(?:\1[ \t]*){2,}$/;
 const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/;
-const FENCE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)/;
+const FENCE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)[ \t]*$/;
 const LIST_RE = /^([ \t]*)([-*+]|(?:\d{1,9})[.)])[ \t]+(.*)$/;
 const BLOCKQUOTE_RE = /^[ \t]*>[ \t]?/;
 const TABLE_RULE_RE = /^[ \t]*\|?[ \t]*:?-*:?[ \t]*(\|[ \t]*:?-*:?[ \t]*)*\|?[ \t]*$/;
@@ -121,11 +166,11 @@ function splitCells(row: string): string[] {
 /* ------------------------------------------------------------------ */
 
 /** One paragraph as <p>. Lines hard-break (chat style) rather than fold. */
-function renderParagraph(lines: string[], keyPrefix: string): ReactNode {
+function renderParagraph(lines: string[], keyPrefix: string, mentions = false): ReactNode {
   const children: ReactNode[] = [];
   lines.forEach((line, i) => {
     if (i > 0) children.push(createElement("br", { key: `${keyPrefix}-br${i}` }));
-    children.push(...parseInline(line, `${keyPrefix}-${i}`));
+    children.push(...parseInline(line, `${keyPrefix}-${i}`, 0, mentions));
   });
   return createElement("p", { key: keyPrefix }, children);
 }
@@ -141,7 +186,12 @@ function isBlockBoundary(line: string): boolean {
   );
 }
 
-function parseTable(lines: string[], start: number, keyPrefix: string): [ReactNode, number] {
+function parseTable(
+  lines: string[],
+  start: number,
+  keyPrefix: string,
+  mentions = false,
+): [ReactNode, number] {
   const header = splitCells(lines[start] ?? "");
   const rows: string[][] = [];
   let cursor = start + 2;
@@ -156,7 +206,7 @@ function parseTable(lines: string[], start: number, keyPrefix: string): [ReactNo
     "tr",
     { key: `${keyPrefix}-h` },
     header.map((cell, i) =>
-      createElement("th", { key: i }, parseInline(cell.trim(), `${keyPrefix}-h${i}`)),
+      createElement("th", { key: i }, parseInline(cell.trim(), `${keyPrefix}-h${i}`, 0, mentions)),
     ),
   );
   const body = rows.map((row, r) =>
@@ -164,7 +214,11 @@ function parseTable(lines: string[], start: number, keyPrefix: string): [ReactNo
       "tr",
       { key: `${keyPrefix}-r${r}` },
       header.map((_, i) =>
-        createElement("td", { key: i }, parseInline((row[i] ?? "").trim(), `${keyPrefix}-r${r}-${i}`)),
+        createElement(
+          "td",
+          { key: i },
+          parseInline((row[i] ?? "").trim(), `${keyPrefix}-r${r}-${i}`, 0, mentions),
+        ),
       ),
     ),
   );
@@ -182,6 +236,7 @@ function parseListGroup(
   start: number,
   spec: { ordered: boolean; indent: number; start?: number },
   keyPrefix: string,
+  mentions = false,
 ): [ReactNode, number] {
   const items: ReactNode[] = [];
   let cursor = start;
@@ -215,7 +270,12 @@ function parseListGroup(
       if (upcoming && normalizeIndent(upcoming[1] ?? "") >= spec.indent + 2) cursor += 1;
     }
 
-    let children: ReactNode[] = parseInline(itemText.join(" "), `${keyPrefix}-${items.length}`);
+    let children: ReactNode[] = parseInline(
+      itemText.join(" "),
+      `${keyPrefix}-${items.length}`,
+      0,
+      mentions,
+    );
     const nested = LIST_RE.exec(lines[cursor] ?? "");
     if (nested && normalizeIndent(nested[1] ?? "") >= spec.indent + 2) {
       const [nestedList, used] = parseListGroup(
@@ -227,6 +287,7 @@ function parseListGroup(
           start: /^\d/.test(nested[2] ?? "") ? Number.parseInt(nested[2]!, 10) : undefined,
         },
         `${keyPrefix}-c${cursor}`,
+        mentions,
       );
       children = children.concat(nestedList);
       cursor = used; // absolute index where the nested group stopped
@@ -242,7 +303,12 @@ function parseListGroup(
   return [list, cursor];
 }
 
-function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
+function parseBlocks(
+  text: string,
+  keyPrefix: string,
+  streaming = false,
+  mentions = false,
+): ReactNode[] {
   const lines = text.split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -262,7 +328,22 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
     if (fence) {
       const marker = fence[1] ?? "```";
       const info = (fence[2] ?? "").trim();
-      const closer = new RegExp(`^[ \\t]*${marker[0]}{${marker.length},}[ \\t]*$`);
+      const closer = new RegExp(`^[ \\t]*${marker[0]}{${marker.length},}[ \\t]*"?[ \\t]*$`);
+      // Only treat as a code block if a matching closer exists (or streaming).
+      let hasCloser = false;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (closer.test(lines[j] ?? "")) { hasCloser = true; break; }
+      }
+      if (!hasCloser && !streaming) {
+        const paragraph: string[] = [line];
+        i += 1;
+        while (i < lines.length && !isBlockBoundary(lines[i] ?? "")) {
+          paragraph.push(lines[i] ?? "");
+          i += 1;
+        }
+        blocks.push(renderParagraph(paragraph, key, mentions));
+        continue;
+      }
       i += 1;
       const code: string[] = [];
       while (i < lines.length && !closer.test(lines[i] ?? "")) {
@@ -284,7 +365,13 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
     const heading = HEADING_RE.exec(line);
     if (heading) {
       const level = Math.min(6, (heading[1] ?? "#").length);
-      blocks.push(createElement(HEADING_TAGS[level - 1]!, { key }, parseInline((heading[2] ?? "").trim(), key)));
+      blocks.push(
+        createElement(
+          HEADING_TAGS[level - 1]!,
+          { key },
+          parseInline((heading[2] ?? "").trim(), key, 0, mentions),
+        ),
+      );
       i += 1;
       continue;
     }
@@ -298,7 +385,7 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
 
     // Table: header row followed by a dashed separator row.
     if (line.includes("|") && i + 1 < lines.length && TABLE_RULE_RE.test(lines[i + 1] ?? "")) {
-      const [table, nextIndex] = parseTable(lines, i, key);
+      const [table, nextIndex] = parseTable(lines, i, key, mentions);
       blocks.push(table);
       i = nextIndex;
       continue;
@@ -311,7 +398,9 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
         quoted.push((lines[i] ?? "").replace(BLOCKQUOTE_RE, ""));
         i += 1;
       }
-      blocks.push(createElement("blockquote", { key }, parseBlocks(quoted.join("\n"), key)));
+      blocks.push(
+        createElement("blockquote", { key }, parseBlocks(quoted.join("\n"), key, streaming, mentions)),
+      );
       continue;
     }
 
@@ -327,6 +416,7 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
           start: /^\d/.test(listMatch[2] ?? "") ? Number.parseInt(listMatch[2]!, 10) : undefined,
         },
         key,
+        mentions,
       );
       blocks.push(list);
       i = nextIndex;
@@ -339,7 +429,7 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
       paragraph.push(lines[i] ?? "");
       i += 1;
     }
-    blocks.push(renderParagraph(paragraph, key));
+    blocks.push(renderParagraph(paragraph, key, mentions));
   }
 
   return blocks;
@@ -349,13 +439,17 @@ export interface MarkdownProps {
   /** Markdown string, possibly a partially streamed message. */
   text: string;
   className?: string;
+  /** When true, an unclosed fence is rendered as a code block (streaming). */
+  streaming?: boolean;
+  /** When true, `@path` tokens render as capsules (user chat messages). */
+  mentions?: boolean;
 }
 
 /** Renders a markdown string as nested React elements (XSS-safe by design). */
-export function Markdown({ text, className }: MarkdownProps) {
+export function Markdown({ text, className, streaming, mentions }: MarkdownProps) {
   return createElement(
     "div",
     { className: className ? `md ${className}` : "md" },
-    ...parseBlocks(text, "md"),
+    ...parseBlocks(text, "md", streaming ?? false, mentions ?? false),
   );
 }

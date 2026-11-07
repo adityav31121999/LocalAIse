@@ -101,6 +101,7 @@ pub fn is_reasoning_model(name: &str, architecture: &str) -> bool {
         "deepseekr1",
         "nemotron3ultra",
         "marcoo1",
+        "granite42", // Granite 4.2 added a native <think> mode
     ];
 
     // Check architecture
@@ -165,6 +166,8 @@ mod tests {
         assert!(is_reasoning_model("qwen3-custom", "llama"));
         assert!(is_reasoning_model("deepseek-r1-distill", "llama"));
         assert!(is_reasoning_model("qwq-test", "llama"));
+        assert!(is_reasoning_model("granite-4.2-3b", "granite"));
+        assert!(is_reasoning_model("Granite_4_2_8B", "granite"));
     }
 
     #[test]
@@ -172,7 +175,7 @@ mod tests {
         assert!(!is_reasoning_model("llama-3.1-8b", "llama"));
         assert!(!is_reasoning_model("qwen2.5-7b", "qwen2"));
         assert!(!is_reasoning_model("gemma-7b", "gemma"));
-        assert!(!is_reasoning_model("granite-4.2-3b", "granite"));
+        assert!(!is_reasoning_model("granite-4.1-8b", "granite"));
         assert!(!is_reasoning_model("phi-3.5", "phi"));
         assert!(!is_reasoning_model("mistral-7b", "mistral"));
     }

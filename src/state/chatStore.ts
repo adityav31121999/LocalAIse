@@ -257,6 +257,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       }));
     };
 
+    // The Thinking toggle controls both what the model may generate and what
+    // the transcript shows, so a turn started with it on carries reasoning.
+    const requestSampling = { ...sampling, thinking: get().showThinking };
+
     try {
       const result = await streamChat(
         projectId,
@@ -280,7 +284,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             patchAnswer((message) => applyAgentEvent(message, event)),
         },
         chatSessionId,
-        sampling,
+        requestSampling,
         attachedFiles,
       );
       patchAnswer((message) => ({
