@@ -158,7 +158,7 @@ export function MessageList({ messages, streaming, showThinking }: MessageListPr
                 )
               ) : (
                 <div className="msg__body">
-                  <Markdown text={message.content} streaming={message.pending ?? false} />
+                  <Markdown text={message.content} streaming={message.pending ?? false} mentions />
                   {message.pending ? <span className="msg__caret" aria-hidden="true" /> : null}
                 </div>
               )}
