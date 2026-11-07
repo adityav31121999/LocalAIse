@@ -71,6 +71,17 @@ pub async fn call(
             let content = args["content"].as_str().unwrap_or("");
             files::append_file(project_root, path, content)
         }
+        "prepend_file" => {
+            let path = args["path"].as_str().unwrap_or("");
+            let content = args["content"].as_str().unwrap_or("");
+            files::prepend_file(project_root, path, content)
+        }
+        "edit_file" => {
+            let path = args["path"].as_str().unwrap_or("");
+            let old_string = args["old_string"].as_str().unwrap_or("");
+            let new_string = args["new_string"].as_str().unwrap_or("");
+            files::edit_file(project_root, path, old_string, new_string)
+        }
         "search_local" => {
             let query = args["query"].as_str().unwrap_or("");
             search_local::search_local(project_root, query)

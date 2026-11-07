@@ -156,6 +156,76 @@ pub fn write_file(project_root: &Path, rel_path: &str, content: &str) -> ToolRes
     }
 }
 
+/// Prepend `content` to the beginning of `rel_path` inside the project folder
+/// (outputs/ prefix enforced). Creates the file if it does not exist.
+pub fn prepend_file(project_root: &Path, rel_path: &str, content: &str) -> ToolResult {
+    let rel_path = normalize_rel(rel_path);
+    if rel_path.is_empty() {
+        return ToolResult::err("prepend_file", "path argument is required");
+    }
+
+    let safe_path = if rel_path.starts_with("outputs/") || rel_path.starts_with("outputs\\") {
+        rel_path.to_string()
+    } else {
+        format!("outputs/{rel_path}")
+    };
+
+    let target = match safe_join(project_root, &safe_path) {
+        Some(p) => p,
+        None => return ToolResult::err("prepend_file", "path escapes project folder"),
+    };
+
+    if let Some(parent) = target.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let existing = std::fs::read_to_string(&target).unwrap_or_default();
+    let new_content = format!("{content}{existing}");
+    match std::fs::write(&target, new_content) {
+        Ok(()) => ToolResult::ok("prepend_file", format!("Prepended to {safe_path}")),
+        Err(e) => ToolResult::err("prepend_file", format!("Cannot prepend to {safe_path}: {e}")),
+    }
+}
+
+/// Edit `rel_path` by replacing `old_string` with `new_string` (must be unique).
+/// outputs/ prefix enforced.
+pub fn edit_file(project_root: &Path, rel_path: &str, old_string: &str, new_string: &str) -> ToolResult {
+    let rel_path = normalize_rel(rel_path);
+    if rel_path.is_empty() {
+        return ToolResult::err("edit_file", "path argument is required");
+    }
+
+    let safe_path = if rel_path.starts_with("outputs/") || rel_path.starts_with("outputs\\") {
+        rel_path.to_string()
+    } else {
+        format!("outputs/{rel_path}")
+    };
+
+    let target = match safe_join(project_root, &safe_path) {
+        Some(p) => p,
+        None => return ToolResult::err("edit_file", "path escapes project folder"),
+    };
+
+    let content = match std::fs::read_to_string(&target) {
+        Ok(c) => c,
+        Err(e) => return ToolResult::err("edit_file", format!("Cannot read {safe_path}: {e}")),
+    };
+
+    let count = content.matches(old_string).count();
+    if count == 0 {
+        return ToolResult::err("edit_file", format!("old_string not found in {safe_path}"));
+    }
+    if count > 1 {
+        return ToolResult::err("edit_file", format!("old_string appears {count} times in {safe_path}; make it unique"));
+    }
+
+    let new_content = content.replacen(old_string, new_string, 1);
+    match std::fs::write(&target, new_content) {
+        Ok(()) => ToolResult::ok("edit_file", format!("Edited {safe_path}")),
+        Err(e) => ToolResult::err("edit_file", format!("Cannot write {safe_path}: {e}")),
+    }
+}
+
 /// Append `content` to the end of `rel_path` inside the project folder (outputs/
 /// prefix enforced). Creates the file if it does not exist.
 pub fn append_file(project_root: &Path, rel_path: &str, content: &str) -> ToolResult {

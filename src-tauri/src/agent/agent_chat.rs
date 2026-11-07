@@ -195,6 +195,37 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
         json!({
             "type": "function",
             "function": {
+                "name": "prepend_file",
+                "description": "Prepends text to the beginning of an existing file (creates it if needed). The file is always saved inside the outputs/ folder.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Target file path relative to the project root, without any @ or quotes — e.g. \"file.txt\"" },
+                        "content": { "type": "string", "description": "Text to prepend to the beginning of the file" }
+                    },
+                    "required": ["path", "content"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "edit_file",
+                "description": "Edits a file by replacing an exact unique substring. The file is always saved inside the outputs/ folder.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Target file path relative to the project root, without any @ or quotes — e.g. \"file.txt\"" },
+                        "old_string": { "type": "string", "description": "Exact text to find (must appear exactly once)" },
+                        "new_string": { "type": "string", "description": "Replacement text" }
+                    },
+                    "required": ["path", "old_string", "new_string"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
                 "name": "search_local",
                 "parameters": {
                     "type": "object",
