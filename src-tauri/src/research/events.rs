@@ -10,6 +10,7 @@ pub enum ResearchEvent {
     GapFound { missing: Vec<String> },
     SectionWritten { title: String, markdown: String },
     Verified { supported: usize, unsupported: usize },
+    Notice { message: String },
     Done { report_id: i64 },
     Error { message: String },
 }

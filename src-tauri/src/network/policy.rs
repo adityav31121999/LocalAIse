@@ -6,7 +6,9 @@
 //!   - No requests to private IP ranges other than 127.x.x.x are allowed.
 //!   - No SSRF: only http/https schemes are accepted.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+use url::{Host, Url};
 
 use crate::error::{AppError, AppResult};
 
@@ -71,4 +73,73 @@ fn is_blocked_ip(ip: IpAddr) -> bool {
         }
         IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
     }
+}
+
+fn blocked_v4(ip: Ipv4Addr) -> bool {
+    let o = ip.octets();
+    ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()
+        || ip.is_broadcast() || ip.is_multicast() || ip.is_documentation()
+        || o[0] == 0
+        || (o[0] == 100 && (o[1] & 0xC0) == 64) // CGNAT 100.64/10
+}
+
+fn blocked_v6(ip: Ipv6Addr) -> bool {
+    let s = ip.segments();
+    ip.is_loopback() || ip.is_unspecified() || ip.is_multicast()
+        || (s[0] & 0xfe00) == 0xfc00      // unique local fc00::/7
+        || (s[0] & 0xffc0) == 0xfe80      // link-local fe80::/10
+        || ip.to_ipv4_mapped().map_or(false, blocked_v4)
+}
+
+fn ip_blocked(ip: IpAddr) -> bool {
+    match ip { IpAddr::V4(v) => blocked_v4(v), IpAddr::V6(v) => blocked_v6(v) }
+}
+
+/// Strict check for *research* fetches: no localhost, no private ranges,
+/// no userinfo tricks. Uses a real URL parser (which also normalizes
+/// decimal/hex IPs like http://2130706433/ into Ipv4).
+pub fn check_external(url: &str, internet_enabled: bool) -> AppResult<Url> {
+    let u = Url::parse(url).map_err(|_| AppError::msg("Invalid URL."))?;
+    if !matches!(u.scheme(), "http" | "https") {
+        return Err(AppError::msg("Only http:// and https:// URLs are supported."));
+    }
+    if !u.username().is_empty() || u.password().is_some() {
+        return Err(AppError::msg("URLs with embedded credentials are not allowed."));
+    }
+    let blocked = |h: &str| AppError::msg(format!("Requests to {h} are not allowed."));
+    match u.host() {
+        None => return Err(AppError::msg("Cannot parse host from URL.")),
+        Some(Host::Domain(d)) => {
+            let d = d.to_ascii_lowercase();
+            if d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".internal") {
+                return Err(blocked(&d));
+            }
+        }
+        Some(Host::Ipv4(ip)) if blocked_v4(ip) => return Err(blocked(&ip.to_string())),
+        Some(Host::Ipv6(ip)) if blocked_v6(ip) => return Err(blocked(&ip.to_string())),
+        _ => {}
+    }
+    if !internet_enabled {
+        return Err(AppError::msg(
+            "Internet access is disabled for this project. Enable the internet toggle to fetch external sources.",
+        ));
+    }
+    Ok(u)
+}
+
+/// Same as `check_external`, plus rejects hostnames that resolve to blocked IPs.
+pub async fn check_external_resolved(url: &str, internet_enabled: bool) -> AppResult<()> {
+    let u = check_external(url, internet_enabled)?;
+    if let Some(Host::Domain(d)) = u.host() {
+        let port = u.port_or_known_default().unwrap_or(443);
+        let addrs = tokio::net::lookup_host((d, port))
+            .await
+            .map_err(|e| AppError::msg(format!("DNS lookup failed for {d}: {e}")))?;
+        for a in addrs {
+            if ip_blocked(a.ip()) {
+                return Err(AppError::msg(format!("{d} resolves to a blocked address.")));
+            }
+        }
+    }
+    Ok(())
 }

@@ -3,6 +3,10 @@ pub use events::ResearchEvent;
 
 // Minimal phase-1 scaffold. Search/fetch/store/roles land here incrementally.
 pub mod orchestrator;
+pub mod fact;
+pub mod request;
+pub mod net;
+pub mod local;
 pub mod store;
 pub mod store_sqlite;
 pub mod fetch;

@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Source { pub id: i64, pub url: String, pub title: String, pub text: String }
 
-#[derive(Default)]
 pub struct EvidenceStore { sources: Vec<Source>, next: i64 }
+
+impl Default for EvidenceStore { fn default() -> Self { Self::new() } }
 
 impl EvidenceStore {
     pub fn new() -> Self { Self { sources: vec![], next: 1 } }

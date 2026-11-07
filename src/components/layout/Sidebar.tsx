@@ -76,6 +76,7 @@ interface TreeNodeItemProps {
   onRename(entry: { path: string; name: string }): void;
   onDelete(entry: { path: string; name: string }): void;
   query: string;
+  treeVersion: number;
 }
 
 function TreeNodeItem({
@@ -96,6 +97,7 @@ function TreeNodeItem({
   onRename,
   onDelete,
   query,
+  treeVersion,
 }: TreeNodeItemProps) {
   const isExpanded = Boolean(expandedFolders[path]);
   const isSelected = selectedPath === path;
@@ -122,7 +124,7 @@ function TreeNodeItem({
     return () => {
       active = false;
     };
-  }, [project.id, path, isDir, isExpanded]);
+  }, [project.id, path, isDir, isExpanded, treeVersion]);
 
   const source = sourcesMap.get(path);
   const fileMeta = getFileIconColor(name);
@@ -289,6 +291,7 @@ function TreeNodeItem({
                   onRename={onRename}
                   onDelete={onDelete}
                   query={query}
+                  treeVersion={treeVersion}
                 />
               ))
             )}
@@ -400,6 +403,8 @@ export function Sidebar({ project }: { project: Project }) {
     return map;
   }, [sources]);
 
+  const [treeVersion, setTreeVersion] = useState(0);
+
   const loadRoot = useCallback(async () => {
     try {
       const items = await listDirectory(project.id, "");
@@ -418,6 +423,13 @@ export function Sidebar({ project }: { project: Project }) {
       setRootEntries([]);
     }
   }, [project.id]);
+
+  const refreshTree = useCallback(async () => {
+    await loadRoot();
+    // Bump version to force re-render of all TreeNodeItem components,
+    // which will reload children for expanded folders
+    setTreeVersion((v) => v + 1);
+  }, [loadRoot]);
 
   useEffect(() => {
     void loadRoot();
@@ -499,7 +511,7 @@ export function Sidebar({ project }: { project: Project }) {
         if (selectedPath === modalTargetEntry.path) setSelectedPath(null);
       }
       setModalType(null);
-      await loadRoot();
+      await refreshTree();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
@@ -715,6 +727,7 @@ export function Sidebar({ project }: { project: Project }) {
                   onRename={openRename}
                   onDelete={openDelete}
                   query={query}
+                  treeVersion={treeVersion}
                 />
               ))
             )}

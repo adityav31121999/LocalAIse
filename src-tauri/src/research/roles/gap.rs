@@ -1,4 +1,5 @@
-pub fn check(summaries: &[String]) -> Vec<String> {
-    // Stub: no gaps found once any facts exist.
-    if summaries.is_empty() { vec!["more sources".to_string()] } else { vec![] }
+use crate::research::fact::Fact;
+
+pub fn check(sub_count: usize, facts: &[Fact]) -> Vec<usize> {
+    (0..sub_count).filter(|i| !facts.iter().any(|f| f.sub_q == *i)).collect()
 }

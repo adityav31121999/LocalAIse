@@ -3,7 +3,7 @@
  * SHA-256 checksums recorded by scripts/fetch-llama-server.ts in
  * resources/llama/checksums.json.
  *
- * Since llama.cpp v0.7.0 the bundle is not just one exe: it also carries
+ * Since llama.cpp v0.9.0 the bundle is not just one exe: it also carries
  * ggml-base.dll and the ggml-cpu-<variant>.dll dispatch tiers next to it,
  * so every file that has a recorded checksum is verified. A bundled
  * llama-server executable with no recorded checksum fails too, which

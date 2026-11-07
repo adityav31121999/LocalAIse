@@ -3,7 +3,7 @@
 //! This is the only place llama-server flags are spelled out, so the UI, the
 //! recommender and the supervisor all agree on what a profile means.
 //!
-//! Flag surface checked against llama.cpp v0.7.0. Two breaking changes from
+//! Flag surface checked against llama.cpp v0.9.0. Two breaking changes from
 //! the older `b*` tags are handled here: the API key env is now
 //! `LLAMA_API_KEY` (was `LLAMA_ARG_API_KEY`) and mmap is disabled through
 //! `--load-mode none` (the old `--no-mmap` no longer exists).
@@ -118,13 +118,13 @@ pub fn build_launch(
     }
 
     if !profile.use_mmap {
-        // v0.7.0: `--no-mmap` was folded into the load-mode switch and
+        // v0.9.0: `--no-mmap` was folded into the load-mode switch and
         // `none` is exactly the old behaviour: read the model without mmap.
         args.push("--load-mode".into());
         args.push("none".into());
     }
 
-    // v0.7.0 renamed the key env for `--api-key` to LLAMA_API_KEY. The key
+    // v0.9.0 renamed the key env for `--api-key` to LLAMA_API_KEY. The key
     // goes through the environment rather than argv, so it does not appear
     // in the process list.
     let mut env = vec![("LLAMA_API_KEY".into(), api_key.to_string())];

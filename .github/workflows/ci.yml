@@ -50,7 +50,7 @@ jobs:
 
       - name: Clone llama.cpp (pinned tag)
         working-directory: .
-        run: git clone --depth 1 --branch b11678 https://github.com/ggml-org/llama.cpp vendor/llama.cpp
+        run: git clone --depth 1 --branch v0.9.0 https://github.com/ggml-org/llama.cpp vendor/llama.cpp
 
       - name: Build and stage llama-server bundle
         working-directory: .

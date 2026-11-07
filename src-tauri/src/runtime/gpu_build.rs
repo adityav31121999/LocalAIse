@@ -15,7 +15,7 @@ use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
 
 /// Pinned llama.cpp tag.
-pub const PINNED_TAG: &str = "b11678";
+pub const PINNED_TAG: &str = "v0.9.0";
 
 /// Event the settings and onboarding pages listen to during install.
 pub const PROGRESS_EVENT: &str = "backend://progress";

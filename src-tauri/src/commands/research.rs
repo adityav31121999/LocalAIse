@@ -371,16 +371,47 @@ pub async fn execute_research_plan(
 #[tauri::command]
 pub async fn run_deep_research(
     app: tauri::AppHandle,
+    state: State<'_, AppState>,
     question: String,
+    mode: crate::research::request::ResearchMode,
+    project_id: String,
+    provided_urls: Option<Vec<String>>,
+    use_browser: Option<bool>,
 ) -> Result<i64, String> {
+    use crate::research::net::ResearchNet;
     use crate::research::orchestrator;
+    use crate::research::request::ResearchRequest;
     use tokio::sync::mpsc;
+
+    let record = {
+        let registry = state.registry().map_err(|e| e.to_string())?;
+        registry.find(&project_id).cloned().ok_or_else(|| "unknown project".to_string())?
+    };
+
+    let req = ResearchRequest {
+        question,
+        mode,
+        project_root: Some(std::path::PathBuf::from(&record.path)),
+        provided_urls: provided_urls.unwrap_or_default(),
+        use_browser: use_browser.unwrap_or(true),
+        internet_enabled: record.internet_enabled,
+    };
+    let net = ResearchNet {
+        project_root: std::path::PathBuf::from(&record.path),
+        internet_enabled: record.internet_enabled,
+    };
+
     let (tx, mut rx) = mpsc::channel::<crate::research::ResearchEvent>(64);
+    let tx_err = tx.clone();
     let handle = app.clone();
     tokio::spawn(async move {
         while let Some(ev) = rx.recv().await {
             let _ = handle.emit("research:event", ev);
         }
     });
-    orchestrator::run_once(&question, tx).await
+    let result = orchestrator::run(req, &net, tx, orchestrator::Budgets::default()).await;
+    if let Err(e) = &result {
+        let _ = tx_err.send(crate::research::ResearchEvent::Error { message: e.clone() }).await;
+    }
+    result
 }

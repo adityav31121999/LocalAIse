@@ -20,6 +20,10 @@ impl HttpFetcher {
         };
         Ok(Page { url: url.to_string(), markdown })
     }
+
+    pub async fn fetch_raw(&self, url: &str) -> Result<String, String> {
+        self.client.get(url).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())
+    }
 }
 
 pub fn extract_markdown(html: &str) -> Result<String, String> {
