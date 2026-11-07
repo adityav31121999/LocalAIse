@@ -19,6 +19,7 @@ interface PersistedSettings {
   density: Density;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
+  railCollapsed: boolean;
   onboardingComplete: boolean;
 }
 
@@ -28,6 +29,7 @@ const DEFAULTS: PersistedSettings = {
   density: "comfortable",
   sidebarCollapsed: false,
   sidebarWidth: 220,
+  railCollapsed: false,
   onboardingComplete: false,
 };
 
@@ -69,6 +71,7 @@ function readPersisted(): PersistedSettings {
       sidebarWidth: typeof parsed.sidebarWidth === "number" && parsed.sidebarWidth > 0
         ? parsed.sidebarWidth
         : DEFAULTS.sidebarWidth,
+      railCollapsed: Boolean(parsed.railCollapsed),
       onboardingComplete: Boolean(parsed.onboardingComplete),
     };
   } catch {
@@ -92,6 +95,8 @@ interface SettingsState extends PersistedSettings {
   toggleSidebar(): void;
   setSidebarCollapsed(collapsed: boolean): void;
   setSidebarWidth(width: number): void;
+  toggleRail(): void;
+  setRailCollapsed(collapsed: boolean): void;
   completeOnboarding(): void;
   // Updater settings (synced with backend)
   getAutoUpdateCheck(): Promise<boolean>;
@@ -101,8 +106,8 @@ interface SettingsState extends PersistedSettings {
 
 export const useSettingsStore = create<SettingsState>()((set, get) => {
   const persist = () => {
-    const { colorMode, themeName, density, sidebarCollapsed, sidebarWidth, onboardingComplete } = get();
-    write({ colorMode, themeName, density, sidebarCollapsed, sidebarWidth, onboardingComplete });
+    const { colorMode, themeName, density, sidebarCollapsed, sidebarWidth, railCollapsed, onboardingComplete } = get();
+    write({ colorMode, themeName, density, sidebarCollapsed, sidebarWidth, railCollapsed, onboardingComplete });
   };
 
   return {
@@ -144,6 +149,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
 
     setSidebarWidth: (width) => {
       set({ sidebarWidth: width });
+      persist();
+    },
+
+    toggleRail: () => {
+      set({ railCollapsed: !get().railCollapsed });
+      persist();
+    },
+
+    setRailCollapsed: (railCollapsed) => {
+      if (get().railCollapsed === railCollapsed) return;
+      set({ railCollapsed });
       persist();
     },
 

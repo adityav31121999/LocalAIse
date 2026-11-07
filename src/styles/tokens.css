@@ -47,8 +47,8 @@
   --border-w: 1px;
 
   /* Layout */
-  --rail-w: 56px;
-  --sidebar-w: 268px;
+  --rail-w: 52px;
+  --sidebar-w: 230px;
   --topbar-h: 46px;
   --statusbar-h: 30px;
 
@@ -71,6 +71,79 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * Responsive breakpoints (viewport-width based)
+ * These adjust layout variables based on available window width.
+ * ------------------------------------------------------------------ */
+
+/* Standard laptop: 1366–1535px */
+@media (max-width: 1535px) {
+  :root:not([data-density="compact"]):not([data-density="spacious"]) {
+    --rail-w: 48px;
+    --sidebar-w: 210px;
+    --topbar-h: 44px;
+    --statusbar-h: 28px;
+    --control-h: 32px;
+    --control-h-sm: 26px;
+    --space-2: 7px;
+    --space-3: 10px;
+    --space-4: 14px;
+    --space-5: 18px;
+    --space-6: 22px;
+    --space-8: 28px;
+  }
+}
+
+/* Compact laptop: 1280–1365px */
+@media (max-width: 1365px) {
+  :root:not([data-density="compact"]):not([data-density="spacious"]) {
+    --rail-w: 44px;
+    --sidebar-w: 190px;
+    --topbar-h: 42px;
+    --statusbar-h: 26px;
+    --control-h: 30px;
+    --control-h-sm: 24px;
+    --space-2: 6px;
+    --space-3: 9px;
+    --space-4: 12px;
+    --space-5: 16px;
+    --space-6: 20px;
+    --space-8: 26px;
+  }
+}
+
+/* Narrow window: below 1100px */
+@media (max-width: 1100px) {
+  :root:not([data-density="compact"]):not([data-density="spacious"]) {
+    --space-2: 6px;
+    --space-3: 8px;
+    --space-4: 10px;
+    --space-5: 14px;
+    --space-6: 18px;
+  }
+}
+
+/* Very narrow window: below 1024px */
+@media (max-width: 1024px) {
+  :root:not([data-density="compact"]):not([data-density="spacious"]) {
+    --rail-w: 40px;
+    --sidebar-w: 0;
+    --topbar-h: 40px;
+    --control-h: 28px;
+    --control-h-sm: 24px;
+    --space-2: 5px;
+    --space-3: 8px;
+    --space-4: 10px;
+  }
+}
+
+/* Large desktop: 2560px+ - constrain workspace width */
+@media (min-width: 2560px) {
+  :root:not([data-density="compact"]):not([data-density="spacious"]) {
+    --sidebar-w: 260px;
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Density
  * "comfortable" is the scale defined above; the other two bend the
  * spacing and control sizes without touching typography or layout
@@ -86,8 +159,8 @@
   --space-5: 16px;
   --space-6: 20px;
   --space-8: 26px;
-  --rail-w: 48px;
-  --sidebar-w: 244px;
+  --rail-w: 44px;
+  --sidebar-w: 190px;
   --topbar-h: 42px;
   --statusbar-h: 26px;
 }

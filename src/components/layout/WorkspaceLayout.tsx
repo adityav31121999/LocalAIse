@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSettingsStore } from "../../state/settingsStore";
 
-const MIN_SIDEBAR_WIDTH = 200;
+const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 500;
 
 interface WorkspaceLayoutProps {

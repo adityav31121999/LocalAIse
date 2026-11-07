@@ -133,18 +133,20 @@ export function ProjectHeader({
       </div>
 
       <nav className="tabs" role="tablist" aria-label="Project views">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            className="tab"
-            aria-selected={tab === item.id}
-            onClick={() => onTabChange(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
+        <div className="tabs__scroll">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              className="tab"
+              aria-selected={tab === item.id}
+              onClick={() => onTabChange(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </nav>
 
       <span className="project-header__spacer" />
@@ -155,7 +157,7 @@ export function ProjectHeader({
           className="icon-btn icon-btn--sm"
           onClick={onToggleSidebar}
           aria-pressed={!sidebarCollapsed}
-          title={sidebarCollapsed ? "Show sources panel" : "Hide sources panel"}
+          title={sidebarCollapsed ? "Show sources panel (Ctrl+\\\)" : "Hide sources panel (Ctrl+\\\)"}
         >
           <PanelLeftIcon size={15} />
           <span className="sr-only">Toggle sources panel</span>

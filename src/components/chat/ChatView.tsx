@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
-import { PlusIcon, SparkIcon, TrashIcon } from "../ui/icons";
+import { PlusIcon, SparkIcon, TrashIcon, MoreIcon, ChevronDownIcon } from "../ui/icons";
 import { NetworkIndicator } from "../layout/NetworkIndicator";
 import { ModeIndicator } from "../layout/ModeIndicator";
 import { PanelErrorBoundary } from "../ui/PanelErrorBoundary";
@@ -188,6 +188,25 @@ export function ChatView({ project }: { project: Project }) {
     );
   };
 
+  const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const chatMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!chatMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!chatMenuRef.current?.contains(event.target as Node)) setChatMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setChatMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [chatMenuOpen]);
+
   return (
     <div className="chat" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div className="chat__bar" style={{ flexShrink: 0 }}>
@@ -259,32 +278,96 @@ export function ChatView({ project }: { project: Project }) {
           <span className="thinking-toggle__track" aria-hidden="true">
             <span className="thinking-toggle__thumb" />
           </span>
-          Thinking
+          <span className="thinking-toggle__label">Thinking</span>
         </button>
 
-        {activeChatId ? (
+        <div className="chat__bar-actions" ref={chatMenuRef}>
+          {activeChatId ? (
+            <button
+              type="button"
+              className="icon-btn icon-btn--sm"
+              title="Delete this chat"
+              disabled={streaming}
+              onClick={() => void removeChat(project.id, activeChatId)}
+            >
+              <TrashIcon size={14} />
+              <span className="sr-only">Delete this chat</span>
+            </button>
+          ) : null}
+
           <button
             type="button"
-            className="icon-btn icon-btn--sm"
-            title="Delete this chat"
+            className="btn btn--secondary btn--sm"
             disabled={streaming}
-            onClick={() => void removeChat(project.id, activeChatId)}
+            onClick={() => newChat(project.id)}
+            title="Start a new conversation with a completely fresh cache"
           >
-            <TrashIcon size={14} />
-            <span className="sr-only">Delete this chat</span>
+            <PlusIcon size={14} />
+            <span className="chat__new-chat-label">New chat</span>
           </button>
-        ) : null}
 
-        <button
-          type="button"
-          className="btn btn--secondary btn--sm"
-          disabled={streaming}
-          onClick={() => newChat(project.id)}
-          title="Start a new conversation with a completely fresh cache"
-        >
-          <PlusIcon size={14} />
-          New chat
-        </button>
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm chat__overflow-btn"
+            aria-expanded={chatMenuOpen}
+            aria-haspopup="menu"
+            aria-label="More chat actions"
+            onClick={() => setChatMenuOpen((open) => !open)}
+          >
+            <MoreIcon size={15} />
+          </button>
+
+          {chatMenuOpen && (
+            <div className="chat__overflow-menu card-menu" role="menu">
+              {activeChatId && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="card-menu__danger"
+                  onClick={() => {
+                    setChatMenuOpen(false);
+                    void removeChat(project.id, activeChatId!);
+                  }}
+                >
+                  <TrashIcon size={13} />
+                  Delete this chat
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                disabled={streaming}
+                onClick={() => {
+                  setChatMenuOpen(false);
+                  newChat(project.id);
+                }}
+              >
+                <PlusIcon size={13} />
+                New chat (fresh cache)
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setChatMenuOpen(false);
+                  setShowThinking(!showThinking);
+                }}
+              >
+                {showThinking ? (
+                  <>
+                    <ChevronDownIcon size={13} />
+                    Hide thinking
+                  </>
+                ) : (
+                  <>
+                    <SparkIcon size={13} />
+                    Show thinking
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="chat__pane" ref={paneRef} style={{ flex: 1, minHeight: 0 }}>

@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { ActivityRail } from "./ActivityRail";
 import { NetworkIndicator } from "./NetworkIndicator";
 import { useProjectStore, selectActiveProject } from "../../state/projectStore";
 import { useRuntimeStore } from "../../state/runtimeStore";
 import { useNavStore } from "../../state/navStore";
+import { useSettingsStore } from "../../state/settingsStore";
 import { runtimeLabel } from "../../util/format";
 
 function StatusBar() {
@@ -51,9 +53,24 @@ function StatusBar() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const railCollapsed = useSettingsStore((state) => state.railCollapsed);
+  const setRailCollapsed = useSettingsStore((state) => state.setRailCollapsed);
+
+  // Keyboard shortcut: Ctrl+B to toggle rail
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "b") {
+        event.preventDefault();
+        setRailCollapsed(!railCollapsed);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [railCollapsed, setRailCollapsed]);
+
   return (
-    <div className="app-shell">
-      <ActivityRail />
+    <div className={`app-shell${railCollapsed ? " app-shell--rail-collapsed" : ""}`}>
+      <ActivityRail collapsed={railCollapsed} />
       <div className="app-main">
         {children}
         <StatusBar />
