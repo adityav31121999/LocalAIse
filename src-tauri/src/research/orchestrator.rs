@@ -22,8 +22,14 @@ pub async fn run(question: &str, tx: mpsc::Sender<ResearchEvent>, budgets: Budge
     let mut all_facts: Vec<String> = Vec::new();
     let mut seen_urls = std::collections::HashSet::new();
     let mut pages_fetched = 0usize;
+    let started = std::time::Instant::now();
+    let mut prev_facts = 0usize;
 
     for round in 0..budgets.max_rounds {
+        // Respect wall-clock budget: stop if we've run too long.
+        if started.elapsed().as_secs() >= budgets.wall_clock_secs {
+            break;
+        }
         // Search: stub queries (one per sub-question).
         let mut urls: Vec<String> = Vec::new();
         for sq in &sub_questions {
@@ -58,8 +64,14 @@ pub async fn run(question: &str, tx: mpsc::Sender<ResearchEvent>, budgets: Budge
             let _ = tx.send(ResearchEvent::GapFound { missing: gaps.clone() }).await;
         }
 
-        // Novelty stop: if no new facts this round, stop.
-        // (Simplified: stop when gaps empty.)
+        // Novelty stop: track fact count; break if no new facts this round.
+        let facts_this_round = all_facts.len();
+        if round > 0 && facts_this_round == prev_facts {
+            break;
+        }
+        prev_facts = facts_this_round;
+
+        // Stop when no gaps remain.
         if gaps.is_empty() { break; }
         let _ = round;
     }

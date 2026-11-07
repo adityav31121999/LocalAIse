@@ -138,6 +138,9 @@ pub async fn chat_send(
     temperature: Option<f32>,
     top_p: Option<f32>,
     top_k: Option<i32>,
+    // Whether the model may think before answering. Follows the Thinking
+    // toggle in the chat bar; missing means "on" for models that support it.
+    thinking: Option<bool>,
 ) -> AppResult<ChatStreamResult> {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
@@ -149,13 +152,17 @@ pub async fn chat_send(
     let run = crate::agent::cancel::RunGuard::begin(&project_id);
 
     // Build sampling params from provided values, using defaults when not specified.
+    // Granite 4.2 (and Qwen3-style models) switch thinking on through the chat
+    // template, so the toggle has to reach the request rather than only hide
+    // the trace in the UI.
+    let thinking = thinking.unwrap_or(true);
     let mut sampling = SamplingParams {
         temperature: temperature.unwrap_or(0.2).clamp(0.0, 2.0),
         top_p: top_p.map(|v| v.clamp(0.0, 1.0)),
         top_k: top_k.map(|v| v.max(0)),
         max_tokens: None,
-        reasoning_effort: None,
-        chat_template_kwargs: None,
+        reasoning_effort: if thinking { None } else { Some("none".to_string()) },
+        chat_template_kwargs: Some(serde_json::json!({ "enable_thinking": thinking })),
     };
 
     let (record, settings) = {

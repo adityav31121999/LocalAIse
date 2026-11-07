@@ -66,6 +66,11 @@ pub async fn call(
             let content = args["content"].as_str().unwrap_or("");
             files::write_file(project_root, path, content)
         }
+        "append_file" => {
+            let path = args["path"].as_str().unwrap_or("");
+            let content = args["content"].as_str().unwrap_or("");
+            files::append_file(project_root, path, content)
+        }
         "search_local" => {
             let query = args["query"].as_str().unwrap_or("");
             search_local::search_local(project_root, query)

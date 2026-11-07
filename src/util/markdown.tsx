@@ -102,7 +102,7 @@ function parseNested(text: string, keyPrefix: string, depth: number): ReactNode[
 
 const HR_RE = /^[ \t]*([-*+_])[ \t]*(?:\1[ \t]*){2,}$/;
 const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/;
-const FENCE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)/;
+const FENCE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)[ \t]*$/;
 const LIST_RE = /^([ \t]*)([-*+]|(?:\d{1,9})[.)])[ \t]+(.*)$/;
 const BLOCKQUOTE_RE = /^[ \t]*>[ \t]?/;
 const TABLE_RULE_RE = /^[ \t]*\|?[ \t]*:?-*:?[ \t]*(\|[ \t]*:?-*:?[ \t]*)*\|?[ \t]*$/;
@@ -242,7 +242,7 @@ function parseListGroup(
   return [list, cursor];
 }
 
-function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
+function parseBlocks(text: string, keyPrefix: string, streaming = false): ReactNode[] {
   const lines = text.split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -262,7 +262,22 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
     if (fence) {
       const marker = fence[1] ?? "```";
       const info = (fence[2] ?? "").trim();
-      const closer = new RegExp(`^[ \\t]*${marker[0]}{${marker.length},}[ \\t]*$`);
+      const closer = new RegExp(`^[ \\t]*${marker[0]}{${marker.length},}[ \\t]*"?[ \\t]*$`);
+      // Only treat as a code block if a matching closer exists (or streaming).
+      let hasCloser = false;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (closer.test(lines[j] ?? "")) { hasCloser = true; break; }
+      }
+      if (!hasCloser && !streaming) {
+        const paragraph: string[] = [line];
+        i += 1;
+        while (i < lines.length && !isBlockBoundary(lines[i] ?? "")) {
+          paragraph.push(lines[i] ?? "");
+          i += 1;
+        }
+        blocks.push(renderParagraph(paragraph, key));
+        continue;
+      }
       i += 1;
       const code: string[] = [];
       while (i < lines.length && !closer.test(lines[i] ?? "")) {
@@ -311,7 +326,7 @@ function parseBlocks(text: string, keyPrefix: string): ReactNode[] {
         quoted.push((lines[i] ?? "").replace(BLOCKQUOTE_RE, ""));
         i += 1;
       }
-      blocks.push(createElement("blockquote", { key }, parseBlocks(quoted.join("\n"), key)));
+      blocks.push(createElement("blockquote", { key }, parseBlocks(quoted.join("\n"), key, streaming)));
       continue;
     }
 
@@ -349,13 +364,15 @@ export interface MarkdownProps {
   /** Markdown string, possibly a partially streamed message. */
   text: string;
   className?: string;
+  /** When true, an unclosed fence is rendered as a code block (streaming). */
+  streaming?: boolean;
 }
 
 /** Renders a markdown string as nested React elements (XSS-safe by design). */
-export function Markdown({ text, className }: MarkdownProps) {
+export function Markdown({ text, className, streaming }: MarkdownProps) {
   return createElement(
     "div",
     { className: className ? `md ${className}` : "md" },
-    ...parseBlocks(text, "md"),
+    ...parseBlocks(text, "md", streaming ?? false),
   );
 }

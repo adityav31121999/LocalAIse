@@ -38,6 +38,8 @@ export interface SamplingParams {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  /** Whether the model may think before answering. */
+  thinking?: boolean;
 }
 
 export async function streamChat(
@@ -74,6 +76,7 @@ export async function streamChat(
         temperature: sampling?.temperature,
         top_p: sampling?.top_p,
         top_k: sampling?.top_k,
+        thinking: sampling?.thinking,
       });
       if (handlers.signal.aborted) {
         // Keep exactly the live transcript the user saw; the backend may have
