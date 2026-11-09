@@ -74,12 +74,26 @@ pub fn build_launch(
 
     // Partial loading hands the context decision to llama-server's fitter:
     // it lowers the context until the model and its KV cache fit device
-    // memory, bounded by --fit-ctx. An explicit -c would disable that.
+    // memory, bounded by --fit-ctx (the smallest context it may pick: its
+    // own default is 4096). An explicit -c would disable that.
+    //
+    // The floor must honour the request budgets. A turn may ask for a
+    // prompt of max_input tokens plus max_output generated tokens, with
+    // reasoning spending out of the same window, so a context smaller than
+    // their sum makes the server reject turns before they can even start
+    // (400, exceed_context_size_error). Caps of 0 mean "unlimited"; with
+    // every cap at 0 the floor falls back to 512, which leaves the fitter
+    // as free as before this was tied to the budgets.
     if profile.partial_load {
+        let needed = profile
+            .max_input_tokens
+            .saturating_add(profile.max_output_tokens)
+            .saturating_add(profile.thinking_budget);
+        let floor = needed.clamp(512, u32::MAX);
         args.push("--fit".into());
         args.push("on".into());
         args.push("--fit-ctx".into());
-        args.push("512".into());
+        args.push(floor.to_string());
     } else {
         args.push("-c".into());
         args.push(profile.context_tokens.to_string());
@@ -360,5 +374,37 @@ mod tests {
             .unwrap();
         assert!(pinned.args.contains(&"-c".to_string()));
         assert!(!pinned.args.contains(&"--fit".to_string()));
+    }
+
+    #[test]
+    fn the_fit_floor_never_drops_below_the_budgets() {
+        let mut profile = InferenceProfile::desktop_default();
+        profile.partial_load = true;
+        let fit_floor = |profile: &InferenceProfile| {
+            build_launch(Path::new("m.gguf"), None, 8080, "key", profile)
+                .unwrap()
+                .args
+                .iter()
+                .position(|a| a == "--fit-ctx")
+                .and_then(|i| build_launch(Path::new("m.gguf"), None, 8080, "key", profile)
+                    .unwrap()
+                    .args
+                    .get(i + 1)
+                    .cloned())
+        };
+
+        // The settings-page budgets from the reported failure: prompt 1024,
+        // response 3072, thinking 512. The fitter used to be told 512.
+        profile.max_input_tokens = 1_024;
+        profile.max_output_tokens = 3_072;
+        profile.thinking_budget = 512;
+        assert_eq!(fit_floor(&profile).as_deref(), Some("4608"));
+
+        // Unlimited budgets (0 on every cap) leave the fitter free again.
+        let mut free = profile;
+        free.max_input_tokens = 0;
+        free.max_output_tokens = 0;
+        free.thinking_budget = 0;
+        assert_eq!(fit_floor(&free).as_deref(), Some("512"));
     }
 }
