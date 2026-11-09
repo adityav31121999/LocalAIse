@@ -75,6 +75,21 @@ fn agent_writes_land_in_outputs_only() {
 }
 
 #[test]
+fn agent_writes_to_a_named_existing_file_stay_there() {
+    let root = temp_project("append");
+
+    // An append to a file that already exists goes to that exact file,
+    // not to an auto-created copy under outputs/diary/.
+    let result = files::append_file(&root, "invoices/jan.csv", "amount,day\n");
+    assert!(result.error.is_none());
+    let contents = std::fs::read_to_string(root.join("invoices/jan.csv")).unwrap();
+    assert!(contents.contains("amount,day"));
+    assert!(!root.join("outputs").exists());
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn list_files_refuses_subdirs_that_escape() {
     let root = temp_project("list");
     let result = files::list_files(&root, "../../");

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::retrieval::citations::Citation;
+use crate::runtime::CallUsage;
 use crate::util::time;
 
 #[cfg(test)]
@@ -80,6 +81,9 @@ pub struct StoredMessage {
     /// Generated tokens per second.
     #[serde(default, skip_serializing_if = "is_zero_f64")]
     pub tokens_per_second: f64,
+    /// Tokens of every single model call, in order (agent tool-loop calls).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub call_usages: Vec<CallUsage>,
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -282,6 +286,7 @@ mod tests {
             total_tokens: 0,
             context_tokens: 0,
             tokens_per_second: 0.0,
+            call_usages: Vec::new(),
         }
     }
 

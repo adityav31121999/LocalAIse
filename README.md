@@ -299,7 +299,7 @@ outside them unless `ragPaths` in `project.json` narrows the scope.
 - The webview gets no general network access — the CSP allows only `self` and the IPC bridge.
 - llama-server binds to `127.0.0.1` on a random port with a random per-session token.
 - CPU runs pin every GPU backend off, including on a GPU-capable install.
-- Agent writes land in `outputs/`; overwrites and deletions require confirmation.
+- New agent-created files land in `outputs/`; writes to files that already exist go to the named path itself. Overwrites and deletions require confirmation.
 - Model downloads and GPU archives are checksum-pinned; release bundles are scanned for GPU libraries.
 - No telemetry. Ever.
 

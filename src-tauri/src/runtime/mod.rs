@@ -9,7 +9,7 @@ pub mod profile;
 pub mod supervisor;
 pub mod token;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::runtime::profile::{ComputeDevice, InferenceProfile};
 
@@ -19,6 +19,21 @@ use crate::runtime::profile::{ComputeDevice, InferenceProfile};
 pub struct Serving {
     pub port: u16,
     pub token: String,
+}
+
+/// Token usage of a single model call inside a turn. An agent turn is a
+/// sequence of calls (one per tool-loop iteration); this records what each
+/// iteration cost, so a saved chat shows where the tokens went.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallUsage {
+    /// Position of the call in the turn, matching [`crate::projects::chats::AgentStep::call`].
+    pub index: u32,
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+    /// Generated tokens per second for this one call.
+    pub tokens_per_second: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

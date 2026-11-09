@@ -25,6 +25,7 @@ use crate::projects::layout::{ChatMode, ProjectPaths};
 use crate::retrieval::citations::Citation;
 use crate::retrieval::search::search_chunks;
 use crate::runtime::client::{self, SamplingParams};
+use crate::runtime::CallUsage;
 use crate::util::{hash, time};
 use crate::AppState;
 
@@ -53,6 +54,8 @@ pub struct ChatStreamResult {
     pub context_tokens: u32,
     /// Generated tokens per second, when the server reported timings.
     pub tokens_per_second: f64,
+    /// Tokens of every single model call, in order (agent tool-loop calls).
+    pub call_usages: Vec<CallUsage>,
     /// True when the user stopped the turn before the model finished.
     pub cancelled: bool,
 }
@@ -484,8 +487,18 @@ covered by the provided context.",
 
     // Agent mode runs the tool loop over the same local server; chat mode is
     // one streamed call. Both report the tokens and the speed they spent.
-    let (mut content, reasoning, steps, prompt_tokens, completion_tokens, total_tokens, context_tokens, tokens_per_second, cancelled) =
-        if record.chat_mode == ChatMode::Agent {
+    let (
+        mut content,
+        reasoning,
+        steps,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        context_tokens,
+        tokens_per_second,
+        call_usages,
+        cancelled,
+    ) = if record.chat_mode == ChatMode::Agent {
             let personal_space = {
                 let registry = state.registry()?;
                 registry.personal_space_or_default(&state.dirs)
@@ -533,6 +546,7 @@ covered by the provided context.",
                 turn.usage.total_tokens,
                 turn.context_tokens,
                 turn.timings.predicted_per_second,
+                turn.call_usages,
                 turn.cancelled,
             )
         } else {
@@ -560,6 +574,14 @@ covered by the provided context.",
                 usage.total_tokens,
                 usage.prompt_tokens + usage.completion_tokens,
                 timings.predicted_per_second,
+                // Plain chat is one call, so its only call record is the total.
+                vec![crate::runtime::CallUsage {
+                    index: 0,
+                    prompt_tokens: usage.prompt_tokens,
+                    completion_tokens: usage.completion_tokens,
+                    total_tokens: usage.total_tokens,
+                    tokens_per_second: timings.predicted_per_second,
+                }],
                 run.cancelled(),
             )
         };
@@ -585,6 +607,7 @@ covered by the provided context.",
         total_tokens: 0,
         context_tokens: 0,
         tokens_per_second: 0.0,
+        call_usages: Vec::new(),
     });
     session.messages.push(StoredMessage {
         id: hash::unique_id("msg"),
@@ -599,6 +622,7 @@ covered by the provided context.",
         total_tokens,
         context_tokens,
         tokens_per_second,
+        call_usages: call_usages.clone(),
     });
     let summary = chats::save(&chat_dir, &mut session)?;
 
@@ -621,6 +645,7 @@ covered by the provided context.",
         total_tokens,
         context_tokens,
         tokens_per_second,
+        call_usages: call_usages.clone(),
         cancelled,
     })
 }

@@ -88,7 +88,7 @@ fn blocked_v6(ip: Ipv6Addr) -> bool {
     ip.is_loopback() || ip.is_unspecified() || ip.is_multicast()
         || (s[0] & 0xfe00) == 0xfc00      // unique local fc00::/7
         || (s[0] & 0xffc0) == 0xfe80      // link-local fe80::/10
-        || ip.to_ipv4_mapped().map_or(false, blocked_v4)
+        || ip.to_ipv4_mapped().is_some_and(blocked_v4)
 }
 
 fn ip_blocked(ip: IpAddr) -> bool {

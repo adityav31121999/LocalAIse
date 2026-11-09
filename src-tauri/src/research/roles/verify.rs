@@ -11,7 +11,7 @@ pub fn verify(facts: Vec<Fact>, store: &EvidenceStore) -> Verdict {
     let (mut supported, mut unsupported) = (Vec::new(), Vec::new());
     for f in facts {
         let q = norm(&f.quote);
-        let ok = !q.is_empty() && normed.get(&f.source_id).map_or(false, |t| t.contains(&q));
+        let ok = !q.is_empty() && normed.get(&f.source_id).is_some_and(|t| t.contains(&q));
         if ok { supported.push(f) } else { unsupported.push(f) }
     }
     Verdict { supported, unsupported }

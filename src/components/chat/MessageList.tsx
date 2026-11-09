@@ -3,7 +3,7 @@ import { CitationChip } from "./CitationChip";
 import { SparkIcon } from "../ui/icons";
 import { formatClock, formatRate } from "../../util/format";
 import { Markdown } from "../../util/markdown";
-import type { AgentStep, ChatMessage } from "../../types";
+import type { AgentStep, CallUsage, ChatMessage } from "../../types";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -19,10 +19,12 @@ interface MessageListProps {
  */
 function AgentTranscript({
   steps,
+  callUsages,
   showThinking,
   pending,
 }: {
   steps: AgentStep[];
+  callUsages?: CallUsage[];
   showThinking: boolean;
   pending: boolean;
 }) {
@@ -56,6 +58,7 @@ function AgentTranscript({
 
         if (step.kind === "tool" && step.tool) {
           const tool = step.tool;
+          const usage = callUsages?.find((call) => call.index === step.call);
           return (
             <div
               key={step.id}
@@ -67,6 +70,14 @@ function AgentTranscript({
               </span>
               <span className="agent-tool__name">{tool.name}</span>
               {tool.input ? <code className="agent-tool__input">{tool.input}</code> : null}
+              {usage ? (
+                <span
+                  className="agent-tool__tokens"
+                  title={`Model call ${step.call + 1}: ${usage.promptTokens.toLocaleString()} prompt + ${usage.completionTokens.toLocaleString()} generated tokens`}
+                >
+                  {usage.totalTokens.toLocaleString()} tok
+                </span>
+              ) : null}
               <span className="agent-tool__status">
                 {tool.status === "running"
                   ? "running"
@@ -130,6 +141,7 @@ export function MessageList({ messages, streaming, showThinking }: MessageListPr
                 agentSteps.length > 0 ? (
                   <AgentTranscript
                     steps={agentSteps}
+                    callUsages={message.callUsages}
                     showThinking={showThinking}
                     pending={message.pending ?? false}
                   />
@@ -172,9 +184,24 @@ export function MessageList({ messages, streaming, showThinking }: MessageListPr
               ) : null}
 
               {isAssistant && !message.pending && (message.tokensPerSecond ?? 0) > 0 ? (
-                <div className="msg__rate">
+                <div
+                  className="msg__rate"
+                  title={
+                    message.callUsages && message.callUsages.length > 1
+                      ? message.callUsages
+                          .map(
+                            (call) =>
+                              `call ${call.index + 1}: ${call.promptTokens.toLocaleString()} in / ${call.completionTokens.toLocaleString()} out`,
+                          )
+                          .join("\n")
+                      : undefined
+                  }
+                >
                   <span className="msg__rate-value" title="Generation speed">
                     {formatRate(message.tokensPerSecond ?? 0)} tok/s
+                    {message.callUsages && message.callUsages.length > 1
+                      ? ` · ${message.callUsages.length} calls`
+                      : ""}
                   </span>
                 </div>
               ) : null}

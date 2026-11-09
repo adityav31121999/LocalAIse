@@ -15,7 +15,7 @@ pub fn load_corpus(root: &Path) -> Result<Vec<LocalDoc>, String> {
             let name = e.file_name().to_string_lossy().to_string();
             if name.starts_with('.') || name == "node_modules" || name == "target" || name == "chats" { continue; }
             if p.is_dir() { stack.push(p); continue; }
-            let ok_ext = p.extension().and_then(|x| x.to_str()).map_or(false, |x| EXTS.contains(&x));
+            let ok_ext = p.extension().and_then(|x| x.to_str()).is_some_and(|x| EXTS.contains(&x));
             let small = e.metadata().map(|m| m.len() <= MAX_BYTES).unwrap_or(false);
             if ok_ext && small {
                 if let Ok(text) = std::fs::read_to_string(&p) {
@@ -35,6 +35,6 @@ pub fn rank<'a>(docs: &'a [LocalDoc], subs: &[String], top: usize) -> Vec<&'a Lo
         let lower = d.text.to_lowercase();
         (terms.iter().map(|t| lower.matches(t.as_str()).count()).sum(), d)
     }).filter(|(s, _)| *s > 0).collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     scored.into_iter().take(top).map(|(_, d)| d).collect()
 }

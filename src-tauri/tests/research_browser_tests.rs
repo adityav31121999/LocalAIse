@@ -20,7 +20,9 @@ use localaise_lib::research::chunk::chunk_markdown;
 use localaise_lib::research::events::ResearchEvent;
 use localaise_lib::research::fetch::browser::BrowserFetcher;
 use localaise_lib::research::fetch::http::{extract_markdown, HttpFetcher};
+use localaise_lib::research::net::ResearchNet;
 use localaise_lib::research::orchestrator::{self, Budgets};
+use localaise_lib::research::request::{ResearchMode, ResearchRequest};
 use localaise_lib::research::roles::{gap, reader};
 
 /// Any topic works; this one is small, verifiable, and stable.
@@ -186,9 +188,33 @@ fn fact_gate_accepts_verbatim_quotes_only() {
 }
 
 #[test]
-fn gap_check_flags_empty_evidence_only() {
-    assert_eq!(gap::check(&[]), vec!["more sources".to_string()]);
-    assert!(gap::check(&["something".to_string()]).is_empty());
+fn gap_check_flags_subquestions_without_facts() {
+    // No facts: every sub-question is missing.
+    assert_eq!(gap::check(2, &[]), vec![0, 1]);
+    // One fact covering sub-question 0: only 1 is missing.
+    let covered = localaise_lib::research::fact::Fact {
+        sub_q: 0,
+        source_id: 1,
+        claim: "a claim".into(),
+        quote: "a quote".into(),
+    };
+    assert_eq!(gap::check(2, &[covered]), vec![1]);
+    // Both sub-questions covered: no gaps.
+    let facts = vec![
+        localaise_lib::research::fact::Fact {
+            sub_q: 0,
+            source_id: 1,
+            claim: "a".into(),
+            quote: "q".into(),
+        },
+        localaise_lib::research::fact::Fact {
+            sub_q: 1,
+            source_id: 2,
+            claim: "b".into(),
+            quote: "r".into(),
+        },
+    ];
+    assert!(gap::check(2, &facts).is_empty());
 }
 
 #[test]
@@ -318,7 +344,22 @@ async fn browser_tier_reports_failures_without_panicking() {
 async fn topic_end_to_end_emits_the_expected_event_flow() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let budgets = Budgets { max_rounds: 1, max_pages: 3, wall_clock_secs: 60 };
-    let handle = tokio::spawn(async move { orchestrator::run(TOPIC, tx, budgets).await });
+    // A scratch project root: the network gate logs against it and the
+    // orchestrator falls back to it for offline sections, but the online
+    // run itself only touches the public web.
+    let project_root = std::env::temp_dir().join(format!("LocalAIse-research-e2e-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&project_root);
+    let scratch = project_root.clone(); // survives the moves below, for cleanup
+    let request = ResearchRequest {
+        question: TOPIC.into(),
+        mode: ResearchMode::Online,
+        project_root: Some(project_root.clone()),
+        provided_urls: Vec::new(),
+        use_browser: false,
+        internet_enabled: true,
+    };
+    let net = ResearchNet { project_root, internet_enabled: true };
+    let handle = tokio::spawn(async move { orchestrator::run(request, &net, tx, budgets).await });
 
     let mut events: Vec<ResearchEvent> = Vec::new();
     while let Some(ev) = rx.recv().await {
@@ -339,6 +380,7 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
             ResearchEvent::Verified { .. } => "verified",
             ResearchEvent::Done { .. } => "done",
             ResearchEvent::Error { .. } => "error",
+            ResearchEvent::Notice { .. } => "notice",
         })
         .collect();
 
@@ -360,4 +402,5 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
 
     eprintln!("topic: {TOPIC}");
     eprintln!("event flow: {kinds:?}");
+    let _ = std::fs::remove_dir_all(scratch);
 }

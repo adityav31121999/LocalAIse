@@ -206,7 +206,7 @@ fn extract_result_links(html: &str, skip: usize, take: usize) -> Vec<String> {
             let full = if h.starts_with("//") { format!("https:{h}") } else { h.to_string() };
             let u = url::Url::parse(&full).ok()?;
             u.query_pairs().find(|(k, _)| k == "uddg").map(|(_, v)| v.into_owned())
-                .or_else(|| Some(full))
+                .or(Some(full))
         })
         .skip(skip)
         .take(take)

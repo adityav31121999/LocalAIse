@@ -56,7 +56,7 @@ pub async fn fetch_raw_url(
     if !response.status().is_success() {
         return Err(AppError::msg(format!("Web request failed with HTTP {}", response.status())));
     }
-    if response.content_length().map_or(false, |n| n > 5 * 1024 * 1024) {
+    if response.content_length().is_some_and(|n| n > 5 * 1024 * 1024) {
         return Err(AppError::msg("Response too large (>5 MB)."));
     }
 

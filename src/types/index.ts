@@ -108,6 +108,18 @@ export interface ChatMessage {
   contextTokens?: number;
   /** Generated tokens per second for the turn. */
   tokensPerSecond?: number;
+  /** Tokens of every single model call, in order (agent tool-loop calls). */
+  callUsages?: CallUsage[];
+}
+
+/** Tokens one model call inside a turn consumed. */
+export interface CallUsage {
+  /** Position of the call in the turn, matching AgentStep.call. */
+  index: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  tokensPerSecond?: number;
 }
 
 export interface ChatStreamResult {
@@ -126,6 +138,8 @@ export interface ChatStreamResult {
   totalTokens?: number;
   contextTokens?: number;
   tokensPerSecond?: number;
+  /** Tokens of every single model call, in order (agent tool-loop calls). */
+  callUsages?: CallUsage[];
   /** True when the user stopped the turn before the model finished. */
   cancelled?: boolean;
 }
@@ -153,6 +167,8 @@ export interface StoredChatMessage {
   totalTokens?: number;
   contextTokens?: number;
   tokensPerSecond?: number;
+  /** Tokens of every single model call, in order (agent tool-loop calls). */
+  callUsages?: CallUsage[];
 }
 
 /** A full saved conversation. */

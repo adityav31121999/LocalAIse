@@ -158,6 +158,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             totalTokens: stored.totalTokens,
             contextTokens: stored.contextTokens,
             tokensPerSecond: stored.tokensPerSecond,
+            callUsages: stored.callUsages,
           })),
         },
         activeChat: { ...state.activeChat, [projectId]: session.id },
@@ -298,6 +299,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         totalTokens: result.totalTokens,
         contextTokens: result.contextTokens,
         tokensPerSecond: result.tokensPerSecond,
+        callUsages: result.callUsages,
         pending: false,
       }));
       set((state) => ({

@@ -1945,6 +1945,18 @@ button.net:hover {
   color: var(--text-faint);
 }
 
+.agent-tool__tokens {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.agent-tool__tokens + .agent-tool__status {
+  margin-left: 8px;
+}
+
 .agent-tool--running .agent-tool__status {
   color: var(--accent-ai);
   animation: pulse 1.4s var(--ease) infinite;

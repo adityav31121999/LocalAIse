@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use crate::error::AppResult;
 use crate::projects::chats::{AgentStep, AgentToolStep};
 use crate::runtime::client::{self, SamplingParams, Timings, Usage};
-use crate::runtime::Serving;
+use crate::runtime::{CallUsage, Serving};
 use crate::tools;
 use crate::util::hash;
 
@@ -66,6 +66,8 @@ pub struct AgentTurn {
     pub tools_used: Vec<String>,
     /// Tokens spent across every model call of the turn.
     pub usage: Usage,
+    /// Tokens of every single model call, in order.
+    pub call_usages: Vec<CallUsage>,
     /// Generation speed across every model call of the turn.
     pub timings: Timings,
     /// Prompt plus completion of the last call: what the context held.
@@ -95,13 +97,16 @@ directory, as something to ask about) is always wrong. Replace nothing but the \
 @, and keep the rest of the path character for character.\n\n\
 HOW TO CALL TOOLS: Tools accept only plain relative paths like \
 outputs/file.txt — never @, quotes, backslashes, or absolute paths. read_file \
-and list_files take such a path as given; write_file always saves inside \
-outputs/, so \"file.txt\" and \"outputs/file.txt\" both mean outputs/file.txt, \
-and you tell the user that location when you confirm. Keep the user's file, \
-folder, or text request exactly as given: to write \"Hello World!\" into \
-@outputs/file.txt you call write_file with path \"outputs/file.txt\" and \
-content \"Hello World!\", once. Call one tool at a time; write_file only when \
-the user asked for something to be written.\n\n\
+and list_files take such a path as given. write_file and append_file use the \
+given path as-is when that file already exists in the project — so a request \
+about @diary/2026-11-07.md means path \"diary/2026-11-07.md\" and the write \
+lands in the user's diary, exactly as asked. New files the user did not name \
+in an existing location are created under outputs/, so \"file.txt\" is saved \
+as outputs/file.txt, and you tell the user that location when you confirm. \
+Keep the user's file, folder, or text request exactly as given: to write \
+\"Hello World!\" into @outputs/file.txt you call write_file with path \
+\"outputs/file.txt\" and content \"Hello World!\", once. Call one tool at a \
+time; write_file only when the user asked for something to be written.\n\n\
 THINKING: Keep thinking to a few short sentences, then act. A request that \
 names a file needs no debate — turn @name into \"name\", call the tool with \
 that exact path, and move on.\n\n\
@@ -166,7 +171,7 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "write_file",
-                "description": "Creates or overwrites one file of the project. The file is always saved inside the outputs/ folder, so pass `path` relative to the project root (e.g. \"file.txt\" writes outputs/file.txt, \"outputs/file.txt\" writes outputs/file.txt) — never with a leading @. Only use it when the user asked for something to be written.",
+                "description": "Creates or overwrites one file of the project. If the file already exists at the given path it is written exactly there (e.g. \"diary/2026-11-07.md\"); brand-new files are saved inside the outputs/ folder (\"file.txt\" writes outputs/file.txt). Pass `path` relative to the project root — never with a leading @. Only use it when the user asked for something to be written.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -181,7 +186,7 @@ fn tool_specs(internet_enabled: bool) -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "append_file",
-                "description": "Appends text to the end of an existing file (creates it if needed). The file is always saved inside the outputs/ folder. Use this when the user asks to add or append text to a file that already exists.",
+                "description": "Appends text to the end of an existing file (creates it under outputs/ if it does not exist yet). A file that already exists at the given path is appended exactly there (e.g. \"diary/2026-11-07.md\" — no copy under outputs/). Use this when the user asks to add or append text to a file.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -312,6 +317,7 @@ pub async fn run(
     let mut steps: Vec<AgentStep> = Vec::new();
     let mut tools_used: Vec<String> = Vec::new();
     let mut usage = Usage::default();
+    let mut call_usages: Vec<CallUsage> = Vec::new();
     let mut timings = Timings::default();
     let mut context_tokens = 0u32;
     let mut step = 0u32;
@@ -349,8 +355,19 @@ pub async fn run(
         .await?;
 
         // Every model call counts towards the turn; the last one's prompt plus
-        // completion is how much of the context window is now in use.
+        // completion is how much of the context window is now in use. Each
+        // call's tokens and speed are kept too, so tool-loop turns can show
+        // what every iteration cost, not only the total.
         if let Some(counts) = turn.usage {
+            if let Some(speed) = turn.timings {
+                call_usages.push(CallUsage {
+                    index: step,
+                    prompt_tokens: counts.prompt_tokens,
+                    completion_tokens: counts.completion_tokens,
+                    total_tokens: counts.total_tokens,
+                    tokens_per_second: speed.predicted_per_second,
+                });
+            }
             usage.add(counts);
             context_tokens = counts.prompt_tokens + counts.completion_tokens;
         }
@@ -410,7 +427,7 @@ pub async fn run(
             "tool_calls": calls_json,
         }));
 
-        'tools: for call in &turn.tool_calls {
+    'tools: for call in &turn.tool_calls {
             // Check before every tool, so a long batch stops at the next one.
             if should_stop() {
                 cancelled = true;
@@ -487,6 +504,7 @@ pub async fn run(
         steps,
         tools_used,
         usage,
+        call_usages,
         timings,
         context_tokens,
         cancelled,
@@ -585,11 +603,13 @@ You are in AGENT MODE: you can call tools to look things up and to save work.\n\
 TOOLS:\n\
 - read_file(path): read one file from the project.\n\
 - list_files(subdir): list a folder. Omit subdir to list the project root.\n\
-- write_file(path, content): save a file. Everything is written under outputs/, \
-so use paths like \"outputs/summary.md\". Provide the complete file content. \
-REPLACES the whole file.\n\
+- write_file(path, content): save a file. A file that already exists at the \
+given path is written exactly there (e.g. \"diary/2026-11-07.md\"); brand-new \
+files are created under outputs/ (e.g. \"outputs/summary.md\"). Provide the \
+complete file content. REPLACES the whole file.\n\
 - append_file(path, content): append text to the end of an existing file (creates \
-it if needed). Everything is written under outputs/.\n\
+it under outputs/ if it does not exist yet). An existing file is appended at \
+its own location, never copied under outputs/.\n\
 - search_local(query): search the indexed project documents for relevant passages.\n\
 - search_diary(query): search the user's personal diary pages.\n\
 - list_events(): list upcoming calendar events. Takes no arguments.{web_tools}\n\n\

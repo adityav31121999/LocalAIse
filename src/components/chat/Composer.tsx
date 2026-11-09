@@ -39,13 +39,16 @@ function defaultAgentSystemPrompt(projectName: string, internetEnabled: boolean,
     "@, and keep the rest of the path character for character.\n\n" +
     "HOW TO CALL TOOLS: Tools accept only plain relative paths like " +
     "outputs/file.txt — never @, quotes, backslashes, or absolute paths. read_file " +
-    "and list_files take such a path as given; write_file always saves inside " +
-    "outputs/, so \"file.txt\" and \"outputs/file.txt\" both mean outputs/file.txt, " +
-    "and you tell the user that location when you confirm. Keep the user's file, " +
-    "folder, or text request exactly as given: to write \"Hello World!\" into " +
-    "@outputs/file.txt you call write_file with path \"outputs/file.txt\" and " +
-    "content \"Hello World!\", once. Call one tool at a time; write_file only when " +
-    "the user asked for something to be written.\n\n" +
+    "and list_files take such a path as given. write_file and append_file use the " +
+    "given path as-is when that file already exists in the project — so a request " +
+    "about @diary/2026-11-07.md means path \"diary/2026-11-07.md\" and the write " +
+    "lands in the user's diary, exactly as asked. New files the user did not name " +
+    "in an existing location are created under outputs/, so \"file.txt\" is saved " +
+    "as outputs/file.txt, and you tell the user that location when you confirm. " +
+    "Keep the user's file, folder, or text request exactly as given: to write " +
+    "\"Hello World!\" into @outputs/file.txt you call write_file with path " +
+    "\"outputs/file.txt\" and content \"Hello World!\", once. Call one tool at a " +
+    "time; write_file only when the user asked for something to be written.\n\n" +
     "THINKING: Keep thinking to a few short sentences, then act. A request that " +
     "names a file needs no debate — turn @name into \"name\", call the tool with " +
     "that exact path, and move on.\n\n" +
