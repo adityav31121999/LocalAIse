@@ -5,6 +5,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use chrono::Utc;
+
 use super::plan::ResearchPlan;
 use crate::error::AppResult;
 use crate::runtime::client::{self, SamplingParams};
@@ -34,6 +36,13 @@ pub async fn execute_research(
 
     let index_db = crate::index::db::IndexDb::new(project_root);
     let project_index = index_db.load();
+
+    // Create browser fetcher for Chromium-based page fetching when internet is on
+    let browser = if internet_enabled {
+        Some(crate::research::fetch::BrowserFetcher::new(None))
+    } else {
+        None
+    };
 
     for step in &mut plan.steps {
         if step.source_type == "local" && step.query != "synthesize" {
@@ -65,10 +74,24 @@ pub async fn execute_research(
                     
                     let mut fetched_contents = Vec::new();
                     for (i, url) in urls.iter().take(3).enumerate() {
+                        // Try HTTP fetch first
                         let fetch_result = crate::tools::web_fetch::fetch(project_root, url, true).await;
                         match fetch_result {
                             ToolResult { error: Some(e), .. } => {
-                                fetched_contents.push(format!("[Source {}] {} (fetch failed: {})", i + 1, url, e));
+                                // HTTP failed, try Chromium browser if available
+                                if let Some(ref browser) = browser {
+                                    match browser.fetch(url).await {
+                                        Ok(page) => {
+                                            sources_used.push(url.clone());
+                                            fetched_contents.push(format!("[Source {}] {}\n{}", i + 1, url, page.markdown.chars().take(2000).collect::<String>()));
+                                        }
+                                        Err(_) => {
+                                            fetched_contents.push(format!("[Source {}] {} (fetch failed: {})", i + 1, url, e));
+                                        }
+                                    }
+                                } else {
+                                    fetched_contents.push(format!("[Source {}] {} (fetch failed: {})", i + 1, url, e));
+                                }
                             }
                             ToolResult { output: fetch_output, .. } => {
                                 sources_used.push(url.clone());
@@ -93,11 +116,14 @@ pub async fn execute_research(
     }
 
     // Synthesis phase: generate final research report
+    let today = Utc::now().format("%B %d, %Y").to_string();
     let prompt = format!(
-        "Synthesize a thorough, detailed, well-structured research report with citations on the topic: “{}”.\n\n\
+        "Today's date is {}. Synthesize a thorough, detailed, well-structured research report with citations on the topic: “{}”.\n\n\
+        IMPORTANT: Use the most recent data available. If the question involves 'today', 'current', or 'latest' \
+        data, ensure the report reflects the current date ({}).\n\n\
         Collected Evidence:\n{}\n\n\
         Format your response in clean Markdown with an executive summary, core analysis, key takeaways, and a sources list.",
-        plan.topic,
+        today, plan.topic, today,
         collected_context.join("\n\n---\n\n")
     );
 

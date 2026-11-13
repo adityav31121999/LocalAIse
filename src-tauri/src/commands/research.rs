@@ -14,6 +14,7 @@ use crate::models::registry as models;
 use crate::projects::layout::ProjectPaths;
 use crate::runtime::client::{self, SamplingParams};
 use crate::runtime::profile::InferenceProfile;
+use crate::research::llm_adapter::RuntimeLlmClient;
 use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -377,16 +378,35 @@ pub async fn run_deep_research(
     project_id: String,
     provided_urls: Option<Vec<String>>,
     use_browser: Option<bool>,
+    budget_preset: Option<String>, // "quick" | "standard" | "deep"
 ) -> Result<i64, String> {
     use crate::research::net::ResearchNet;
     use crate::research::orchestrator;
     use crate::research::request::ResearchRequest;
+    use crate::research::budget::Budgets;
     use tokio::sync::mpsc;
 
-    let record = {
+    let (record, settings) = {
         let registry = state.registry().map_err(|e| e.to_string())?;
-        registry.find(&project_id).cloned().ok_or_else(|| "unknown project".to_string())?
+        let record = registry
+            .find(&project_id)
+            .cloned()
+            .ok_or_else(|| "unknown project".to_string())?;
+        (record, registry.settings.clone())
     };
+
+    let model = models::selected(&state.dirs, &settings).ok_or("No model selected".to_string())?;
+    let model_label = models::label(&model);
+
+    let serving = crate::commands::runtime::ensure(&state, &settings, None)
+        .map_err(|e| e.to_string())?;
+
+    if let Err(error) = client::wait_until_ready(&serving).await {
+        if let Ok(mut supervisor) = state.supervisor() {
+            supervisor.mark_failed(error.to_string());
+        }
+        return Err(error.to_string());
+    }
 
     let req = ResearchRequest {
         question,
@@ -396,10 +416,12 @@ pub async fn run_deep_research(
         use_browser: use_browser.unwrap_or(true),
         internet_enabled: record.internet_enabled,
     };
-    let net = ResearchNet {
-        project_root: std::path::PathBuf::from(&record.path),
-        internet_enabled: record.internet_enabled,
-    };
+    let net = ResearchNet::new(
+        std::path::PathBuf::from(&record.path),
+        record.internet_enabled,
+    );
+
+    let llm = RuntimeLlmClient::new(serving, model_label);
 
     let (tx, mut rx) = mpsc::channel::<crate::research::ResearchEvent>(64);
     let tx_err = tx.clone();
@@ -409,7 +431,15 @@ pub async fn run_deep_research(
             let _ = handle.emit("research:event", ev);
         }
     });
-    let result = orchestrator::run(req, &net, tx, orchestrator::Budgets::default()).await;
+
+    // Select budget preset
+    let budgets = match budget_preset.as_deref() {
+        Some("quick") => Budgets::quick(),
+        Some("deep") => Budgets::deep(),
+        _ => Budgets::standard(),
+    };
+
+    let result = orchestrator::run(llm, req, &net, tx, budgets).await;
     if let Err(e) = &result {
         let _ = tx_err.send(crate::research::ResearchEvent::Error { message: e.clone() }).await;
     }

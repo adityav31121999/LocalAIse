@@ -1,0 +1,224 @@
+[
+  {
+    "id": "q001",
+    "question": "What is the current population of Tokyo, Japan?",
+    "expected_facts": [
+      {
+        "claim": "Tokyo population is approximately 37 million",
+        "aliases": ["Tokyo metro population 37 million", "Greater Tokyo area 37 million"],
+        "required": true,
+        "expected_domain": "worldpopulationreview.com"
+      },
+      {
+        "claim": "Tokyo is the most populous metropolitan area in the world",
+        "required": true
+      }
+    ],
+    "acceptable_domains": ["worldpopulationreview.com", "statista.com", "macrotrends.net", "un.org"],
+    "fixture_set": "q001",
+    "max_cost_units": 50,
+    "max_wall_clock_secs": 60
+  },
+  {
+    "id": "q002",
+    "question": "What caused the 2008 financial crisis?",
+    "expected_facts": [
+      {
+        "claim": "Subprime mortgage lending was a primary cause",
+        "aliases": ["Subprime mortgages led to the crisis", "Bad mortgage loans caused the crisis"],
+        "required": true
+      },
+      {
+        "claim": "Housing bubble burst in 2007-2008",
+        "aliases": ["Housing market collapse triggered the crisis"],
+        "required": true
+      },
+      {
+        "claim": "Lehman Brothers bankruptcy in September 2008",
+        "required": true
+      }
+    ],
+    "acceptable_domains": ["investopedia.com", "federalreserve.gov", "imf.org", "nber.org"],
+    "fixture_set": "q002",
+    "max_cost_units": 100,
+    "max_wall_clock_secs": 120
+  },
+  {
+    "id": "q003",
+    "question": "How does CRISPR-Cas9 gene editing work?",
+    "expected_facts": [
+      {
+        "claim": "CRISPR uses guide RNA to target specific DNA sequences",
+        "aliases": ["gRNA directs Cas9 to target DNA"],
+        "required": true
+      },
+      {
+        "claim": "Cas9 enzyme cuts DNA at the target location",
+        "required": true
+      },
+      {
+        "claim": "Cell repair mechanisms can introduce changes at the cut site",
+        "aliases": ["NHEJ or HDR repairs the break"],
+        "required": false
+      }
+    ],
+    "acceptable_domains": ["nature.com", "science.org", "nih.gov", "broadinstitute.org"],
+    "fixture_set": "q003",
+    "max_cost_units": 80,
+    "max_wall_clock_secs": 120
+  },
+  {
+    "id": "q004",
+    "question": "What are the main greenhouse gases contributing to climate change?",
+    "expected_facts": [
+      {
+        "claim": "Carbon dioxide (CO2) is the primary greenhouse gas",
+        "required": true
+      },
+      {
+        "claim": "Methane (CH4) is the second most important greenhouse gas",
+        "required": true
+      },
+      {
+        "claim": "Nitrous oxide (N2O) and fluorinated gases also contribute",
+        "required": false
+      }
+    ],
+    "acceptable_domains": ["epa.gov", "ipcc.ch", "noaa.gov", "nasa.gov"],
+    "fixture_set": "q004",
+    "max_cost_units": 60,
+    "max_wall_clock_secs": 90
+  },
+  {
+    "id": "q005",
+    "question": "What is the GDP of the United States in 2023?",
+    "expected_facts": [
+      {
+        "claim": "US GDP was approximately $27.4 trillion in 2023",
+        "aliases": ["United States GDP 27.4 trillion 2023", "US nominal GDP 2023 27.4T"],
+        "required": true,
+        "expected_domain": "bea.gov"
+      }
+    ],
+    "acceptable_domains": ["bea.gov", "worldbank.org", "imf.org", "fred.stlouisfed.org"],
+    "fixture_set": "q005",
+    "max_cost_units": 40,
+    "max_wall_clock_secs": 60
+  },
+  {
+    "id": "q006",
+    "question": "How do mRNA vaccines work?",
+    "expected_facts": [
+      {
+        "claim": "mRNA vaccines deliver genetic instructions for making spike protein",
+        "aliases": ["mRNA codes for spike protein", "mRNA instructs cells to make spike protein"],
+        "required": true
+      },
+      {
+        "claim": "Cells produce the spike protein triggering immune response",
+        "required": true
+      },
+      {
+        "claim": "mRNA does not enter the nucleus or alter DNA",
+        "required": true
+      }
+    ],
+    "acceptable_domains": ["cdc.gov", "nih.gov", "who.int", "nature.com"],
+    "fixture_set": "q006",
+    "max_cost_units": 70,
+    "max_wall_clock_secs": 90
+  },
+  {
+    "id": "q007",
+    "question": "What is quantum computing and how does it differ from classical computing?",
+    "expected_facts": [
+      {
+        "claim": "Quantum computers use qubits that can be in superposition",
+        "aliases": ["Qubits can be 0 and 1 simultaneously"],
+        "required": true
+      },
+      {
+        "claim": "Quantum entanglement allows correlated qubit states",
+        "required": false
+      },
+      {
+        "claim": "Quantum computers can solve certain problems exponentially faster",
+        "aliases": ["Shor's algorithm for factoring", "Grover's algorithm for search"],
+        "required": false
+      }
+    ],
+    "acceptable_domains": ["ibm.com", "quantum-computing.ibm.com", "microsoft.com", "nature.com"],
+    "fixture_set": "q007",
+    "max_cost_units": 80,
+    "max_wall_clock_secs": 120
+  },
+  {
+    "id": "q008",
+    "question": "What are the health benefits of the Mediterranean diet?",
+    "expected_facts": [
+      {
+        "claim": "Mediterranean diet reduces cardiovascular disease risk",
+        "aliases": ["Lower heart disease risk", "Reduced cardiovascular events"],
+        "required": true
+      },
+      {
+        "claim": "Rich in olive oil, nuts, fish, vegetables, and whole grains",
+        "required": true
+      },
+      {
+        "claim": "Associated with lower all-cause mortality",
+        "required": false
+      }
+    ],
+    "acceptable_domains": ["nejm.org", "jamanetwork.com", "who.int", "hsph.harvard.edu"],
+    "fixture_set": "q008",
+    "max_cost_units": 60,
+    "max_wall_clock_secs": 90
+  },
+  {
+    "id": "q009",
+    "question": "What is the current state of nuclear fusion research?",
+    "expected_facts": [
+      {
+        "claim": "ITER project aims to demonstrate net energy gain",
+        "required": true
+      },
+      {
+        "claim": "NIF achieved ignition in December 2022",
+        "aliases": ["National Ignition Facility achieved fusion ignition"],
+        "required": true
+      },
+      {
+        "claim": "Commercial fusion power is still decades away",
+        "required": false
+      }
+    ],
+    "acceptable_domains": ["iter.org", "llnl.gov", "nature.com", "science.org"],
+    "fixture_set": "q009",
+    "max_cost_units": 80,
+    "max_wall_clock_secs": 120
+  },
+  {
+    "id": "q010",
+    "question": "How does the Federal Reserve control inflation?",
+    "expected_facts": [
+      {
+        "claim": "The Fed raises interest rates to combat inflation",
+        "aliases": ["Federal funds rate increases reduce inflation"],
+        "required": true
+      },
+      {
+        "claim": "Open market operations affect money supply",
+        "required": false
+      },
+      {
+        "claim": "The Fed targets 2% inflation rate",
+        "required": true
+      }
+    ],
+    "acceptable_domains": ["federalreserve.gov", "frbsf.org", "brookings.edu", "imf.org"],
+    "fixture_set": "q010",
+    "max_cost_units": 50,
+    "max_wall_clock_secs": 60
+  }
+]

@@ -1,6 +1,7 @@
 //! Research Plan model and generation.
 
 use serde::{Deserialize, Serialize};
+use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,10 +38,18 @@ pub fn create_starter_plan(topic: &str, internet_enabled: bool) -> ResearchPlan 
     });
 
     if internet_enabled {
+        let today = Utc::now().format("%B %d, %Y").to_string();
+        let time_sensitive_keywords = ["today", "current", "latest", "recent", "now", "stock market", "weather", "news"];
+        let is_time_sensitive = time_sensitive_keywords.iter().any(|kw| topic.to_lowercase().contains(kw));
+        let query = if is_time_sensitive {
+            format!("{topic} {today} overview details")
+        } else {
+            format!("{topic} overview details")
+        };
         steps.push(ResearchStep {
             step_number: 2,
             title: "Web discovery and cross-verification".to_string(),
-            query: format!("{topic} overview details"),
+            query,
             source_type: "web".to_string(),
             completed: false,
             findings: None,

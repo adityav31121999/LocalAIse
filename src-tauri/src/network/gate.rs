@@ -3,10 +3,10 @@
 //! Audits every request to activity.log.
 
 use std::path::Path;
-use std::time::Duration;
 
 use crate::activity::log as activity;
 use crate::error::{AppError, AppResult};
+use crate::network::http_client::{HttpClient, HttpClientConfig, RealHttpClient};
 use crate::network::policy;
 use crate::projects::layout::ProjectPaths;
 
@@ -26,46 +26,69 @@ pub async fn fetch_url(
 pub async fn fetch_raw_url(
     project_root: &Path, url: &str, internet_enabled: bool, purpose: &str,
 ) -> AppResult<String> {
+    fetch_raw_url_with_client(project_root, url, internet_enabled, purpose, &default_client()?).await
+}
+
+/// Fetches raw HTML using a provided HTTP client (for testing with fixtures).
+pub async fn fetch_raw_url_with_client(
+    project_root: &Path,
+    url: &str,
+    internet_enabled: bool,
+    purpose: &str,
+    client: &dyn HttpClient,
+) -> AppResult<String> {
     let paths = ProjectPaths::new(project_root);
 
     if let Err(e) = policy::check_external_resolved(url, internet_enabled).await {
         let _ = activity::record(&paths, activity::ActivityKind::Network,
             "web_blocked", &format!("{url} ({purpose}): {e}"));
-        return Err(e);
+        return Err(e.into());
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 {
-                return attempt.error("too many redirects");
-            }
-            match policy::check_external(attempt.url().as_str(), true) {
-                Ok(_) => attempt.follow(),
-                Err(e) => attempt.error(e.to_string()),
-            }
-        }))
-        .build()
-        .map_err(|e| AppError::msg(format!("HTTP client error: {e}")))?;
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("User-Agent", "localAIse-ResearchAgent/0.1.0".parse().unwrap());
 
-    let response = client.get(url)
-        .header("User-Agent", "localAIse-ResearchAgent/0.1.0")
-        .send().await
-        .map_err(|e| AppError::msg(format!("Failed to fetch {url}: {e}")))?;
+    let response = client.get_with_redirect_policy(
+        url,
+        headers,
+        5,
+        Box::new(move |redirect_url: String| {
+            policy::check_external(&redirect_url, true).map(|_| ()).map_err(|e| e.to_string())
+        }),
+    ).await?;
 
-    if !response.status().is_success() {
-        return Err(AppError::msg(format!("Web request failed with HTTP {}", response.status())));
+    if !is_success_status(response.status) {
+        return Err(AppError::msg(format!("Web request failed with HTTP {}", response.status)));
     }
-    if response.content_length().is_some_and(|n| n > 5 * 1024 * 1024) {
+
+    if response.body.len() as u64 > 5 * 1024 * 1024 {
         return Err(AppError::msg("Response too large (>5 MB)."));
     }
 
-    let html = response.text().await
-        .map_err(|e| AppError::msg(format!("Failed to read response body: {e}")))?;
-
     let _ = activity::record(&paths, activity::ActivityKind::Network,
         "web_fetch", &format!("{url} ({purpose})"));
-    Ok(html)
+    Ok(response.body)
+}
+
+/// Fetches web page content using a provided HTTP client.
+pub async fn fetch_url_with_client(
+    project_root: &Path,
+    url: &str,
+    internet_enabled: bool,
+    purpose: &str,
+    client: &dyn HttpClient,
+) -> AppResult<String> {
+    fetch_raw_url_with_client(project_root, url, internet_enabled, purpose, client)
+        .await
+        .map(|html| clean_html(&html))
+}
+
+fn is_success_status(status: u16) -> bool {
+    (200..300).contains(&status)
+}
+
+fn default_client() -> AppResult<RealHttpClient> {
+    RealHttpClient::new(HttpClientConfig::default())
 }
 
 /// Audit hook for the chromium path, which can't go through reqwest.
