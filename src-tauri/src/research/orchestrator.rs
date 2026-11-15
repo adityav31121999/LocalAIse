@@ -115,7 +115,8 @@ pub async fn run<C: LlmClient + 'static>(
 
         match step.source {
             crate::research::transcript::StepSource::Internet if allow_internet => {
-                run_internet_step(&req, step, i, net, &mut ctx, &budgets, &cancel, started).await?;
+                run_internet_step(&req, step, i, net, &mut ctx,
+                    StepControl { budgets: &budgets, cancel: &cancel, started }).await?;
             }
             crate::research::transcript::StepSource::Internet => {
                 let _ = tx.send(ResearchEvent::Notice {
@@ -365,12 +366,20 @@ async fn run_local_step(
     Ok(())
 }
 
+/// Shared control state for one plan step: the budgets, the cancel flag and
+/// when the run started, so helpers don't take them as separate arguments.
+struct StepControl<'a> {
+    budgets: &'a Budgets,
+    cancel: &'a Option<Arc<AtomicBool>>,
+    started: std::time::Instant,
+}
+
 /// Execute one `internet` plan step: search each query, fetch the best pages.
 async fn run_internet_step(
     req: &ResearchRequest, step: &crate::research::transcript::PlanStep, step_idx: usize,
-    net: &ResearchNet, ctx: &mut Ctx, budgets: &Budgets,
-    cancel: &Option<Arc<AtomicBool>>, started: std::time::Instant,
+    net: &ResearchNet, ctx: &mut Ctx, control: StepControl<'_>,
 ) -> Result<(), ResearchError> {
+    let StepControl { budgets, cancel, started } = control;
     let browser = req.use_browser.then(|| BrowserFetcher::new(None));
     let general = step_idx;
     let is_cancelled = |cancel: &Option<Arc<AtomicBool>>| cancel.as_ref().is_some_and(|f| f.load(Ordering::SeqCst));
