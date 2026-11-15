@@ -366,7 +366,8 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
     };
     let net = ResearchNet::new(project_root, true);
     let llm = MockLlmClient::new("test-model");
-    let handle = tokio::spawn(async move { orchestrator::run(llm, request, &net, tx, budgets).await });
+    let handle =
+        tokio::spawn(async move { orchestrator::run(llm, request, &net, tx, budgets, None).await });
 
     let mut events: Vec<ResearchEvent> = Vec::new();
     while let Some(ev) = rx.recv().await {
