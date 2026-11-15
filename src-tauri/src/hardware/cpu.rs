@@ -17,10 +17,22 @@ pub struct CpuInfo {
 fn cpu_name() -> String {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(out) = std::process::Command::new("wmic")
-            .args(["cpu", "get", "Name"])
-            .output()
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+        if let Ok(cpu_key) = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
         {
+            if let Ok(name) = cpu_key.get_value::<String, _>("ProcessorNameString") {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+        let mut cmd = std::process::Command::new("wmic");
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        if let Ok(out) = cmd.args(["cpu", "get", "Name"]).output() {
             let text = String::from_utf8_lossy(&out.stdout);
             for line in text.lines() {
                 let t = line.trim();

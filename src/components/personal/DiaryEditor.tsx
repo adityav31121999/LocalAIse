@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { TrashIcon, WidthIcon } from "../ui/icons";
-import { formatDateKey } from "../../util/calendar";
+import { useMemo, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import { DocIcon, PencilIcon, ShieldIcon, TrashIcon, WidthIcon } from "../ui/icons";
+import { dateKeyToDirName, diaryEntryPath, formatDateKey } from "../../util/calendar";
 import type { SaveState } from "../../state/diaryStore";
 import type { DiaryPage } from "../../types";
 
@@ -27,7 +29,12 @@ interface DiaryEditorProps {
 
 export function DiaryEditor({ page, saveState, onChange, onDelete }: DiaryEditorProps) {
   const [fullWidth, setFullWidth] = useState(false);
+  const [preview, setPreview] = useState(false);
   const words = page.body.trim() ? page.body.trim().split(/\s+/).length : 0;
+  const previewHtml = useMemo(
+    () => DOMPurify.sanitize(marked.parse(page.body, { async: false }) as string),
+    [page.body],
+  );
   const characters = page.body.length;
   const readingMinutes = words > 0 ? Math.max(1, Math.round(words / 220)) : 0;
   const heading = page.date
@@ -38,6 +45,13 @@ export function DiaryEditor({ page, saveState, onChange, onDelete }: DiaryEditor
         year: "numeric",
       })
     : page.title || "Untitled page";
+  const storedAs =
+    page.filePath ??
+    (page.date
+      ? page.nameLocked
+        ? diaryEntryPath(page.date)
+        : `${dateKeyToDirName(page.date)}/…`
+      : null);
 
   return (
     <div className="diary">
@@ -45,7 +59,27 @@ export function DiaryEditor({ page, saveState, onChange, onDelete }: DiaryEditor
         <div className="diary__sheet">
           <header className="diary__head">
             {page.date ? (
-              <h2 className="diary__date">{heading}</h2>
+              <div className="diary__titled">
+                <h2 className="diary__date">{heading}</h2>
+                {page.nameLocked ? (
+                  <span
+                    className="diary__lock"
+                    title="The date-named daily entry: its file name cannot be changed"
+                  >
+                    <ShieldIcon size={12} />
+                    {dateKeyToDirName(page.date)}.md
+                  </span>
+                ) : (
+                  <input
+                    className="diary__nameinput"
+                    value={page.title}
+                    placeholder="Add a name…"
+                    aria-label="File name"
+                    title="Rename this file"
+                    onChange={(event) => onChange({ title: event.target.value })}
+                  />
+                )}
+              </div>
             ) : (
               <input
                 className="diary__title"
@@ -57,6 +91,26 @@ export function DiaryEditor({ page, saveState, onChange, onDelete }: DiaryEditor
             )}
             <div className="diary__head-actions">
               <span className={`pill pill--${SAVE_TONE[saveState]}`}>{SAVE_LABEL[saveState]}</span>
+              <div className="diary__width-toggle" role="group" aria-label="View mode">
+                <button
+                  type="button"
+                  aria-pressed={!preview}
+                  onClick={() => setPreview(false)}
+                  title="Edit the raw Markdown"
+                >
+                  <PencilIcon size={12} />
+                  Write
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={preview}
+                  onClick={() => setPreview(true)}
+                  title="Preview the rendered Markdown"
+                >
+                  <DocIcon size={12} />
+                  Preview
+                </button>
+              </div>
               <div className="diary__width-toggle" role="group" aria-label="Editor width">
                 <button
                   type="button"
@@ -80,17 +134,32 @@ export function DiaryEditor({ page, saveState, onChange, onDelete }: DiaryEditor
             </div>
           </header>
 
-          <textarea
-            className="diary__body"
-            value={page.body}
-            placeholder="Write freely. Markdown is fine, and nothing leaves this machine."
-            aria-label={page.date ? "Diary entry" : "Page content"}
-            onChange={(event) => onChange({ body: event.target.value })}
-          />
+          {preview ? (
+            page.body.trim() ? (
+              <div
+                className="diary__preview"
+                aria-label="Rendered markdown preview"
+                // Sanitized with DOMPurify before injection.
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            ) : (
+              <div className="diary__preview diary__preview--empty muted">
+                Nothing to preview yet — switch to Write and add some Markdown.
+              </div>
+            )
+          ) : (
+            <textarea
+              className="diary__body"
+              value={page.body}
+              placeholder="Write freely. Markdown is fine, and nothing leaves this machine."
+              aria-label={page.date ? "Diary entry" : "Page content"}
+              onChange={(event) => onChange({ body: event.target.value })}
+            />
+          )}
 
           <footer className="diary__foot">
             <span>{words === 1 ? "1 word" : `${words} words`}</span>
-            {page.date ? <span className="mono">{page.date}.md</span> : null}
+            {storedAs ? <span className="mono">{storedAs}</span> : null}
             <span className="spacer" />
             <button type="button" className="btn btn--ghost btn--sm" onClick={onDelete}>
               <TrashIcon size={13} />
@@ -102,7 +171,9 @@ export function DiaryEditor({ page, saveState, onChange, onDelete }: DiaryEditor
         <aside className="diary__aside" aria-label="Page details">
           <div className="diary__aside-card">
             <div className="diary__aside-title">{page.date ? "Entry" : "Page"}</div>
-            <div className="diary__aside-value">{heading}</div>
+            <div className="diary__aside-value">
+              {page.title.trim() ? `${heading} · ${page.title.trim()}` : heading}
+            </div>
           </div>
           <div className="diary__aside-card">
             <div className="diary__aside-title">At a glance</div>
@@ -123,11 +194,11 @@ export function DiaryEditor({ page, saveState, onChange, onDelete }: DiaryEditor
               <strong>{SAVE_LABEL[saveState] || "—"}</strong>
             </div>
           </div>
-          {page.date ? (
+          {storedAs ? (
             <div className="diary__aside-card">
               <div className="diary__aside-title">Stored as</div>
               <div className="diary__aside-row">
-                <code className="mono">{page.date}.md</code>
+                <code className="mono">{storedAs}</code>
               </div>
             </div>
           ) : null}

@@ -16,10 +16,11 @@ import {
   listModelGroups,
   pickModelFolder,
   removeModelFolder,
+  rescanModelGroups,
 } from "../../api/models";
 import type { HardwareReport, ModelEntry, ModelGroup } from "../../api/models";
 import { useRuntimeStore } from "../../state/runtimeStore";
-import { FolderIcon, PlayIcon, StopIcon, TrashIcon } from "../ui/icons";
+import { FolderIcon, PlayIcon, RefreshCwIcon, StopIcon, TrashIcon } from "../ui/icons";
 
 function humanBytes(bytes: number): string {
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
@@ -72,6 +73,7 @@ export function ModelsPanel() {
   const [folderDraft, setFolderDraft] = useState("");
   const [hardware, setHardware] = useState<HardwareReport | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const runtime = useRuntimeStore((state) => state.status);
@@ -132,27 +134,36 @@ export function ModelsPanel() {
     }
   };
 
-  /** Registers the folder typed into the address bar. */
-  const addFolder = async (raw: string) => {
-    const folder = raw.trim();
-    if (!folder) return;
-    setBusy(folder);
+  /** Registers the folder typed into the address bar and walks every folder
+   * again. Without a path it is a plain rescan of what is already known. */
+  const scan = async (raw?: string) => {
+    const folder = raw?.trim() ?? "";
+    setScanning(true);
     setError(null);
     try {
-      await addModelFolder(folder);
-      setFolderDraft("");
-      await refresh();
+      if (folder) {
+        await addModelFolder(folder);
+        setFolderDraft("");
+      }
+      const [groupList, folderList, report] = await Promise.all([
+        rescanModelGroups(),
+        listModelFolders(),
+        getHardwareReport().catch(() => null),
+      ]);
+      setGroups(groupList);
+      setFolders(folderList);
+      if (report) setHardware(report);
     } catch (folderError) {
       setError(folderError instanceof Error ? folderError.message : String(folderError));
     } finally {
-      setBusy(null);
+      setScanning(false);
     }
   };
 
-  /** Opens the OS folder picker and registers the picked folder. */
+  /** Opens the OS folder picker, which registers the folder, then rescans. */
   const browseFolder = async () => {
     const picked = await pickModelFolder();
-    if (picked) await addFolder(picked);
+    if (picked) await scan();
   };
 
   const removeFolder = async (folder: string) => {
@@ -194,19 +205,30 @@ export function ModelsPanel() {
             value={folderDraft}
             onChange={(event) => setFolderDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") void addFolder(folderDraft);
+              if (event.key === "Enter") void scan(folderDraft);
             }}
             aria-label="Path to the folder holding your GGUF models"
           />
           <button
             type="button"
             className="btn btn--secondary btn--sm"
-            disabled={busy === folderDraft.trim() || !folderDraft.trim()}
-            onClick={() => void addFolder(folderDraft)}
+            disabled={scanning}
+            title={
+              folderDraft.trim()
+                ? "Add this folder and scan every folder for GGUF models"
+                : "Scan the registered folders again for GGUF models"
+            }
+            onClick={() => void scan(folderDraft)}
           >
-            Add
+            <RefreshCwIcon size={12} />
+            {scanning ? "Scanning…" : "Scan"}
           </button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void browseFolder()}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={scanning}
+            onClick={() => void browseFolder()}
+          >
             Browse…
           </button>
         </div>
@@ -238,7 +260,7 @@ export function ModelsPanel() {
         {groups.length === 0 ? (
           <p className="muted">
             No models found. Download GGUF files from Hugging Face or elsewhere, put them in a
-            folder, and add it above — everything runs from here, on this machine.
+            folder, and scan it above — everything runs from here, on this machine.
           </p>
         ) : (
           <div className="model-groups">

@@ -370,6 +370,7 @@ pub async fn execute_research_plan(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn run_deep_research(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
@@ -439,9 +440,21 @@ pub async fn run_deep_research(
         _ => Budgets::standard(),
     };
 
-    let result = orchestrator::run(llm, req, &net, tx, budgets).await;
+    // Registers this run so `research_stop` can halt it between steps and fetches.
+    let run_guard = crate::agent::cancel::ResearchRunGuard::begin(&project_id);
+    let cancel_flag = run_guard.flag();
+
+    let result = orchestrator::run(llm, req, &net, tx, budgets, Some(cancel_flag)).await;
     if let Err(e) = &result {
-        let _ = tx_err.send(crate::research::ResearchEvent::Error { message: e.clone() }).await;
+        let _ = tx_err.send(crate::research::ResearchEvent::Error { message: e.to_string() }).await;
     }
-    result
+    result.map_err(|e| e.to_string())
+}
+
+/// Asks the project's current deep-research run to stop. The pipeline halts
+/// after the step/fetch in flight and writes a partial report with what it
+/// found, without spending further tokens on verification.
+#[tauri::command]
+pub fn research_stop(project_id: String) {
+    crate::agent::cancel::research_cancel(&project_id);
 }

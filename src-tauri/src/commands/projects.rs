@@ -18,11 +18,14 @@ use base64::Engine;
 
 #[tauri::command]
 pub fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
+    log::info!("[projects] list_projects started");
     let registry = state.registry()?;
-    Ok(manager::list(&Context {
+    let projects = manager::list(&Context {
         registry: &registry,
         dirs: &state.dirs,
-    }))
+    });
+    log::info!("[projects] list_projects finished ({} projects)", projects.len());
+    Ok(projects)
 }
 
 /// Reads a document file and extracts its text content.
@@ -141,15 +144,21 @@ pub struct DocumentContent {
 }
 
 #[tauri::command]
-pub fn open_project(state: State<'_, AppState>, project_id: String) -> AppResult<Project> {
+pub async fn open_project(state: State<'_, AppState>, project_id: String) -> AppResult<Project> {
     let mut registry = state.registry()?;
     manager::open(&mut registry, &state.dirs, &project_id)
 }
 
 #[tauri::command]
 pub async fn list_sources(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<SourceFile>> {
+    log::info!("[projects] list_sources started: {}", project_id);
     let registry = state.registry()?;
-    manager::sources(&registry, &project_id)
+    let res = manager::sources(&registry, &project_id);
+    match &res {
+        Ok(sources) => log::info!("[projects] list_sources finished: found {} sources", sources.len()),
+        Err(e) => log::warn!("[projects] list_sources failed: {:?}", e),
+    }
+    res
 }
 
 #[tauri::command]
@@ -252,7 +261,7 @@ pub fn create_project_folder(
 
 /// Saved chat sessions for a project, newest first.
 #[tauri::command]
-pub fn list_project_chats(
+pub async fn list_project_chats(
     state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<Vec<ChatSummary>> {
@@ -263,7 +272,7 @@ pub fn list_project_chats(
 
 /// Reopens one saved conversation.
 #[tauri::command]
-pub fn read_project_chat(
+pub async fn read_project_chat(
     state: State<'_, AppState>,
     project_id: String,
     chat_id: String,

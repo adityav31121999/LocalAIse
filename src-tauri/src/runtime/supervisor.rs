@@ -34,6 +34,7 @@ struct LaunchFingerprint {
     model: PathBuf,
     profile: InferenceProfile,
     projector: Option<PathBuf>,
+    backend: Option<String>,
 }
 
 /// What the supervisor needs to start a server.
@@ -45,6 +46,8 @@ pub struct LaunchRequest<'a> {
     /// The profile with its device already resolved — `Auto` never reaches
     /// the argument builder.
     pub profile: &'a InferenceProfile,
+    /// The GPU backend the user opted for; `None` lets the build choose.
+    pub backend: Option<&'a str>,
 }
 
 impl Supervisor {
@@ -57,9 +60,35 @@ impl Supervisor {
         }
     }
 
+    /// Checks whether the child process is still running. If it exited,
+    /// clears `self.running` and sets `self.last_error`.
+    pub fn check_alive(&mut self) -> bool {
+        if let Some(run) = self.running.as_mut() {
+            match run.child.try_wait() {
+                Ok(Some(status)) => {
+                    log::warn!("[supervisor] llama-server child process exited with {:?}", status);
+                    self.running = None;
+                    self.last_error = Some(format!("llama-server exited unexpectedly ({status})"));
+                    false
+                }
+                Ok(None) => true,
+                Err(e) => {
+                    log::error!("[supervisor] failed to check child process status: {e}");
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+
     /// The port and token of a live server, if there is one.
-    pub fn active(&self) -> Option<Serving> {
-        self.running.as_ref().map(|run| run.serving.clone())
+    pub fn active(&mut self) -> Option<Serving> {
+        if self.check_alive() {
+            self.running.as_ref().map(|run| run.serving.clone())
+        } else {
+            None
+        }
     }
 
     pub fn last_error(&self) -> Option<String> {
@@ -74,14 +103,22 @@ impl Supervisor {
         self.fallback_notice = notice;
     }
 
-    pub fn running_model(&self) -> Option<PathBuf> {
-        self.running.as_ref().map(|run| run.model.clone())
+    pub fn running_model(&mut self) -> Option<PathBuf> {
+        if self.check_alive() {
+            self.running.as_ref().map(|run| run.model.clone())
+        } else {
+            None
+        }
     }
 
     /// The profile the running server was started with, so the settings page
     /// can tell whether a change needs a restart.
-    pub fn running_profile(&self) -> Option<&InferenceProfile> {
-        self.running.as_ref().map(|run| &run.fingerprint.profile)
+    pub fn running_profile(&mut self) -> Option<&InferenceProfile> {
+        if self.check_alive() {
+            self.running.as_ref().map(|run| &run.fingerprint.profile)
+        } else {
+            None
+        }
     }
 
     /// Starts a server for this model when there is not one already — or when
@@ -91,6 +128,7 @@ impl Supervisor {
             model: request.model.to_path_buf(),
             profile: request.profile.clone(),
             projector: request.projector.map(|p| p.to_path_buf()),
+            backend: request.backend.map(|backend| backend.to_string()),
         };
 
         if let Some(run) = self.running.as_mut() {
@@ -115,12 +153,13 @@ impl Supervisor {
         let local_port = port::pick_free_port()?;
         let token = token::generate();
 
-        let launch = args::build_launch(
+        let launch = args::build_launch_with_backend(
             request.model,
             request.projector,
             local_port,
             &token,
             &profile,
+            request.backend,
         )
         .map_err(AppError::msg)?;
 
@@ -129,7 +168,7 @@ impl Supervisor {
             .args(&launch.args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         for (key, value) in &launch.env {
             command.env(key, value);
         }
@@ -143,12 +182,22 @@ impl Supervisor {
             }
         }
 
-        let child = command.spawn().map_err(|error| {
+        let mut child = command.spawn().map_err(|error| {
             AppError::msg(format!(
                 "could not start {}: {error}",
                 request.server.display()
             ))
         })?;
+
+        if let Some(stderr) = child.stderr.take() {
+            std::thread::spawn(move || {
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().map_while(Result::ok) {
+                    log::info!("[llama-server] {}", line);
+                }
+            });
+        }
 
         let serving = Serving {
             port: local_port,
@@ -163,6 +212,7 @@ impl Supervisor {
                 model: request.model.to_path_buf(),
                 profile: profile.clone(),
                 projector: request.projector.map(|p| p.to_path_buf()),
+                backend: request.backend.map(|backend| backend.to_string()),
             },
         });
         self.last_error = None;

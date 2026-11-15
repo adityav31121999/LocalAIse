@@ -26,7 +26,7 @@ interface DiaryState {
   load(projectId?: string | null): Promise<void>;
   selectDate(date: string): void;
   selectPage(pageId: string): void;
-  createPage(date: string | null): Promise<void>;
+  createPage(date: string | null, nameLocked?: boolean): Promise<void>;
   updatePage(pageId: string, patch: Partial<Pick<DiaryPage, "title" | "body">>): void;
   removePage(pageId: string): Promise<void>;
 }
@@ -73,10 +73,20 @@ export const useDiaryStore = create<DiaryState>()((set, get) => ({
 
   selectPage: (pageId) => set({ activePageId: pageId, pendingDate: null }),
 
-  createPage: async (date) => {
+  createPage: async (date, nameLocked = false) => {
+    const locked = Boolean(date) && nameLocked;
+    // One date-named page per date: picking a date that already has its daily
+    // entry opens it instead of creating a duplicate.
+    if (date && locked) {
+      const existing = get().pages.find((page) => page.date === date && page.nameLocked);
+      if (existing) {
+        set({ activePageId: existing.id, pendingDate: null });
+        return;
+      }
+    }
     try {
       const page = await diaryApi.createDiaryPage(
-        { date, title: date ? "" : "Untitled page" },
+        { date, title: date ? "" : "Untitled page", nameLocked: locked },
         get().scopeProjectId,
       );
       set((state) => ({

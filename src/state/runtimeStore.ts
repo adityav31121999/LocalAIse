@@ -50,3 +50,23 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
     set({ status: await unloadModel() });
   },
 }));
+
+if (typeof window !== "undefined") {
+  window.setInterval(() => {
+    if (isTauri) {
+      invoke<RuntimeStatus>("runtime_status")
+        .then((status) => {
+          const current = useRuntimeStore.getState().status;
+          if (
+            current.state !== status.state ||
+            current.port !== status.port ||
+            current.profile?.contextTokens !== status.profile?.contextTokens ||
+            current.model !== status.model
+          ) {
+            useRuntimeStore.setState({ status });
+          }
+        })
+        .catch(() => undefined);
+    }
+  }, 2500);
+}

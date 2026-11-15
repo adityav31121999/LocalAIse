@@ -58,6 +58,10 @@ pub struct ChatStreamResult {
     pub call_usages: Vec<CallUsage>,
     /// True when the user stopped the turn before the model finished.
     pub cancelled: bool,
+    /// The exact system prompt sent for this turn.
+    pub system_prompt: String,
+    /// The exact user message sent to the model, context block included.
+    pub model_prompt: String,
 }
 
 /// Threshold for deciding whether to read a file fully or index it for RAG.
@@ -405,17 +409,28 @@ covered by the provided context.",
     }
     messages.push(client::message("user", user_prompt.clone()));
 
-    let serving = match client::wait_until_ready(&serving).await {
-        Ok(()) => serving,
+    log::info!("[chat] chat_send starting: project_id={}, prompt={:?}, session_id={:?}", project_id, prompt, session_id);
+
+    let check_alive = || {
+        state.supervisor().map(|mut s| s.check_alive()).unwrap_or(true)
+    };
+
+    let serving = match client::wait_until_ready_with_check(&serving, check_alive).await {
+        Ok(()) => {
+            log::info!("[chat] runtime ready on port {}", serving.port);
+            serving
+        }
         Err(error) => {
+            log::warn!("[chat] runtime failed ready check on port {}: {error}", serving.port);
             // Check if this was a GPU run. If so, attempt fallback to CPU once.
             let is_gpu_run = state
                 .supervisor()
                 .ok()
-                .and_then(|sup| sup.running_profile().map(|p| p.device.gpu_layers() > 0))
+                .and_then(|mut sup| sup.running_profile().map(|p| p.device.gpu_layers() > 0))
                 .unwrap_or(false);
 
             if is_gpu_run {
+                log::info!("[chat] GPU run failed ready check; falling back to CPU backend...");
                 if let Ok(mut supervisor) = state.supervisor() {
                     supervisor.stop();
                     supervisor.set_fallback_notice(Some(
@@ -438,16 +453,19 @@ covered by the provided context.",
                         projector,
                         server: cpu_server.as_path(),
                         profile: &cpu_profile,
+                        backend: None,
                     })?
                 };
 
-                if let Err(retry_err) = client::wait_until_ready(&cpu_serving).await {
+                if let Err(retry_err) = client::wait_until_ready_with_check(&cpu_serving, check_alive).await {
+                    log::error!("[chat] CPU fallback failed ready check: {retry_err}");
                     if let Ok(mut supervisor) = state.supervisor() {
                         supervisor.mark_failed(retry_err.to_string());
                     }
                     return Err(retry_err);
                 }
 
+                log::info!("[chat] CPU fallback ready on port {}", cpu_serving.port);
                 cpu_serving
             } else {
                 if let Ok(mut supervisor) = state.supervisor() {
@@ -608,6 +626,8 @@ covered by the provided context.",
         context_tokens: 0,
         tokens_per_second: 0.0,
         call_usages: Vec::new(),
+        system_prompt: String::new(),
+        model_prompt: String::new(),
     });
     session.messages.push(StoredMessage {
         id: hash::unique_id("msg"),
@@ -623,6 +643,8 @@ covered by the provided context.",
         context_tokens,
         tokens_per_second,
         call_usages: call_usages.clone(),
+        system_prompt: system.clone(),
+        model_prompt: user_prompt.clone(),
     });
     let summary = chats::save(&chat_dir, &mut session)?;
 
@@ -647,6 +669,8 @@ covered by the provided context.",
         tokens_per_second,
         call_usages: call_usages.clone(),
         cancelled,
+        system_prompt: system,
+        model_prompt: user_prompt,
     })
 }
 

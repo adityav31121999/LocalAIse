@@ -42,7 +42,7 @@ pub async fn fetch_raw_url_with_client(
     if let Err(e) = policy::check_external_resolved(url, internet_enabled).await {
         let _ = activity::record(&paths, activity::ActivityKind::Network,
             "web_blocked", &format!("{url} ({purpose}): {e}"));
-        return Err(e.into());
+        return Err(e);
     }
 
     let mut headers = reqwest::header::HeaderMap::new();

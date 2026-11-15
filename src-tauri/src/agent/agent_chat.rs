@@ -468,7 +468,7 @@ pub async fn run(
             messages.push(json!({
                 "role": "tool",
                 "tool_call_id": call.id,
-                "content": truncated,
+                "content": truncated.clone(),
             }));
 
             steps.push(AgentStep {
@@ -482,6 +482,8 @@ pub async fn run(
                     input,
                     status: if ok { "done" } else { "error" }.to_string(),
                     summary: summary.clone(),
+                    arguments: call.arguments.clone(),
+                    output: truncated.clone(),
                 }),
             });
             deliver_event(AgentEvent::ToolEnd {

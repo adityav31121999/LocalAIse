@@ -44,6 +44,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  rmSync,
   readdirSync,
   statSync,
   readFileSync,
@@ -149,10 +150,15 @@ function main(): void {
 
   const CHECKSUMS = join(ROOT, "resources", "llama", "checksums.json");
   if (!existsSync(join(CHECKOUT, "CMakeLists.txt"))) {
-    throw new Error(
-      "vendor/llama.cpp is missing or incomplete. Move the incomplete directory aside, then check out the pinned tag:\n" +
-        `git clone --depth 1 --branch ${PINNED_TAG} https://github.com/ggml-org/llama.cpp vendor/llama.cpp`,
-    );
+    mkdirSync(join(ROOT, "vendor"), { recursive: true });
+    if (existsSync(CHECKOUT)) {
+      console.warn("[fetch-llama-server] Removing incomplete vendor/llama.cpp checkout...");
+      rmSync(CHECKOUT, { recursive: true, force: true });
+    }
+    run(`git clone --depth 1 --branch ${PINNED_TAG} https://github.com/ggml-org/llama.cpp vendor/llama.cpp`, ROOT);
+    if (!existsSync(join(CHECKOUT, "CMakeLists.txt"))) {
+      throw new Error(`llama.cpp checkout at ${CHECKOUT} is incomplete after cloning ${PINNED_TAG}`);
+    }
   }
 
   // All backends write into the single flat platform folder.
@@ -173,10 +179,7 @@ function main(): void {
   run(buildCommand, CHECKOUT);
 
   const exeName = platform === "windows-x64" ? "llama-server.exe" : "llama-server";
-  const built = [
-    join(buildDir, "bin", "Release", exeName),
-    join(buildDir, "bin", exeName),
-  ].find((p) => existsSync(p));
+  const built = findBuiltExecutable(join(buildDir, "bin"), exeName);
   if (!built) throw new Error("llama-server was not produced by the build");
 
   // GPU builds: copy only new/changed files (the GPU backend DLL + its
@@ -236,6 +239,20 @@ function main(): void {
     const mb = (statSync(path).size / 1_048_576).toFixed(1);
     return `${path} (${mb} MB)`;
   }
+}
+
+function findBuiltExecutable(directory: string, name: string): string | undefined {
+  if (!existsSync(directory)) return undefined;
+  const entries = readdirSync(directory, { withFileTypes: true });
+  const direct = entries.find((entry) => entry.isFile() && entry.name.toLowerCase() === name.toLowerCase());
+  if (direct) return join(directory, direct.name);
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const nested = findBuiltExecutable(join(directory, entry.name), name);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
 }
 
 main();

@@ -9,7 +9,6 @@ import { useChatStore } from "../../state/chatStore";
 import { useNavStore } from "../../state/navStore";
 import { useProjectStore } from "../../state/projectStore";
 import { useRuntimeStore } from "../../state/runtimeStore";
-import { useSettingsStore } from "../../state/settingsStore";
 import { chatLabel, chatNumber, formatCount } from "../../util/format";
 import type { ChatMessage, ChatSummary, Project, ProjectTemplate } from "../../types";
 import { DocumentViewer } from "../files/DocumentViewer";
@@ -96,30 +95,6 @@ export function ChatView({ project }: { project: Project }) {
   }, [activeChatId, storedChats, project.id, openChat]);
 
   const isDocumentOpen = openDocument?.projectId === project.id;
-
-  // When a document opens the explorer is in the way: remember whether the
-  // user had it open, collapse it, then restore their preference on close.
-  const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
-  const setSidebarCollapsed = useSettingsStore((state) => state.setSidebarCollapsed);
-  const hadSidebarOpen = useRef(false);
-  const wasDocumentOpen = useRef(false);
-
-  useEffect(() => {
-    if (isDocumentOpen && !wasDocumentOpen.current) {
-      // Only on the open transition, so manually reopening the explorer while
-      // reading a document is not immediately undone.
-      if (!sidebarCollapsed) {
-        hadSidebarOpen.current = true;
-        setSidebarCollapsed(true);
-      }
-    } else if (!isDocumentOpen && wasDocumentOpen.current) {
-      if (hadSidebarOpen.current) {
-        hadSidebarOpen.current = false;
-        setSidebarCollapsed(false);
-      }
-    }
-    wasDocumentOpen.current = isDocumentOpen;
-  }, [isDocumentOpen, sidebarCollapsed, setSidebarCollapsed]);
 
   // Width of the document pane, as a percentage of the split area. Dragging
   // the splitter clamps it so neither side can be squeezed out of existence.

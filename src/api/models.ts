@@ -102,6 +102,13 @@ export async function listModelGroups(): Promise<ModelGroup[]> {
   return mockGroups;
 }
 
+/** Walks the registered folders again, ignoring the short-lived cache. */
+export async function rescanModelGroups(): Promise<ModelGroup[]> {
+  if (isTauri) return invoke<ModelGroup[]>("rescan_models");
+  await delay(320);
+  return mockGroups;
+}
+
 /** The folders the user keeps GGUF files in, outside the app's models folder. */
 export async function listModelFolders(): Promise<string[]> {
   if (isTauri) return invoke<string[]>("list_model_folders");
@@ -410,6 +417,8 @@ export interface GpuBuildList {
   gpuAvailable: boolean;
   /** The backend that matches the detected card, e.g. "cuda". */
   recommended: string | null;
+  /** The backend the user opted for, null when the detection decides. */
+  selected: string | null;
   builds: GpuBuildStatus[];
 }
 
@@ -422,12 +431,24 @@ export async function listGpuBuilds(): Promise<GpuBuildList> {
     gpuBackend: "CUDA",
     gpuAvailable: true,
     recommended: "cuda",
+    selected: null,
     builds: [
       { target: "cuda", label: "CUDA", installed: false, source: null, downloadable: true, directory: "", recommended: true },
       { target: "vulkan", label: "Vulkan", installed: false, source: null, downloadable: true, directory: "", recommended: false },
       { target: "opencl", label: "OpenCL", installed: false, source: null, downloadable: false, directory: "", recommended: false },
     ],
   };
+}
+
+/**
+ * Chooses the GPU backend the runtime should use, or hands the choice back to
+ * the hardware detection with `null`. Only an installed backend can be picked.
+ */
+export async function setGpuBackend(backend: string | null): Promise<GpuBuildList> {
+  if (isTauri) return invoke<GpuBuildList>("set_gpu_backend", { backend });
+  await delay(80);
+  const list = await listGpuBuilds();
+  return { ...list, selected: backend };
 }
 
 /**

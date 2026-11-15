@@ -1,5 +1,5 @@
 import { delay, invoke, isTauri } from "./index";
-import { toDateKey } from "../util/calendar";
+import { dateKeyToDirName, diaryEntryPath, toDateKey } from "../util/calendar";
 import type { DiaryPage, PersonalFolderRecord } from "../types";
 
 /** Diary entries live in the personal space folder as one Markdown file per day. */
@@ -86,8 +86,10 @@ function seed(): DiaryPage[] {
       updatedAt: now,
       folderId: DEFAULT_PERSONAL_CALENDAR_FOLDER.id,
       folderName: DEFAULT_PERSONAL_CALENDAR_FOLDER.name,
-      filePath: `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${dKey}.md`,
+      filePath: `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${diaryEntryPath(dKey)}`,
       isHidden: true,
+      nameLocked: true,
+      fileName: `${dateKeyToDirName(dKey)}.md`,
     };
   });
 
@@ -102,6 +104,8 @@ function seed(): DiaryPage[] {
     folderName: DEFAULT_PERSONAL_CALENDAR_FOLDER.name,
     filePath: `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/reading-list.md`,
     isHidden: true,
+    nameLocked: false,
+    fileName: "reading-list.md",
   };
 
   return [free, ...dated];
@@ -123,13 +127,24 @@ function read(projectId: string | null): DiaryPage[] {
     if (!projectId) {
       // Ensure hidden folder record exists in DB and all personal pages are bound to it
       getPersonalDatabaseFolders();
-      return parsed.map((page) => ({
-        ...page,
-        folderId: page.folderId || DEFAULT_PERSONAL_CALENDAR_FOLDER.id,
-        folderName: page.folderName || DEFAULT_PERSONAL_CALENDAR_FOLDER.name,
-        filePath: page.filePath || `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${page.date || page.id}.md`,
-        isHidden: true,
-      }));
+      return parsed.map((page) => {
+        // Migrate older records: daily entries now live at <dd-mm-yyyy>/<dd-mm-yyyy>.md
+        let filePath = page.filePath;
+        if (page.date) {
+          filePath = `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${diaryEntryPath(page.date)}`;
+        } else {
+          filePath = filePath || `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${page.id}.md`;
+        }
+        return {
+          ...page,
+          folderId: page.folderId || DEFAULT_PERSONAL_CALENDAR_FOLDER.id,
+          folderName: page.folderName || DEFAULT_PERSONAL_CALENDAR_FOLDER.name,
+          filePath,
+          isHidden: true,
+          nameLocked: page.nameLocked ?? Boolean(page.date),
+          fileName: page.fileName ?? filePath.split("/").pop() ?? `${page.id}.md`,
+        };
+      });
     }
     return parsed;
   } catch {
@@ -155,14 +170,20 @@ export async function createDiaryPage(
   input: {
     date: string | null;
     title: string;
+    nameLocked?: boolean;
   },
   projectId: string | null = null,
 ): Promise<DiaryPage> {
   if (isTauri) return invoke<DiaryPage>("create_diary_page", { projectId, ...input });
   await delay(80);
   const now = new Date().toISOString();
+  const nameLocked = Boolean(input.nameLocked && input.date);
+  const dateDir = input.date ? dateKeyToDirName(input.date) : null;
+  const id = newId();
+  const slugTitle =
+    input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
   const page: DiaryPage = {
-    id: newId(),
+    id,
     date: input.date,
     title: input.title,
     body: "",
@@ -172,8 +193,17 @@ export async function createDiaryPage(
     folderName: projectId ? undefined : DEFAULT_PERSONAL_CALENDAR_FOLDER.name,
     filePath: projectId
       ? undefined
-      : `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${input.date || "page"}.md`,
+      : nameLocked && dateDir
+        ? `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${diaryEntryPath(input.date as string)}`
+        : input.date && dateDir
+          ? `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${dateDir}/${slugTitle}-${id}.md`
+          : `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${slugTitle}-${id}.md`,
     isHidden: projectId ? undefined : true,
+    nameLocked,
+    fileName: (() => {
+      if (nameLocked && input.date) return `${dateKeyToDirName(input.date)}.md`;
+      return `${slugTitle}-${id}.md`;
+    })(),
   };
   write(projectId, [page, ...read(projectId)]);
   return page;
@@ -186,6 +216,16 @@ export async function saveDiaryPage(
   if (isTauri) return invoke<DiaryPage>("save_diary_page", { projectId, page });
   await delay(180);
   const saved: DiaryPage = { ...page, updatedAt: new Date().toISOString() };
+  if (!saved.nameLocked) {
+    const slugTitle =
+      saved.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
+    const fileName = `${slugTitle}-${saved.id}.md`;
+    const dateDir = saved.date ? dateKeyToDirName(saved.date) : null;
+    saved.fileName = fileName;
+    if (!projectId) {
+      saved.filePath = `${DEFAULT_PERSONAL_CALENDAR_FOLDER.name}/${dateDir ? `${dateDir}/` : ""}${fileName}`;
+    }
+  }
   write(projectId, read(projectId).map((item) => (item.id === saved.id ? saved : item)));
   return saved;
 }

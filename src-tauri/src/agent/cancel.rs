@@ -66,6 +66,60 @@ pub fn cancel(project_id: &str) {
     }
 }
 
+/// Separate registry for deep-research runs, so stopping a chat turn never
+/// stops a research run (and vice versa) for the same project.
+fn research_runs() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+    static RUNS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    RUNS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Marks a deep-research run as active for the project.
+pub struct ResearchRunGuard {
+    project_id: String,
+    flag: Arc<AtomicBool>,
+}
+
+impl ResearchRunGuard {
+    pub fn begin(project_id: &str) -> Self {
+        let flag = Arc::new(AtomicBool::new(false));
+        if let Ok(mut map) = research_runs().lock() {
+            map.insert(project_id.to_string(), flag.clone());
+        }
+        Self { project_id: project_id.to_string(), flag }
+    }
+
+    /// A handle the pipeline can poll between steps/fetches.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.flag.clone()
+    }
+
+    pub fn cancelled(&self) -> bool {
+        self.flag.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for ResearchRunGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = research_runs().lock() {
+            let owns_slot = map
+                .get(&self.project_id)
+                .is_some_and(|flag| Arc::ptr_eq(flag, &self.flag));
+            if owns_slot {
+                map.remove(&self.project_id);
+            }
+        }
+    }
+}
+
+/// Asks the project's current deep-research run to stop. A no-op when none is running.
+pub fn research_cancel(project_id: &str) {
+    if let Ok(map) = research_runs().lock() {
+        if let Some(flag) = map.get(project_id) {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,8 +1,6 @@
 /**
- * Stages only the CPU base binaries and core libraries into src-tauri/bundle-llama/<platform>/
- * for packaging.
- *
- * Excludes any GPU acceleration libraries (ggml-cuda, ggml-vulkan, ggml-opencl, cudart, cublas).
+ * Stages the CPU base binaries and supported GPU backends into
+ * src-tauri/bundle-llama/<platform>/ for packaging.
  */
 
 import {
@@ -18,7 +16,9 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-const FORBIDDEN_PATTERN = /(cuda|vulkan|opencl|cudart|cublas)/i;
+// CUDA installers bring proprietary/runtime DLLs and remain an in-app install.
+// Vulkan ships without those extra driver files and may be bundled.
+const FORBIDDEN_PATTERN = /(cuda|opencl|cudart|cublas)/i;
 
 function currentPlatform(): string {
   if (process.platform === "win32") return "windows-x64";
@@ -30,6 +30,7 @@ function stageBundle(platform: string): void {
   const sourceCandidates = [
     join(ROOT, "resources", "llama", platform),
     join(ROOT, "resources", "llama", `${platform}-cpu`),
+    join(ROOT, "src-tauri", "bundle-llama", platform),
   ];
 
   const sourceDir = sourceCandidates.find((dir) => existsSync(dir) && readdirSync(dir).some(f => !f.startsWith(".")));
@@ -48,7 +49,7 @@ function stageBundle(platform: string): void {
   for (const file of readdirSync(sourceDir)) {
     if (file.startsWith(".")) continue;
     if (FORBIDDEN_PATTERN.test(file)) {
-      console.log(`[stage-bundle] Skipping GPU file: ${file}`);
+      console.log(`[stage-bundle] Skipping unsupported or proprietary GPU file: ${file}`);
       continue;
     }
 

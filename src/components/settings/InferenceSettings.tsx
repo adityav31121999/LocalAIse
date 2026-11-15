@@ -13,6 +13,7 @@ import { MemoryWarningAlert } from "./MemoryWarningAlert";
 import { MemoryBudgetBar } from "./MemoryBudgetBar";
 import { NumberField } from "../ui/NumberField";
 import { RuntimeActions } from "./RuntimeActions";
+import { ChevronDownIcon } from "../ui/icons";
 import {
   useRuntimeConfig,
 } from "./runtime-config";
@@ -48,7 +49,7 @@ export function InferenceSettings() {
     setKvType,
     setMoe,
   } = useRuntimeConfig();
-  const [expertLayers, setExpertLayers] = useState(4);
+  const [showNumbers, setShowNumbers] = useState(false);
 
   const onGpu = estimate?.device.device === "user_gpu";
   const quantized = draft.kvType !== "f16";
@@ -278,7 +279,9 @@ export function InferenceSettings() {
         <h2 className="field__label" id="field-loading">
           Loading
         </h2>
-        <p className="field__hint">Partial loading and memory-mapped weight files.</p>
+        <p className="field__hint">
+          Partial loading, memory-mapped weight files, and MoE expert offload.
+        </p>
         <label className="perf__check">
           <input
             type="checkbox"
@@ -299,64 +302,19 @@ export function InferenceSettings() {
             Memory-mapped weights
           </span>
         </label>
+        <label className="perf__check">
+          <input
+            type="checkbox"
+            checked={draft.moe?.mode === "all_experts"}
+            onChange={(event) =>
+              setMoe(event.target.checked ? "all_experts" : "off")
+            }
+          />
+          <span>
+            Load Experts To CPU
+          </span>
+        </label>
       </section>
-
-      {estimate?.isMoe && (
-        <section className="field" aria-labelledby="field-moe">
-          <h2 className="field__label" id="field-moe">
-            Expert tensors
-          </h2>
-          <p className="field__hint">MoE tensor placement across VRAM and RAM.</p>
-          {onGpu ? (
-            <>
-              <div className="segmented" role="group" aria-labelledby="field-moe">
-                <button
-                  type="button"
-                  className="segmented__item"
-                  aria-pressed={draft.moe.mode === "off"}
-                  onClick={() => setMoe("off")}
-                >
-                  In VRAM
-                </button>
-                <button
-                  type="button"
-                  className="segmented__item"
-                  aria-pressed={draft.moe.mode === "all_experts"}
-                  onClick={() => setMoe("all_experts")}
-                >
-                  In RAM
-                </button>
-                <button
-                  type="button"
-                  className="segmented__item"
-                  aria-pressed={draft.moe.mode === "first_layers"}
-                  onClick={() => {
-                    setMoe("first_layers");
-                    patch({ moe: { mode: "first_layers", n: expertLayers } });
-                  }}
-                >
-                  First layers in RAM
-                </button>
-              </div>
-              {draft.moe.mode === "first_layers" && (
-                <div className="perf__slider-row">
-                  <NumberField
-                    className="input perf__threads"
-                    min={1}
-                    step={1}
-                    value={draft.moe.n}
-                    onChange={(count) => {
-                      setExpertLayers(count);
-                      patch({ moe: { mode: "first_layers", n: count } });
-                    }}
-                    label="Number of layers whose experts stay in system RAM"
-                  />
-                </div>
-              )}
-            </>
-          ) : null}
-        </section>
-      )}
 
       <section className="field" aria-labelledby="field-memory">
         <h2 className="field__label" id="field-memory">
@@ -366,39 +324,51 @@ export function InferenceSettings() {
         {estimate?.modelShapeKnown ? (
           <>
             <MemoryBudgetBar estimate={estimate} />
-            <details className="memory-details">
-              <summary />
-              <div className="memory-table">
-                <span className="memory-table__key">Model weights</span>
-                <span className="memory-table__value">{estimate.modelFileGb.toFixed(2)} GB</span>
+            <details
+              className="memory-details"
+              open={showNumbers}
+              onToggle={(e) => setShowNumbers(e.currentTarget.open)}
+            >
+              <summary className="memory-details__toggle">
+                <span>{showNumbers ? "Hide the numbers" : "Show the numbers"}</span>
+                <ChevronDownIcon
+                  size={14}
+                  className="memory-details__chevron"
+                />
+              </summary>
+              <div className="memory-details__panel">
+                <div className="memory-table">
+                  <span className="memory-table__key">Model weights</span>
+                  <span className="memory-table__value">{estimate.modelFileGb.toFixed(2)} GB</span>
 
-                <span className="memory-table__key">
-                  KV cache ({kvLabel(draft.kvType)}, {formatTokens(runtimeContext)} tokens)
-                </span>
-                <span className="memory-table__value">{estimate.kvCacheGb.toFixed(2)} GB</span>
+                  <span className="memory-table__key">
+                    KV cache ({kvLabel(draft.kvType)}, {formatTokens(runtimeContext)} tokens)
+                  </span>
+                  <span className="memory-table__value">{estimate.kvCacheGb.toFixed(2)} GB</span>
 
-                <span className="memory-table__key">Runtime overhead</span>
-                <span className="memory-table__value">{estimate.runtimeOverheadGb.toFixed(2)} GB</span>
+                  <span className="memory-table__key">Runtime overhead</span>
+                  <span className="memory-table__value">{estimate.runtimeOverheadGb.toFixed(2)} GB</span>
 
-                <span className="memory-table__key">Estimated need</span>
-                <span className="memory-table__value memory-table__value--strong">
-                  {onGpu
-                    ? `${estimate.vramNeededGb.toFixed(2)} GB VRAM + ${estimate.ramNeededGb.toFixed(2)} GB RAM`
-                    : `${estimate.ramNeededGb.toFixed(2)} GB`}
-                </span>
+                  <span className="memory-table__key">Estimated need</span>
+                  <span className="memory-table__value memory-table__value--strong">
+                    {onGpu
+                      ? `${estimate.vramNeededGb.toFixed(2)} GB VRAM + ${estimate.ramNeededGb.toFixed(2)} GB RAM`
+                      : `${estimate.ramNeededGb.toFixed(2)} GB`}
+                  </span>
 
-                <span className="memory-table__key">Device budget</span>
-                <span className="memory-table__value">
-                  {onGpu && estimate.vramKnown
-                    ? `${estimate.vramBudgetGb.toFixed(2)} GB VRAM · ${estimate.ramBudgetGb.toFixed(2)} GB RAM`
-                    : `${estimate.ramBudgetGb.toFixed(2)} GB`}
-                </span>
+                  <span className="memory-table__key">Device budget</span>
+                  <span className="memory-table__value">
+                    {onGpu && estimate.vramKnown
+                      ? `${estimate.vramBudgetGb.toFixed(2)} GB VRAM · ${estimate.ramBudgetGb.toFixed(2)} GB RAM`
+                      : `${estimate.ramBudgetGb.toFixed(2)} GB`}
+                  </span>
 
-                <span className="memory-table__key">Free right now</span>
-                <span className="memory-table__value">
-                  {estimate.ramAvailableGb.toFixed(2)} GB RAM
-                  {onGpu && estimate.vramKnown ? " · VRAM not measured live" : undefined}
-                </span>
+                  <span className="memory-table__key">Free right now</span>
+                  <span className="memory-table__value">
+                    {estimate.ramAvailableGb.toFixed(2)} GB RAM
+                    {onGpu && estimate.vramKnown ? " · VRAM not measured live" : undefined}
+                  </span>
+                </div>
               </div>
             </details>
           </>

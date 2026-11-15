@@ -43,8 +43,14 @@ pub fn create_diary_page(
     project_id: Option<String>,
     date: Option<String>,
     title: String,
+    name_locked: Option<bool>,
 ) -> AppResult<DiaryPage> {
-    diary::create(&diary_root(&state, project_id.as_deref())?, date, title)
+    diary::create(
+        &diary_root(&state, project_id.as_deref())?,
+        date,
+        title,
+        name_locked.unwrap_or(false),
+    )
 }
 
 #[tauri::command]

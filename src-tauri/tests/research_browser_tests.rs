@@ -21,7 +21,8 @@ use localaise_lib::research::events::ResearchEvent;
 use localaise_lib::research::fetch::browser::BrowserFetcher;
 use localaise_lib::research::fetch::http::{extract_markdown, HttpFetcher};
 use localaise_lib::research::net::ResearchNet;
-use localaise_lib::research::orchestrator::{self, Budgets};
+use localaise_lib::research::orchestrator;
+use localaise_lib::research::{Budgets, MockLlmClient};
 use localaise_lib::research::request::{ResearchMode, ResearchRequest};
 use localaise_lib::research::roles::{gap, reader};
 
@@ -172,10 +173,11 @@ fn chunk_markdown_respects_paragraph_boundaries() {
     }
 }
 
-#[test]
-fn fact_gate_accepts_verbatim_quotes_only() {
-    let chunk = "Water at 0 degrees Celsius freezes, becoming less dense than warmer water.";
-    let facts = reader::extract(chunk, 1);
+#[tokio::test]
+async fn fact_gate_accepts_verbatim_quotes_only() {
+    let chunk = "Water at 0 degrees Celsius freezes, becoming less dense than warmer water. Ice floats on liquid water because of this unusual expansion upon freezing.";
+    let mock = MockLlmClient::new("test-model");
+    let facts = reader::extract(&mock, chunk, 1).await;
     assert!(!facts.is_empty(), "stub reader yields the first sentence");
     assert!(reader::accept_fact(&facts[0], chunk));
     // A quote that never appears verbatim in the chunk must be rejected.
@@ -183,6 +185,9 @@ fn fact_gate_accepts_verbatim_quotes_only() {
         claim: "made up".into(),
         quote: "this quote appears nowhere in the chunk".into(),
         source_id: 1,
+        entities: vec![],
+        dates: vec![],
+        numbers: vec![],
     };
     assert!(!reader::accept_fact(&bogus, chunk));
 }
@@ -217,9 +222,10 @@ fn gap_check_flags_subquestions_without_facts() {
     assert!(gap::check(2, &facts).is_empty());
 }
 
-#[test]
-fn topic_planning_splits_the_question() {
-    let subs = localaise_lib::research::roles::plan_subquestions(TOPIC);
+#[tokio::test]
+async fn topic_planning_splits_the_question() {
+    let mock = MockLlmClient::new("test-model");
+    let subs = localaise_lib::research::roles::plan_subquestions(&mock, TOPIC).await;
     assert_eq!(subs.len(), 1);
     assert_eq!(subs[0], TOPIC);
 }
@@ -343,7 +349,7 @@ async fn browser_tier_reports_failures_without_panicking() {
 #[tokio::test]
 async fn topic_end_to_end_emits_the_expected_event_flow() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let budgets = Budgets { max_rounds: 1, max_pages: 3, wall_clock_secs: 60 };
+    let budgets = Budgets::quick();
     // A scratch project root: the network gate logs against it and the
     // orchestrator falls back to it for offline sections, but the online
     // run itself only touches the public web.
@@ -358,8 +364,9 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
         use_browser: false,
         internet_enabled: true,
     };
-    let net = ResearchNet { project_root, internet_enabled: true };
-    let handle = tokio::spawn(async move { orchestrator::run(request, &net, tx, budgets).await });
+    let net = ResearchNet::new(project_root, true);
+    let llm = MockLlmClient::new("test-model");
+    let handle = tokio::spawn(async move { orchestrator::run(llm, request, &net, tx, budgets).await });
 
     let mut events: Vec<ResearchEvent> = Vec::new();
     while let Some(ev) = rx.recv().await {
@@ -377,6 +384,7 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
             ResearchEvent::FactExtracted { .. } => "fact",
             ResearchEvent::GapFound { .. } => "gap",
             ResearchEvent::SectionWritten { .. } => "section",
+            ResearchEvent::SectionConfidence { .. } => "section-confidence",
             ResearchEvent::Verified { .. } => "verified",
             ResearchEvent::Done { .. } => "done",
             ResearchEvent::Error { .. } => "error",
@@ -394,7 +402,7 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
     // The stub verifier counts every extracted fact as supported.
     let facts = kinds.iter().filter(|k| **k == "fact").count();
     for ev in &events {
-        if let ResearchEvent::Verified { supported, unsupported } = ev {
+        if let ResearchEvent::Verified { supported, unsupported, .. } = ev {
             assert_eq!(*supported, facts);
             assert_eq!(*unsupported, 0);
         }

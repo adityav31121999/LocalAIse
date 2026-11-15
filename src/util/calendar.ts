@@ -8,6 +8,18 @@ export function toDateKey(date: Date): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+/** `YYYY-MM-DD` → `dd-mm-yyyy`, the on-disk directory name for a dated entry. */
+export function dateKeyToDirName(key: string): string {
+  const [year, month, day] = key.split("-");
+  return year && month && day ? `${day}-${month}-${year}` : key;
+}
+
+/** Relative path of a dated diary entry, e.g. `15-11-2026/15-11-2026.md`. */
+export function diaryEntryPath(date: string): string {
+  const dir = dateKeyToDirName(date);
+  return `${dir}/${dir}.md`;
+}
+
 export function todayKey(): string {
   return toDateKey(new Date());
 }

@@ -67,9 +67,14 @@ export type AgentToolStatus = "running" | "done" | "error";
 export interface AgentToolStep {
   id: string;
   name: string;
+  /** Short one-line summary for the row (first meaningful argument). */
   input: string;
   status: AgentToolStatus;
   summary?: string;
+  /** The full raw argument JSON the model sent. */
+  arguments?: string;
+  /** The tool result the model read back (loop-truncated). */
+  output?: string;
 }
 
 /** One ordered segment of an agent turn. */
@@ -110,6 +115,10 @@ export interface ChatMessage {
   tokensPerSecond?: number;
   /** Tokens of every single model call, in order (agent tool-loop calls). */
   callUsages?: CallUsage[];
+  /** The exact system prompt sent for this turn (assistant messages). */
+  systemPrompt?: string;
+  /** The exact user message sent to the model, context block included. */
+  modelPrompt?: string;
 }
 
 /** Tokens one model call inside a turn consumed. */
@@ -142,6 +151,10 @@ export interface ChatStreamResult {
   callUsages?: CallUsage[];
   /** True when the user stopped the turn before the model finished. */
   cancelled?: boolean;
+  /** The exact system prompt sent for this turn. */
+  systemPrompt?: string;
+  /** The exact user message sent to the model, context block included. */
+  modelPrompt?: string;
 }
 
 /** One saved chat session, as listed in the chats/ folder. */
@@ -169,6 +182,10 @@ export interface StoredChatMessage {
   tokensPerSecond?: number;
   /** Tokens of every single model call, in order (agent tool-loop calls). */
   callUsages?: CallUsage[];
+  /** The exact system prompt sent for this turn (assistant messages). */
+  systemPrompt?: string;
+  /** The exact user message sent to the model, context block included. */
+  modelPrompt?: string;
 }
 
 /** A full saved conversation. */
@@ -219,6 +236,10 @@ export interface DiaryPage {
   folderName?: string;
   filePath?: string;
   isHidden?: boolean;
+  /** True for the date-named daily entry whose file name is fixed. */
+  nameLocked?: boolean;
+  /** Just the file name, e.g. `15-11-2026.md`. */
+  fileName?: string;
 }
 
 export interface PersonalFolderRecord {

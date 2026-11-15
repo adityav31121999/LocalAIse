@@ -1,15 +1,17 @@
 /** The Hardware settings tab: where the model runs.
  *
- * The device, the build and the memory of the machine are one story: the GPU
+ * The device, the backend and the memory of the machine are one story: the GPU
  * is only used when the llama-server build in use can offload to it, and the
- * app asks that build itself rather than guessing from the driver files.
+ * app asks that build itself rather than guessing from the driver files. The
+ * backend the user ticks is honoured both when a build is resolved and when
+ * the server is launched.
  */
 
 import { useEffect, useState } from "react";
 import {
   installGpuBuild,
   listGpuBuilds,
-  pickServerBinary,
+  setGpuBackend,
   type GpuBuildList,
   type GpuBuildStatus,
 } from "../../api/models";
@@ -38,35 +40,55 @@ const STAGE_LABELS: Record<string, string> = {
 /** One backend build of llama.cpp: what is on disk and what to do next. */
 function BuildRow({
   build,
+  selected,
   busy,
   installing,
   disabled,
   onInstall,
+  onSelect,
 }: {
   build: GpuBuildStatus;
-  /** True while any install runs, so two never race for the folder. */
+  /** True when the runtime is told to use this backend. */
+  selected: boolean;
+  /** True while any install or selection runs, so two never race. */
   busy: boolean;
   /** True while this row's install runs. */
   installing: boolean;
   disabled: boolean;
   onInstall: (target: string) => void;
+  onSelect: (target: string | null) => void;
 }) {
   return (
-    <div className="caps__row" key={build.target}>
-      <span className="caps__key">
-        {build.label}
-        {build.recommended ? <span className="muted"> · fits your graphics card</span> : ""}
-        <br />
-        <span className="muted">
-          {build.installed
-            ? build.source
-              ? `installed from llama.cpp ${build.source.releaseTag}`
-              : "installed"
-            : build.downloadable
-              ? "not installed"
-              : "no official archive — build with scripts/fetch-llama-server.ts"}
+    <div className={`caps__row caps__row--choice${selected ? " caps__row--selected" : ""}`}>
+      <label
+        className="build-choice"
+        title={!build.installed ? "Install this backend before selecting it" : undefined}
+      >
+        <input
+          type="checkbox"
+          checked={selected}
+          // A backend must be on disk before it can run, and the choice is
+          // exclusive: checking this one clears the others.
+          disabled={!build.installed || busy}
+          onChange={(event) => onSelect(event.target.checked ? build.target : null)}
+        />
+        <span className="build-choice__text">
+          <span className="build-choice__name">
+            {build.label}
+            {build.recommended ? <span className="muted"> · fits your graphics card</span> : ""}
+            {selected ? <span className="build-choice__badge"> selected</span> : ""}
+          </span>
+          <span className="muted">
+            {build.installed
+              ? build.source
+                ? `installed from llama.cpp ${build.source.releaseTag}`
+                : "installed"
+              : build.downloadable
+                ? "not installed"
+                : "no official archive — build with scripts/fetch-llama-server.ts"}
+          </span>
         </span>
-      </span>
+      </label>
       <span className="caps__value">
         {build.installed ? (
           "ready"
@@ -99,9 +121,9 @@ export function HardwareSettings() {
     patch,
     refreshBuild,
   } = useRuntimeConfig();
-  const [picking, setPicking] = useState(false);
   const [builds, setBuilds] = useState<GpuBuildList | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState<string | null>(null);
   const [installStage, setInstallStage] = useState<string | null>(null);
   /** How far the running download has got, in bytes, as the installer reports it. */
   const [progress, setProgress] = useState<{ target: string; done: number; total: number } | null>(
@@ -157,14 +179,18 @@ export function HardwareSettings() {
   const isCpu = device.device === "cpu";
   const gpuLayers = device.device === "user_gpu" ? device.gpu_layers : 0;
 
-  const chooseBuild = async () => {
-    setPicking(true);
+  /** Opts for one backend, or hands the choice back to the detection. */
+  const selectBackend = async (target: string | null) => {
+    setSelecting(target ?? "__auto__");
+    setBuildError(null);
     try {
-      const picked = await pickServerBinary();
-      if (picked) await refreshBuild();
-      await readBuilds();
+      const list = await setGpuBackend(target);
+      setBuilds(list);
+      await refreshBuild();
+    } catch (error) {
+      setBuildError(error instanceof Error ? error.message : String(error));
     } finally {
-      setPicking(false);
+      setSelecting(null);
     }
   };
 
@@ -300,16 +326,27 @@ export function HardwareSettings() {
               </span>
               <span className="caps__value muted">{builds.gpuBackend}</span>
             </div>
+            <p className="field__hint build-choice__hint">
+              Tick the backend the runtime should use. The choice is exclusive — untick it to let
+              the detection decide again.
+            </p>
             {builds.builds.map((entry) => (
               <BuildRow
                 build={entry}
                 key={entry.target}
-                busy={installing != null}
+                selected={builds.selected === entry.target}
+                busy={installing != null || selecting != null}
                 installing={installing === entry.target}
                 disabled={!builds.gpuAvailable && !entry.installed}
                 onInstall={(target) => void install(target)}
+                onSelect={(target) => void selectBackend(target)}
               />
             ))}
+            <p className="field__hint build-choice__hint">
+              {builds.selected
+                ? `Pinned to ${builds.selected.toUpperCase()}.`
+                : `Following the detected backend${builds.recommended ? ` (${builds.recommended.toUpperCase()})` : ""}.`}
+            </p>
           </div>
         )}
         {installing && installStage && (
@@ -329,17 +366,6 @@ export function HardwareSettings() {
           />
         )}
         {buildError && <p className="field__hint perf__error">{buildError}</p>}
-
-        <div className="perf__slider-row">
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={picking}
-            onClick={() => void chooseBuild()}
-          >
-            {picking ? "Opening…" : "Choose build…"}
-          </button>
-        </div>
       </section>
 
       <section className="field" aria-labelledby="field-machine">

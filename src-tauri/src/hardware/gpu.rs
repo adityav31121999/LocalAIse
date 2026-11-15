@@ -115,10 +115,10 @@ fn recommend_once() -> GpuRecommendation {
 
         let mut adapters = list_adapters_windows();
         if adapters.is_empty() {
-            if let Ok(out) = std::process::Command::new("wmic")
-                .args(["path", "win32_VideoController", "get", "Name"])
-                .output()
-            {
+            let mut cmd = std::process::Command::new("wmic");
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            if let Ok(out) = cmd.args(["path", "win32_VideoController", "get", "Name"]).output() {
                 let text = String::from_utf8_lossy(&out.stdout);
                 for line in text.lines() {
                     let t = line.trim();
@@ -363,7 +363,13 @@ fn reg_value_bytes(vtype: RegType, bytes: &[u8]) -> Option<u64> {
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn nvidia_driver_version() -> Option<String> {
-    let output = std::process::Command::new("nvidia-smi")
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = cmd
         .args(["--query-gpu=driver_version", "--format=csv,noheader"])
         .output()
         .ok()?;
@@ -378,7 +384,13 @@ fn nvidia_driver_version() -> Option<String> {
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn vram_from_nvidia_smi() -> Option<f32> {
-    let output = std::process::Command::new("nvidia-smi")
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = cmd
         .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
         .output()
         .ok()?;

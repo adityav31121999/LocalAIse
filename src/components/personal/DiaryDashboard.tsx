@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookIcon, ChevronLeftIcon, PanelLeftIcon, PlusIcon } from "../ui/icons";
+import { BookIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, FilePlusIcon, FolderIcon, PanelLeftIcon, PlusIcon, ShieldIcon } from "../ui/icons";
 import { CalendarView } from "./CalendarView";
 import { Reminders } from "./Reminders";
 import { DiaryEditor } from "./DiaryEditor";
@@ -8,10 +8,9 @@ import { useDiaryStore } from "../../state/diaryStore";
 import { useNavStore } from "../../state/navStore";
 import { useProjectStore, selectActiveProject } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
-import { formatDateKey, monthStart, todayKey } from "../../util/calendar";
+import { dateKeyToDirName, formatDateKey, monthStart, todayKey } from "../../util/calendar";
 import type { DiaryPage } from "../../types";
 
-const LIST_DATE: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
 const LONG_DATE: Intl.DateTimeFormatOptions = {
   weekday: "long",
   day: "numeric",
@@ -19,9 +18,16 @@ const LONG_DATE: Intl.DateTimeFormatOptions = {
   year: "numeric",
 };
 
-function pageLabel(page: DiaryPage): string {
-  if (page.date) return formatDateKey(page.date, LIST_DATE);
-  return page.title.trim() || "Untitled page";
+function pageFileName(page: DiaryPage): string {
+  if (page.fileName) return page.fileName;
+  if (page.filePath) {
+    const base = page.filePath.split("/").pop();
+    if (base) return base;
+  }
+  if (page.date && page.nameLocked) return `${dateKeyToDirName(page.date)}.md`;
+  const slug =
+    page.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
+  return `${slug}.md`;
 }
 
 function PageRow({
@@ -33,18 +39,17 @@ function PageRow({
   selected: boolean;
   onSelect(): void;
 }) {
-  const preview = page.body.trim().split("\n")[0];
-
   return (
     <button
       type="button"
       className={`diary-row${selected ? " diary-row--active" : ""}`}
       aria-current={selected ? "true" : undefined}
+      title={pageFileName(page)}
       onClick={onSelect}
     >
-      <span className="diary-row__label truncate">{pageLabel(page)}</span>
-      <span className={`diary-row__preview truncate${preview ? "" : " muted"}`}>
-        {preview || "Empty"}
+      <span className="diary-row__label truncate">
+        {page.nameLocked ? <ShieldIcon size={11} /> : null}
+        {pageFileName(page)}
       </span>
     </button>
   );
@@ -73,7 +78,16 @@ export function DiaryDashboard() {
   const scopeProjectId = project?.diaryEnabled ? project.id : null;
 
   const [month, setMonth] = useState(() => monthStart(new Date()));
+  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const today = todayKey();
+
+  const toggleDateGroup = (date: string) =>
+    setCollapsedDates((current) => {
+      const next = new Set(current);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
 
   useEffect(() => {
     void load(scopeProjectId);
@@ -86,13 +100,25 @@ export function DiaryDashboard() {
     () => new Set(pages.filter((page) => page.date).map((page) => page.date as string)),
     [pages],
   );
-  const dated = useMemo(
-    () =>
-      pages
-        .filter((page) => page.date)
-        .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
-    [pages],
-  );
+  const dateGroups = useMemo(() => {
+    const map = new Map<string, DiaryPage[]>();
+    for (const page of pages) {
+      if (!page.date) continue;
+      const list = map.get(page.date) ?? [];
+      list.push(page);
+      map.set(page.date, list);
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, items]) => ({
+        date,
+        items: [...items].sort(
+          (a, b) =>
+            Number(Boolean(b.nameLocked)) - Number(Boolean(a.nameLocked)) ||
+            a.createdAt.localeCompare(b.createdAt),
+        ),
+      }));
+  }, [pages]);
   const extra = useMemo(
     () =>
       pages
@@ -176,68 +202,7 @@ export function DiaryDashboard() {
       }
       sidebar={
         <div className="panel">
-          <div className="panel__head">
-            <span className="panel__title">Calendar</span>
-          </div>
-          <div className="panel__cal">
-            <CalendarView
-              month={month}
-              today={today}
-              selectedDate={selectedDate}
-              entryDates={entryDates}
-              onMonthChange={setMonth}
-              onSelectDate={selectDate}
-            />
-          </div>
-
           <Reminders selectedDate={selectedDate} />
-
-          <div className="panel__head">
-            <span className="panel__title">Pages</span>
-            <button
-              type="button"
-              className="icon-btn icon-btn--sm"
-              onClick={() => void createPage(null)}
-              title="Add a page"
-            >
-              <PlusIcon size={14} />
-              <span className="sr-only">Add a page</span>
-            </button>
-          </div>
-
-          <div className="panel__scroll">
-            {status === "loading" && pages.length === 0 ? (
-              <p className="muted mt-2">
-                <span className="spinner" aria-hidden="true" /> Opening your diary…
-              </p>
-            ) : pages.length === 0 ? (
-              <p className="muted mt-2">
-                No pages yet. Pick a date in the calendar, or add a page.
-              </p>
-            ) : (
-              <>
-                {dated.length > 0 ? <div className="panel__group">Entries</div> : null}
-                {dated.map((page) => (
-                  <PageRow
-                    key={page.id}
-                    page={page}
-                    selected={page.id === activePageId}
-                    onSelect={() => selectPage(page.id)}
-                  />
-                ))}
-
-                {extra.length > 0 ? <div className="panel__group">Extra pages</div> : null}
-                {extra.map((page) => (
-                  <PageRow
-                    key={page.id}
-                    page={page}
-                    selected={page.id === activePageId}
-                    onSelect={() => selectPage(page.id)}
-                  />
-                ))}
-              </>
-            )}
-          </div>
 
           <div className="panel__foot">
             {scopeProjectId
@@ -247,14 +212,109 @@ export function DiaryDashboard() {
         </div>
       }
     >
-      {activePage ? (
-        <DiaryEditor
-          page={activePage}
-          saveState={saveState}
-          onChange={(patch) => updatePage(activePage.id, patch)}
-          onDelete={() => void removePage(activePage.id)}
-        />
-      ) : (
+      <div className="diary-split">
+        <div className="diary-split__left">
+          <aside className="diary-split__cal" aria-label="Calendar">
+            <CalendarView
+              month={month}
+              today={today}
+              selectedDate={selectedDate}
+              entryDates={entryDates}
+              onMonthChange={setMonth}
+              onSelectDate={selectDate}
+            />
+          </aside>
+
+          <div className="diary-split__pages" aria-label="Pages">
+            <div className="panel__head">
+              <span className="panel__title">Pages · {pages.length}</span>
+              <button
+                type="button"
+                className="icon-btn icon-btn--sm"
+                onClick={() => void createPage(null)}
+                title="Add a page"
+              >
+                <PlusIcon size={14} />
+                <span className="sr-only">Add a page</span>
+              </button>
+            </div>
+            <div className="panel__scroll">
+              {status === "loading" && pages.length === 0 ? (
+                <p className="muted mt-2">
+                  <span className="spinner" aria-hidden="true" /> Opening your diary…
+                </p>
+              ) : pages.length === 0 ? (
+                <p className="muted mt-2">No pages yet. Pick a date, or add a page.</p>
+              ) : (
+                <>
+                  {dateGroups.length > 0 ? <div className="panel__group">Entries</div> : null}
+                  {dateGroups.map((group) => {
+                    const collapsed = collapsedDates.has(group.date);
+                    return (
+                      <div key={group.date} className="tree-date-group">
+                        <div className="tree-date">
+                          <button
+                            type="button"
+                            className="tree-date__toggle"
+                            aria-expanded={!collapsed}
+                            onClick={() => toggleDateGroup(group.date)}
+                            title={group.date}
+                          >
+                            {collapsed ? (
+                              <ChevronRightIcon size={12} />
+                            ) : (
+                              <ChevronDownIcon size={12} />
+                            )}
+                            <FolderIcon size={14} />
+                            <span className="truncate">{dateKeyToDirName(group.date)}</span>
+                            <span className="tree-date__count">{group.items.length}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn icon-btn--sm"
+                            onClick={() => void createPage(group.date, false)}
+                            title="Add a file for this date"
+                          >
+                            <FilePlusIcon size={14} />
+                            <span className="sr-only">Add a file for this date</span>
+                          </button>
+                        </div>
+                        {!collapsed &&
+                          group.items.map((page) => (
+                            <div key={page.id} className="tree-date__children">
+                              <PageRow
+                                page={page}
+                                selected={page.id === activePageId}
+                                onSelect={() => selectPage(page.id)}
+                              />
+                            </div>
+                          ))}
+                      </div>
+                    );
+                  })}
+                  {extra.length > 0 ? <div className="panel__group">Extra pages</div> : null}
+                  {extra.map((page) => (
+                    <PageRow
+                      key={page.id}
+                      page={page}
+                      selected={page.id === activePageId}
+                      onSelect={() => selectPage(page.id)}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="diary-split__doc">
+          {activePage ? (
+            <DiaryEditor
+              page={activePage}
+              saveState={saveState}
+              onChange={(patch) => updatePage(activePage.id, patch)}
+              onDelete={() => void removePage(activePage.id)}
+            />
+          ) : (
         <div className="diary">
           <div className="diary__sheet diary__sheet--empty">
             {pendingDate ? (
@@ -264,7 +324,7 @@ export function DiaryDashboard() {
                 <button
                   type="button"
                   className="btn btn--primary"
-                  onClick={() => void createPage(pendingDate)}
+                  onClick={() => void createPage(pendingDate, true)}
                 >
                   <PlusIcon size={15} />
                   Start this entry
@@ -295,7 +355,9 @@ export function DiaryDashboard() {
             )}
           </div>
         </div>
-      )}
+          )}
+        </div>
+      </div>
     </WorkspaceLayout>
   );
 }

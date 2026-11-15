@@ -242,12 +242,31 @@ function parseListGroup(
   let cursor = start;
 
   while (cursor < lines.length) {
+    // A blank line between two items of one list does not end the list; a
+    // blank line before anything else (a paragraph, another kind of list)
+    // does.
+    if (!lines[cursor]!.trim()) {
+      let next = cursor + 1;
+      while (next < lines.length && !(lines[next] ?? "").trim()) next += 1;
+      const upcoming = LIST_RE.exec(lines[next] ?? "");
+      if (!upcoming) break;
+      const nextIndent = normalizeIndent(upcoming[1] ?? "");
+      const nextOrdered = /\d/.test(upcoming[2] ?? "");
+      if (nextIndent !== spec.indent || nextOrdered !== spec.ordered) break;
+      cursor = next;
+    }
+
     const match = LIST_RE.exec(lines[cursor] ?? "");
     if (!match) break;
     const indent = normalizeIndent(match[1] ?? "");
     const ordered = /\d/.test(match[2] ?? "");
 
-    if (indent < spec.indent) break; // dedent → this list level is finished
+    // Only the items written at this level belong here. A deeper line starts
+    // a nested list inside the item above; a shallower one hands control back
+    // to the caller. Comparing against the real indent (not a guessed step)
+    // is what keeps siblings siblings — models indent with four spaces per
+    // level, other writers use two, and both must nest the same way.
+    if (indent !== spec.indent) break;
     if (ordered !== spec.ordered) break; // list kind changed → restart outside
 
     const itemText = [match[3] ?? ""];
@@ -259,7 +278,8 @@ function parseListGroup(
       cursor += 1;
     }
 
-    // Blank separator before a deeper sibling belongs to the last item.
+    // A blank line before a deeper sibling belongs to the item above; the
+    // nested group below starts at that sibling.
     if (
       cursor < lines.length &&
       !lines[cursor]!.trim() &&
@@ -267,7 +287,7 @@ function parseListGroup(
       LIST_RE.test(lines[cursor + 1] ?? "")
     ) {
       const upcoming = LIST_RE.exec(lines[cursor + 1] ?? "");
-      if (upcoming && normalizeIndent(upcoming[1] ?? "") >= spec.indent + 2) cursor += 1;
+      if (upcoming && normalizeIndent(upcoming[1] ?? "") > spec.indent) cursor += 1;
     }
 
     let children: ReactNode[] = parseInline(
@@ -277,13 +297,16 @@ function parseListGroup(
       mentions,
     );
     const nested = LIST_RE.exec(lines[cursor] ?? "");
-    if (nested && normalizeIndent(nested[1] ?? "") >= spec.indent + 2) {
+    if (nested && normalizeIndent(nested[1] ?? "") > spec.indent) {
+      // The nested group owns the indentation it was written with, so its own
+      // children can be told apart from its siblings in turn.
+      const nestedIndent = normalizeIndent(nested[1] ?? "");
       const [nestedList, used] = parseListGroup(
         lines,
         cursor,
         {
           ordered: /\d/.test(nested[2] ?? ""),
-          indent: spec.indent + 2,
+          indent: nestedIndent,
           start: /^\d/.test(nested[2] ?? "") ? Number.parseInt(nested[2]!, 10) : undefined,
         },
         `${keyPrefix}-c${cursor}`,

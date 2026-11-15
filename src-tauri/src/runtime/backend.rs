@@ -133,9 +133,19 @@ pub fn capabilities_for(
 /// The probe reads the server's own device list, so a build that cannot see
 /// a GPU says so instead of the app guessing from the driver files.
 pub fn detect_capabilities(binary: &Path) -> ServerCapabilities {
-    let Ok(output) = Command::new(binary).arg("--list-devices").output() else {
+    log::info!("[backend] detect_capabilities: probing {:?}", binary);
+    let mut command = Command::new(binary);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    command.arg("--list-devices");
+    let Ok(output) = command.output() else {
+        log::warn!("[backend] detect_capabilities: failed to run {:?}", binary);
         return ServerCapabilities::default();
     };
+    log::info!("[backend] detect_capabilities: probe succeeded for {:?}", binary);
 
     let text = String::from_utf8_lossy(&output.stdout);
     let mut devices = Vec::new();
@@ -269,27 +279,27 @@ fn cpu_candidates(dirs: &AppDirs) -> Vec<PathBuf> {
 
 /// The GPU-capable server binary, when any accelerated backend DLL is present.
 ///
-/// Prefers the installed GPU backend that matches the detected vendor (e.g. CUDA for NVIDIA,
-/// Vulkan for AMD/Intel).
-fn gpu_candidates(dirs: &AppDirs) -> Vec<PathBuf> {
+/// The backend the user opted for wins when it is installed; otherwise the one
+/// that matches the detected vendor is preferred (CUDA for NVIDIA, Vulkan for
+/// AMD/Intel). The last two are fallbacks, so a machine with more than one
+/// installed backend still starts the GPU build.
+fn gpu_candidates(dirs: &AppDirs, preferred: Option<GpuTarget>) -> Vec<PathBuf> {
     let rec = gpu::recommend_gpu();
-    let preferred_target = match rec.backend.as_str() {
+    let detected_target = match rec.backend.as_str() {
         "cuda" => Some(GpuTarget::Cuda),
         "vulkan" => Some(GpuTarget::Vulkan),
         "opencl" => Some(GpuTarget::Opencl),
         _ => None,
     };
 
-    let mut targets_to_try = Vec::new();
-    if let Some(preferred) = preferred_target {
-        if backend_dll_installed(dirs, preferred) {
-            targets_to_try.push(preferred);
-        }
-    }
-
-    for fallback in [GpuTarget::Cuda, GpuTarget::Vulkan, GpuTarget::Opencl] {
-        if !targets_to_try.contains(&fallback) && backend_dll_installed(dirs, fallback) {
-            targets_to_try.push(fallback);
+    let mut targets_to_try: Vec<GpuTarget> = Vec::new();
+    for target in preferred
+        .into_iter()
+        .chain(detected_target)
+        .chain([GpuTarget::Cuda, GpuTarget::Vulkan, GpuTarget::Opencl])
+    {
+        if !targets_to_try.contains(&target) && backend_dll_installed(dirs, target) {
+            targets_to_try.push(target);
         }
     }
 
@@ -338,7 +348,13 @@ fn best_candidates_with(dirs: &AppDirs, settings: &Settings, prefer_gpu: bool) -
         candidates.push(path.clone());
     }
     if prefer_gpu {
-        candidates.extend(gpu_candidates(dirs));
+        candidates.extend(gpu_candidates(
+            dirs,
+            settings
+                .gpu_backend
+                .as_deref()
+                .and_then(GpuTarget::parse),
+        ));
     }
     candidates.extend(cpu_candidates(dirs));
 

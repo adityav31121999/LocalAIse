@@ -45,4 +45,6 @@ pub mod store_sqlite;
 pub mod fetch;
 pub mod chunk;
 pub mod roles;
+pub use roles::{plan_research};
+pub mod transcript;
 pub mod rank;

@@ -21,20 +21,27 @@ impl Default for Source {
     }
 }
 
+/// Maximum characters of source text kept in memory per source. Caps the
+/// memory footprint of a Deep-mode run (50 pages) at a few tens of MB while
+/// leaving plenty of context for two-stage verification. Text past the cap
+/// is dropped; the transcript still records the original fetch size.
+pub const MAX_SOURCE_TEXT_CHARS: usize = 200_000;
+
 pub struct EvidenceStore { sources: Vec<Source>, next: i64 }
 
 impl Default for EvidenceStore { fn default() -> Self { Self::new() } }
 
 impl EvidenceStore {
     pub fn new() -> Self { Self { sources: vec![], next: 1 } }
-    
+
     pub fn add_source(&mut self, url: &str, title: &str, text: &str) -> i64 {
         self.add_source_with_quality(url, title, text, 0.0)
     }
-    
+
     pub fn add_source_with_quality(&mut self, url: &str, title: &str, text: &str, quality_score: f32) -> i64 {
         let id = self.next; self.next += 1;
-        self.sources.push(Source { id, url: url.to_string(), title: title.to_string(), text: text.to_string(), quality_score });
+        let bounded: String = text.chars().take(MAX_SOURCE_TEXT_CHARS).collect();
+        self.sources.push(Source { id, url: url.to_string(), title: title.to_string(), text: bounded, quality_score });
         id
     }
     

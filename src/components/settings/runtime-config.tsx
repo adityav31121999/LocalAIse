@@ -45,6 +45,7 @@ import {
 } from "../../api/models";
 import type { HardwareReport } from "../../api/models";
 import { PROFILE_BUDGET_DEFAULTS, withProfileDefaults } from "../../types";
+import { useRuntimeStore } from "../../state/runtimeStore";
 
 /** How the three fit levels read on screen. */
 export const FIT_LABELS: Record<ProfileEstimate["fit"], string> = {
@@ -321,7 +322,10 @@ export function RuntimeConfigProvider({
       setSaved(draft);
       setEstimate((current) => (current ? { ...current, report } : current));
       const state = await runtimeStatus().catch(() => null);
-      if (state) setStatus(state);
+      if (state) {
+        setStatus(state);
+        useRuntimeStore.setState({ status: state });
+      }
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : String(applyError));
     } finally {

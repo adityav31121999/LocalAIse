@@ -40,9 +40,24 @@ export function RuntimeActions() {
       {error && <p className="perf__error">{error}</p>}
 
       <div className="perf__actions">
+        {dirty && (
+          <span
+            className="mono"
+            style={{
+              fontSize: "var(--text-xs)",
+              color: "var(--accent-warning, #f59e0b)",
+              marginRight: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            ● Unapplied changes
+          </span>
+        )}
         {recommended && (
           <button type="button" className="btn btn--ghost" disabled={applying} onClick={useRecommended}>
-            Use the recommended profile
+            Use recommended
           </button>
         )}
         {dirty && (
@@ -56,7 +71,7 @@ export function RuntimeActions() {
           disabled={applying || blocked}
           onClick={() => void apply()}
         >
-          {applying ? "Applying…" : "Apply"}
+          {applying ? "Applying…" : dirty ? "Apply Changes" : "Apply"}
         </button>
       </div>
     </div>

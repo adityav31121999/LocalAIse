@@ -241,17 +241,33 @@ fn evaluate_question(question: &EvalQuestion, output: &EvalRunOutput, wall_clock
 
 /// Simple fuzzy match for fact claims.
 fn facts_match(expected: &str, actual: &str) -> bool {
-    let expected_norm = normalize_for_matching(expected);
-    let actual_norm = normalize_for_matching(actual);
-
-    // Check containment both ways for fuzzy matching
-    actual_norm.contains(&expected_norm) || expected_norm.contains(&actual_norm)
+    let tokens = |s: &str| -> Vec<String> {
+        const STOP: &[&str] = &["the", "a", "an", "is", "are", "was", "were", "and", "of", "to", "in", "on", "for", "with", "that", "this", "it"];
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty() && !STOP.contains(w))
+            .map(|w| w.to_string())
+            .collect()
+    };
+    let expected_tokens = tokens(expected);
+    let actual_tokens = tokens(actual);
+    if expected_tokens.is_empty() {
+        return false;
+    }
+    let matched = expected_tokens.iter().filter(|t| actual_tokens.contains(t)).count();
+    // At least half of the expected tokens must be present in the actual text.
+    matched * 2 >= expected_tokens.len()
 }
 
+#[cfg(test)]
 fn normalize_for_matching(s: &str) -> String {
+    const STOP: &[&str] = &["the", "a", "an", "is", "are", "was", "were", "and", "of", "to", "in", "on", "for", "with", "that", "this", "it"];
     s.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '%' { c } else { ' ' })
+        .collect::<String>()
         .split_whitespace()
-        .filter(|w| w.len() > 2) // Skip very short words
+        .filter(|w| !STOP.contains(w))
         .collect::<Vec<_>>()
         .join(" ")
 }

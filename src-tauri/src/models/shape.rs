@@ -11,13 +11,6 @@ use crate::runtime::budget::{ModelShape, MoeShape};
 
 const MAGIC: u32 = 0x46554747; // "GGUF" little-endian
 
-/// How much of the metadata block to read.
-///
-/// The facts the UI needs sit at the front of the file, but the tokenizer
-/// vocabulary that follows can run into megabytes. Reading a bounded prefix
-/// keeps a folder scan fast even with a few dozen models on disk.
-const META_BUDGET_BYTES: u64 = 4 * 1024 * 1024;
-
 /// Metadata the model list shows next to a file.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ModelMeta {
@@ -315,8 +308,8 @@ fn read_shape_into<R: Read>(
 
 /// Reads the magic, the counts and the key/value metadata block.
 ///
-/// The metadata loop stops at [`META_BUDGET_BYTES`]; anything past that is
-/// tokenizer detail the app never looks at.
+/// Unneeded large tokenizer arrays are skipped so all key/value entries
+/// are consumed and the reader is cleanly positioned at the tensor info block.
 fn read_header<R: Read>(reader: &mut Metered<R>) -> Result<(u64, Metadata), String> {
     if read_u32(reader)? != MAGIC {
         return Err("not a GGUF file (bad magic)".into());
@@ -327,9 +320,6 @@ fn read_header<R: Read>(reader: &mut Metered<R>) -> Result<(u64, Metadata), Stri
 
     let mut metadata = Metadata::default();
     for _ in 0..kv_count {
-        if reader.read >= META_BUDGET_BYTES {
-            break;
-        }
         let key = read_string(reader)?;
         let value_type = read_u32(reader)?;
         read_value(reader, value_type, &key, &mut metadata)?;
@@ -438,6 +428,40 @@ impl Metadata {
     }
 }
 
+fn is_unneeded_key(key: &str) -> bool {
+    key.starts_with("tokenizer.")
+        || key.starts_with("quantize.")
+        || key.starts_with("general.base_model.")
+        || key == "general.tags"
+}
+
+fn skip_bytes<R: Read>(reader: &mut R, mut count: u64) -> Result<(), String> {
+    let mut scratch = [0u8; 64 * 1024];
+    while count > 0 {
+        let chunk = count.min(scratch.len() as u64) as usize;
+        reader.read_exact(&mut scratch[..chunk]).map_err(io_string)?;
+        count -= chunk as u64;
+    }
+    Ok(())
+}
+
+fn skip_array<R: Read>(reader: &mut R, elem_type: u32, count: u64) -> Result<(), String> {
+    match elem_type {
+        0 | 7 => skip_bytes(reader, count),
+        1..=3 => skip_bytes(reader, count.saturating_mul(2)),
+        4..=6 => skip_bytes(reader, count.saturating_mul(4)),
+        10..=12 => skip_bytes(reader, count.saturating_mul(8)),
+        8 => {
+            for _ in 0..count {
+                let len = read_u64(reader)?;
+                skip_bytes(reader, len)?;
+            }
+            Ok(())
+        }
+        _ => Err(format!("unsupported GGUF array element type: {elem_type}")),
+    }
+}
+
 fn read_value(
     reader: &mut impl Read,
     value_type: u32,
@@ -480,16 +504,25 @@ fn read_value(
             metadata.put(key, value);
         }
         8 => {
-            let value = read_string(reader)?;
-            metadata.put_str(key, value);
+            if is_unneeded_key(key) {
+                let len = read_u64(reader)?;
+                skip_bytes(reader, len)?;
+            } else {
+                let value = read_string(reader)?;
+                metadata.put_str(key, value);
+            }
         }
         // Array: element type, count, then plain elements. GGUF forbids
         // nested arrays, so the recursion is exactly one level deep.
         9 => {
             let elem_type = read_u32(reader)?;
             let count = read_u64(reader)?;
-            for _ in 0..count {
-                read_value(reader, elem_type, key, metadata)?;
+            if is_unneeded_key(key) {
+                skip_array(reader, elem_type, count)?;
+            } else {
+                for _ in 0..count {
+                    read_value(reader, elem_type, key, metadata)?;
+                }
             }
         }
         other => return Err(format!("unsupported GGUF value type: {other}")),
@@ -737,5 +770,18 @@ mod tests {
         assert!(meta.is_projector);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_real_gemma4_if_present() {
+        let path = Path::new(r"C:\model\llm\gemma-4-26B-A4B-it\gemma-4-26B-A4B-it-UD-Q4_K_M.gguf");
+        if !path.exists() {
+            return;
+        }
+        let result = read_shape(path);
+        assert!(result.warning.is_none(), "warning: {:?}", result.warning);
+        assert!(result.shape.moe.is_some(), "expected MoE shape");
+        let moe = result.shape.moe.unwrap();
+        assert!(moe.expert_bytes_total > 0, "expert bytes should be > 0");
     }
 }

@@ -111,11 +111,14 @@ function TreeNodeItem({
     if (!isDir || !isExpanded) return;
     let active = true;
     setLoading(true);
+    console.log("[Sidebar] listDirectory called for", path);
     listDirectory(project.id, path)
       .then((items) => {
+        console.log("[Sidebar] listDirectory resolved for", path, items);
         if (active) setChildren(items);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[Sidebar] listDirectory error for", path, err);
         if (active) setChildren([]);
       })
       .finally(() => {
@@ -411,13 +414,15 @@ export function Sidebar({ project }: { project: Project }) {
       setRootEntries(items);
       // Auto expand first level folders
       setExpandedFolders((prev) => {
+        let changed = false;
         const next = { ...prev };
         items.forEach((item) => {
           if (item.isDir && next[item.path] === undefined) {
             next[item.path] = true;
+            changed = true;
           }
         });
-        return next;
+        return changed ? next : prev;
       });
     } catch {
       setRootEntries([]);

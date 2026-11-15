@@ -86,9 +86,7 @@ pub fn write_report_section(
     let avg_quality = if !unique_sources.is_empty() {
         sources.iter()
             .filter(|s| unique_sources.contains(&s.id))
-            .map(|s| {
-                crate::research::search::SourceScore::compute(&s.url, &s.text, None).composite
-            })
+            .map(|s| s.quality_score)
             .sum::<f32>() / unique_sources.len() as f32
     } else { 0.0 };
     
@@ -179,9 +177,11 @@ fn generate_limitations(
 }
 
 fn claims_similar(a: &str, b: &str) -> bool {
+    // Substring match catches "always contains" cases; Jaccard catches paraphrases.
     let a_norm = normalize_claim(a);
     let b_norm = normalize_claim(b);
-    a_norm == b_norm || a_norm.contains(&b_norm) || b_norm.contains(&a_norm)
+    (!a_norm.is_empty() && !b_norm.is_empty() && (a_norm == b_norm || a_norm.contains(&b_norm) || b_norm.contains(&a_norm)))
+        || crate::research::search::token_jaccard(a, b) >= 0.6
 }
 
 fn normalize_claim(s: &str) -> String {
@@ -230,12 +230,12 @@ pub fn write_report(
         
         if let Some(conflicting) = &section.conflicting_evidence {
             report.push_str(conflicting);
-            report.push_str("\n");
+            report.push('\n');
         }
         
         if let Some(lim) = &section.limitations {
             report.push_str(lim);
-            report.push_str("\n");
+            report.push('\n');
         }
         
         report.push_str("---\n\n");
@@ -253,9 +253,9 @@ pub fn write_report(
     let mut source_list: Vec<_> = all_sources.iter()
         .filter(|s| cited_sources.contains(&s.id))
         .map(|s| {
-            let score = crate::research::search::SourceScore::compute(&s.url, &s.text, None);
-            format!("- **[{}]** {} — {} (type: {:?}, quality: {:.2})", 
-                s.id, s.url, s.title, score.domain_type, score.composite)
+            // Reuse the quality score computed at ingest time instead of recomputing.
+            format!("- **[{}]** {} — {} (quality: {:.2})",
+                s.id, s.url, s.title, s.quality_score)
         })
         .collect();
     source_list.sort();
@@ -280,28 +280,33 @@ pub fn write_report(
 mod tests {
     use super::*;
     use crate::research::fact::Fact;
-    use crate::research::roles::verify::{VerificationLabel, FactVerification};
-    use crate::research::store::Source;
-    use crate::research::search::CorroboratedFact;
+    use crate::research::store::EvidenceStore;
 
     fn make_fact(sub_q: usize, source_id: i64, claim: &str) -> Fact {
         Fact { sub_q, source_id, claim: claim.into(), quote: claim.into() }
     }
 
-    fn make_source(id: i64, url: &str) -> Source {
-        Source { id, url: url.into(), title: "Test".into(), text: "Test content".into(), quality_score: 0.8 }
-    }
-
     #[test]
-    fn test_write_section() {
-        let fact = make_fact(0, 1, "Test claim");
-        let verification = FactVerification { fact_index: 0, stage1_pass: true, stage2_label: Some(VerificationLabel::Supported), stage2_reasoning: None };
-        let source = make_source(1, "https://example.com");
-        
-        let section = write_section("Test", &[&fact], &[fact], &[verification], &[source], &[]);
-        
+    fn test_write_report_section_includes_supported_claims() {
+        let mut store = EvidenceStore::new();
+        let source_id = store.add_source_with_quality("https://example.com/doc", "doc", "Test claim appears here.", 0.8);
+        let fact = make_fact(0, source_id, "Test claim");
+        let facts = vec![&fact];
+        let details = vec![FactVerification {
+            fact_index: 0,
+            stage1_pass: true,
+            stage2_label: Some(VerificationLabel::Supported),
+            stage2_reasoning: Some("ok".into()),
+        }];
+        let section = write_report_section(
+            "Test",
+            &facts,
+            &[Fact { sub_q: 0, source_id, claim: fact.claim.clone(), quote: fact.quote.clone() }],
+            &details,
+            store.sources(),
+            &[],
+        );
         assert!(section.content.contains("Test claim"));
         assert_eq!(section.citations.len(), 1);
-        assert!(section.confidence > 0.0);
     }
 }

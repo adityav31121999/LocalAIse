@@ -266,6 +266,17 @@ pub fn ensure_runtime(app: &AppHandle) -> AppResult<PathBuf> {
         }
     }
 
+    // Do not mark an empty source checkout as initialized. The runtime
+    // resolver needs to retry staging after the developer fetches the binary.
+    let server_name = executable_name();
+    if !tmp_dir.join(server_name).is_file() {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(AppError::msg(format!(
+            "llama-server is missing from {}. Run `npm run fetch-llama-server:win` from the repository before starting the desktop app.",
+            candidate_source.display()
+        )));
+    }
+
     let meta = RuntimeMetadata {
         tag: PINNED_TAG.to_string(),
         installed_backends: Vec::new(),
@@ -555,8 +566,11 @@ pub async fn install(
         return Err(AppError::msg(err));
     }
 
-    // Probe with llama-server --list-devices
-    let binary = p_dir.join(executable_name());
+    // Probe with the resolved server. In development the CPU executable may
+    // live in resources/llama/<platform> while the newly installed backend
+    // DLL lives in app data; probing a nonexistent app-data executable would
+    // reject a valid Vulkan backend (notably on AMD development machines).
+    let binary = installed_binary(dirs, target).unwrap_or_else(|| p_dir.join(executable_name()));
     let probe_result = probe_backend_device(&binary, target);
 
     if let Err(probe_err) = probe_result {

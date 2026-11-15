@@ -435,17 +435,15 @@ pub fn label(path: &Path) -> String {
         .unwrap_or_else(|| "unknown model".to_string())
 }
 
-/// The GGUF chat should load: the user's pick, else the first one installed.
-pub fn selected(dirs: &AppDirs, settings: &Settings) -> Option<PathBuf> {
+/// The GGUF chat should load: the user's pick, or None if no model is chosen yet.
+/// Never falls back to walking the disk and parsing GGUF shapes on the main thread.
+pub fn selected(_dirs: &AppDirs, settings: &Settings) -> Option<PathBuf> {
     if let Some(path) = &settings.selected_model {
         if path.is_file() && !is_projector(path) {
             return Some(path.clone());
         }
     }
-    installed(dirs, &settings.model_folders)
-        .into_iter()
-        .next()
-        .map(|entry| entry.path)
+    None
 }
 
 pub fn selected_label(dirs: &AppDirs, settings: &Settings) -> String {

@@ -53,7 +53,7 @@ impl SearchProvider for FallbackSearch {
                         return Ok(results);
                     }
                     Ok(_) => {
-                        debug!("Search provider {} returned no results, trying next", provider.name());
+                        warn!("Search provider {} returned zero results (possible block or layout change), trying next", provider.name());
                     }
                     Err(e) => {
                         warn!("Search provider {} failed: {}, trying next", provider.name(), e);
@@ -95,8 +95,12 @@ pub fn canonicalize_url(url: &str) -> String {
         .collect();
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
     parsed.query_pairs_mut().clear();
-    for (k, v) in pairs {
-        parsed.query_pairs_mut().append_pair(&k, &v);
+    if pairs.is_empty() {
+        parsed.set_query(None);
+    } else {
+        for (k, v) in pairs {
+            parsed.query_pairs_mut().append_pair(&k, &v);
+        }
     }
 
     // Normalize host (lowercase)
@@ -105,9 +109,9 @@ pub fn canonicalize_url(url: &str) -> String {
     }
 
     // Remove default ports
-    if parsed.port() == Some(80) && parsed.scheme() == "http" {
-        let _ = parsed.set_port(None);
-    } else if parsed.port() == Some(443) && parsed.scheme() == "https" {
+    if (parsed.port() == Some(80) && parsed.scheme() == "http")
+        || (parsed.port() == Some(443) && parsed.scheme() == "https")
+    {
         let _ = parsed.set_port(None);
     }
 
@@ -131,21 +135,33 @@ pub fn dedupe_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
 }
 
 /// SimHash for near-duplicate detection.
+/// Uses character 4-grams so tiny edits (e.g. a trailing period) flip few bits.
 pub fn simhash(text: &str) -> u64 {
-    // Simple 64-bit simhash implementation
-    let mut hash: u64 = 0;
-    let words: Vec<&str> = text.split_whitespace().collect();
+    // Counting simhash: per-bit counters, sign decides each hash bit.
+    let mut counters = [0i64; 64];
 
-    for (i, word) in words.iter().enumerate() {
-        let word_hash = fxhash::hash64(word);
-        // Weight by position (earlier words more important)
-        let weight = if i < 100 { 1.0 } else { 0.5 };
-        for bit in 0..64 {
-            if (word_hash >> bit) & 1 == 1 {
-                hash = hash.wrapping_add((weight * 2.0f64.powi(bit as i32)) as u64);
+    let chars: Vec<char> = text.chars().collect();
+    let ngrams: Vec<String> = if chars.len() >= 4 {
+        chars.windows(4).map(|w| w.iter().collect()).collect()
+    } else {
+        vec![text.to_string()]
+    };
+
+    for ngram in &ngrams {
+        let ngram_hash = fxhash::hash64(ngram);
+        for (bit, counter) in counters.iter_mut().enumerate() {
+            if (ngram_hash >> bit) & 1 == 1 {
+                *counter += 1;
             } else {
-                hash = hash.wrapping_sub((weight * 2.0f64.powi(bit as i32)) as u64);
+                *counter -= 1;
             }
+        }
+    }
+
+    let mut hash: u64 = 0;
+    for (bit, counter) in counters.iter().enumerate() {
+        if *counter >= 0 {
+            hash |= 1u64 << bit;
         }
     }
     hash
@@ -310,38 +326,60 @@ pub struct CorroboratedFact {
     pub verification_label: crate::research::roles::verify::VerificationLabel,
 }
 
+/// Token-set Jaccard similarity between two claims, catching near-paraphrases
+/// that substring matching misses ("founded in 2020" vs "in 2020 it was founded").
+pub fn token_jaccard(a: &str, b: &str) -> f32 {
+    let tokens = |s: &str| -> std::collections::HashSet<String> {
+        s.to_lowercase()
+            .split_whitespace()
+            .filter(|w| w.len() > 2)
+            .map(|w| w.to_string())
+            .collect()
+    };
+    let ta = tokens(a);
+    let tb = tokens(b);
+    if ta.is_empty() || tb.is_empty() {
+        return 0.0;
+    }
+    ta.intersection(&tb).count() as f32 / ta.union(&tb).count() as f32
+}
+
 /// Group facts into corroboration clusters.
 pub fn cluster_claims(facts: &[CorroboratedFact]) -> Vec<CorroborationCluster> {
-    use std::collections::HashMap;
-
-    // Group by normalized claim signature
-    let mut groups: HashMap<String, Vec<CorroboratedFact>> = HashMap::new();
+    const CLUSTER_THRESHOLD: f32 = 0.6;
+    let mut clusters: Vec<CorroborationCluster> = Vec::new();
 
     for fact in facts {
         let sig = normalize_for_clustering(&fact.claim);
-        groups.entry(sig).or_default().push(fact.clone());
+        let mut placed = false;
+        for cluster in clusters.iter_mut() {
+            if token_jaccard(&cluster.claim_signature, &sig) >= CLUSTER_THRESHOLD {
+                cluster.facts.push(fact.clone());
+                placed = true;
+                break;
+            }
+        }
+        if !placed {
+            clusters.push(CorroborationCluster {
+                claim_signature: sig,
+                facts: vec![fact.clone()],
+                source_count: 0,
+                conflicting: false,
+            });
+        }
     }
 
-    let mut clusters = Vec::new();
-    for (claim_sig, group) in groups {
-        let sources: std::collections::HashSet<_> = group.iter().map(|f| f.source_id).collect();
-        let labels: Vec<_> = group.iter().map(|f| f.verification_label.clone()).collect();
-
-        // Check for conflicts
-        let has_supported = labels.iter().any(|l| *l == crate::research::roles::verify::VerificationLabel::Supported);
-        let has_contradicted = labels.iter().any(|l| *l == crate::research::roles::verify::VerificationLabel::Contradicted);
-        let conflicting = has_supported && has_contradicted;
-
-        clusters.push(CorroborationCluster {
-            claim_signature: claim_sig,
-            source_count: sources.len(),
-            facts: group,
-            conflicting,
-        });
+    // Recompute source counts and conflict flags after grouping.
+    for cluster in clusters.iter_mut() {
+        let sources: std::collections::HashSet<_> = cluster.facts.iter().map(|f| f.source_id).collect();
+        let has_supported = cluster.facts.iter().any(|f| f.verification_label == crate::research::roles::verify::VerificationLabel::Supported);
+        let has_contradicted = cluster.facts.iter().any(|f| f.verification_label == crate::research::roles::verify::VerificationLabel::Contradicted);
+        cluster.source_count = sources.len();
+        cluster.conflicting = has_supported && has_contradicted;
     }
 
     // Sort by source count descending
-    clusters.sort_by(|a, b| b.source_count.cmp(&a.source_count));
+    clusters.sort_by_key(|c| std::cmp::Reverse(c.source_count));
     clusters
 }
 

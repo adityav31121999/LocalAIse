@@ -68,12 +68,24 @@ pub fn ensure_within(root: &Path, candidate: &Path) -> AppResult<PathBuf> {
     // Resolve what exists so a symlink inside the folder cannot point
     // outside it.
     if let Ok(real) = resolved.canonicalize() {
-        if !real.starts_with(&canonical_root) {
+        if !starts_with_loose(&real, &canonical_root) {
             return Err(AppError::OutsideSandbox(resolved.display().to_string()));
         }
     }
 
     Ok(resolved)
+}
+
+fn starts_with_loose(path: &Path, prefix: &Path) -> bool {
+    let path_parts: Vec<Component> = path.components().collect();
+    let prefix_parts: Vec<Component> = prefix.components().collect();
+    if path_parts.len() < prefix_parts.len() {
+        return false;
+    }
+    prefix_parts
+        .iter()
+        .zip(&path_parts)
+        .all(|(p, c)| same_component(p, c))
 }
 
 /// Component comparison that treats the Windows `\\?\C:` verbatim prefix as

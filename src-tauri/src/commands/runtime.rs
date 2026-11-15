@@ -94,6 +94,7 @@ pub fn ensure(
         projector,
         server: setup.server.as_path(),
         profile: &setup.profile,
+        backend: settings.gpu_backend.as_deref(),
     }) {
         Ok(serving) => Ok(serving),
         Err(error) => {

@@ -128,13 +128,27 @@ fn endpoint(serving: &Serving, path: &str) -> String {
 
 /// Waits until llama-server reports itself healthy, or gives up.
 pub async fn wait_until_ready(serving: &Serving) -> AppResult<()> {
+    wait_until_ready_with_check(serving, || true).await
+}
+
+/// Waits until llama-server reports itself healthy, failing immediately if `is_alive` returns false.
+pub async fn wait_until_ready_with_check(
+    serving: &Serving,
+    is_alive: impl Fn() -> bool,
+) -> AppResult<()> {
     let http = client(Duration::from_secs(5))?;
     let url = endpoint(serving, "/health");
     let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
 
     loop {
+        if !is_alive() {
+            log::warn!("[client] wait_until_ready: process exited prematurely on port {}", serving.port);
+            return Err(AppError::msg("llama-server process exited prematurely"));
+        }
+
         if let Ok(response) = http.get(&url).bearer_auth(&serving.token).send().await {
             if response.status().is_success() {
+                log::info!("[client] wait_until_ready: healthy on port {}", serving.port);
                 return Ok(());
             }
         }
@@ -213,18 +227,26 @@ pub async fn complete(
         chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
+    let post_url = endpoint(serving, "/v1/chat/completions");
+    log::info!("[client] complete: sending request to {} (model={})", post_url, model);
+
     let response = http
-        .post(endpoint(serving, "/v1/chat/completions"))
+        .post(&post_url)
         .bearer_auth(&serving.token)
         .json(&request)
         .send()
         .await
-        .map_err(|error| AppError::msg(format!("llama-server did not answer: {error}")))?;
+        .map_err(|error| {
+            log::error!("[client] complete_stream: post failed: {error}");
+            AppError::msg(format!("llama-server did not answer: {error}"))
+        })?;
 
     let status = response.status();
+    log::info!("[client] complete_stream: response status {}", status);
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
         let detail = detail.trim();
+        log::error!("[client] complete_stream: server rejected: status={}, detail={}", status, detail);
         return Err(AppError::ServerRejected(if detail.is_empty() {
             status.to_string()
         } else {
@@ -269,18 +291,26 @@ pub async fn complete_with_usage(
         chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
+    let post_url = endpoint(serving, "/v1/chat/completions");
+    log::info!("[client] complete: sending request to {} (model={})", post_url, model);
+
     let response = http
-        .post(endpoint(serving, "/v1/chat/completions"))
+        .post(&post_url)
         .bearer_auth(&serving.token)
         .json(&request)
         .send()
         .await
-        .map_err(|error| AppError::msg(format!("llama-server did not answer: {error}")))?;
+        .map_err(|error| {
+            log::error!("[client] complete_stream: post failed: {error}");
+            AppError::msg(format!("llama-server did not answer: {error}"))
+        })?;
 
     let status = response.status();
+    log::info!("[client] complete_stream: response status {}", status);
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
         let detail = detail.trim();
+        log::error!("[client] complete_stream: server rejected: status={}, detail={}", status, detail);
         return Err(AppError::ServerRejected(if detail.is_empty() {
             status.to_string()
         } else {
@@ -485,18 +515,26 @@ pub async fn complete_stream(
         chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
+    let post_url = endpoint(serving, "/v1/chat/completions");
+    log::info!("[client] complete_stream: sending request to {} (model={}, reuse_cache={})", post_url, model, reuse_cache);
+
     let response = http
-        .post(endpoint(serving, "/v1/chat/completions"))
+        .post(&post_url)
         .bearer_auth(&serving.token)
         .json(&request)
         .send()
         .await
-        .map_err(|error| AppError::msg(format!("llama-server did not answer: {error}")))?;
+        .map_err(|error| {
+            log::error!("[client] complete_stream: post failed: {error}");
+            AppError::msg(format!("llama-server did not answer: {error}"))
+        })?;
 
     let status = response.status();
+    log::info!("[client] complete_stream: response status {}", status);
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
         let detail = detail.trim();
+        log::error!("[client] complete_stream: server rejected: status={}, detail={}", status, detail);
         return Err(AppError::ServerRejected(if detail.is_empty() {
             status.to_string()
         } else {
@@ -631,18 +669,26 @@ pub async fn complete_stream_with_tools(
         chat_template_kwargs: sampling.chat_template_kwargs.as_ref(),
     };
 
+    let post_url = endpoint(serving, "/v1/chat/completions");
+    log::info!("[client] complete: sending request to {} (model={})", post_url, model);
+
     let response = http
-        .post(endpoint(serving, "/v1/chat/completions"))
+        .post(&post_url)
         .bearer_auth(&serving.token)
         .json(&request)
         .send()
         .await
-        .map_err(|error| AppError::msg(format!("llama-server did not answer: {error}")))?;
+        .map_err(|error| {
+            log::error!("[client] complete_stream: post failed: {error}");
+            AppError::msg(format!("llama-server did not answer: {error}"))
+        })?;
 
     let status = response.status();
+    log::info!("[client] complete_stream: response status {}", status);
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
         let detail = detail.trim();
+        log::error!("[client] complete_stream: server rejected: status={}, detail={}", status, detail);
         return Err(AppError::ServerRejected(if detail.is_empty() {
             status.to_string()
         } else {

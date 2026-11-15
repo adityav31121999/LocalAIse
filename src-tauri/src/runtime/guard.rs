@@ -1,9 +1,9 @@
 //! Startup check: the running llama-server must agree with the selected
 //! compute device.
 //!
-//! In CPU mode the app must never see a GPU device. The check reads the
-//! server's own device list, so a mislabeled binary (a GPU build shipped as
-//! "CPU") cannot silently use VRAM.
+//! CPU launches explicitly pass `--device none` and hide GPU backends.
+//! Enumeration here is informational only: GPU builds report available
+//! adapters even when a particular launch is pinned to the CPU.
 
 use std::path::Path;
 use std::process::Command;
@@ -11,8 +11,7 @@ use std::process::Command;
 use crate::runtime::backend::parse_device_line;
 use crate::runtime::profile::ComputeDevice;
 
-/// Runs `llama-server --list-devices` and checks the result against the
-/// selected mode.
+/// Runs `llama-server --list-devices` and checks GPU availability when needed.
 ///
 /// The parsing treats each device as its own line. If the pinned llama.cpp
 /// release does not know `--list-devices` at all, the check passes with a
@@ -20,14 +19,12 @@ use crate::runtime::profile::ComputeDevice;
 /// guarantee that a bundled binary is CPU-only.
 pub fn verify_device_mode(binary: &Path, device: &ComputeDevice) -> Result<(), String> {
     let mut command = Command::new(binary);
-    command.arg("--list-devices");
-    // Hiding the GPU only makes sense when the run is meant to stay on the
-    // CPU. A GPU run needs the device to be visible, or the server would
-    // start without one and fall back to the CPU anyway.
-    if matches!(device, ComputeDevice::Cpu) {
-        command.env("CUDA_VISIBLE_DEVICES", "");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
-
+    command.arg("--list-devices");
     let output = command
         .output()
         .map_err(|e| format!("could not run llama-server: {e}"))?;
@@ -41,10 +38,6 @@ pub fn verify_device_mode(binary: &Path, device: &ComputeDevice) -> Result<(), S
         .collect();
 
     match device {
-        ComputeDevice::Cpu if !gpu_lines.is_empty() => Err(format!(
-            "CPU mode, but llama-server reports GPU devices: {}",
-            gpu_lines.join("; ")
-        )),
         // A GPU run that finds no device cannot offload anything, so the
         // server would silently fall back to the CPU.
         ComputeDevice::UserGpu { .. } if gpu_lines.is_empty() && output.status.success() => {
@@ -67,4 +60,5 @@ mod tests {
         assert!(line.to_lowercase().contains("cuda"));
         assert!(parse_device_line(line).is_some());
     }
+
 }

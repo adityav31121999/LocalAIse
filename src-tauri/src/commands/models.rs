@@ -113,7 +113,26 @@ pub async fn list_available_models(
         .registry()
         .map(|registry| registry.settings.clone())
         .unwrap_or_default();
-    let groups = models::groups(&state.dirs, &settings.model_folders);
+    {
+        let cached = state.model_inventory.lock()
+            .map_err(|_| AppError::msg("the model list is busy; try again"))?;
+        if let Some((scanned_at, groups)) = cached.as_ref() {
+            if scanned_at.elapsed() < std::time::Duration::from_secs(60) {
+                return Ok(groups.clone());
+            }
+        }
+    }
+    let dirs = state.dirs.clone();
+    let folders = settings.model_folders.clone();
+    let groups = tokio::task::spawn_blocking(move || {
+        models::groups(&dirs, &folders)
+    })
+    .await
+    .map_err(|e| AppError::msg(e.to_string()))?;
+
+    *state.model_inventory.lock()
+        .map_err(|_| AppError::msg("the model list is busy; try again"))? =
+        Some((std::time::Instant::now(), groups.clone()));
 
     Ok(groups)
 }
@@ -138,7 +157,9 @@ pub fn list_model_folders(state: State<'_, AppState>) -> Vec<String> {
 /// so it survives restarts.
 #[tauri::command]
 pub fn add_model_folder(state: State<'_, AppState>, folder: String) -> AppResult<()> {
-    register_folder(&state, &folder)
+    register_folder(&state, &folder)?;
+    invalidate_model_inventory(&state);
+    Ok(())
 }
 
 /// Stops using a folder as a model source. Files inside it are left alone.
@@ -150,7 +171,42 @@ pub fn remove_model_folder(state: State<'_, AppState>, folder: String) -> AppRes
         .settings
         .model_folders
         .retain(|path| path.to_string_lossy() != folder);
-    registry.save(&state_file)
+    registry.save(&state_file)?;
+    drop(registry);
+    invalidate_model_inventory(&state);
+    Ok(())
+}
+
+/// Re-scans the model folders and returns the fresh list.
+///
+/// `list_available_models` keeps its answer for a minute so the panel does not
+/// walk the folders on every render. The Scan button asks for a fresh look, so
+/// it drops that cached answer first.
+#[tauri::command]
+pub async fn rescan_models(state: State<'_, AppState>) -> AppResult<Vec<models::ModelGroup>> {
+    let settings = state
+        .registry()
+        .map(|registry| registry.settings.clone())
+        .unwrap_or_default();
+    let dirs = state.dirs.clone();
+    let folders = settings.model_folders.clone();
+    let groups = tokio::task::spawn_blocking(move || models::groups(&dirs, &folders))
+        .await
+        .map_err(|e| AppError::msg(e.to_string()))?;
+
+    *state
+        .model_inventory
+        .lock()
+        .map_err(|_| AppError::msg("the model list is busy; try again"))? =
+        Some((std::time::Instant::now(), groups.clone()));
+
+    Ok(groups)
+}
+
+fn invalidate_model_inventory(state: &AppState) {
+    if let Ok(mut cache) = state.model_inventory.lock() {
+        *cache = None;
+    }
 }
 
 /// Opens a folder picker; a picked folder is registered right away.
@@ -229,17 +285,19 @@ pub async fn delete_model(state: State<'_, AppState>, model_path: String) -> App
     if let Ok(mut supervisor) = state.supervisor.lock() {
         supervisor.stop();
     }
-    crate::models::registry::delete_file(&path)
+    crate::models::registry::delete_file(&path)?;
+    invalidate_model_inventory(&state);
+    Ok(())
 }
 
 /// The path chat currently loads, if any model is installed.
 #[tauri::command]
-pub fn get_selected_model(state: State<'_, AppState>) -> Option<String> {
+pub async fn get_selected_model(state: State<'_, AppState>) -> AppResult<Option<String>> {
     let Ok(registry) = state.registry() else {
-        return None;
+        return Ok(None);
     };
-    crate::models::registry::selected(&state.dirs, &registry.settings)
-        .map(|path| path.to_string_lossy().into_owned())
+    Ok(crate::models::registry::selected(&state.dirs, &registry.settings)
+        .map(|path| path.to_string_lossy().into_owned()))
 }
 
 // ---------------------------------------------------------------------------
@@ -248,7 +306,10 @@ pub fn get_selected_model(state: State<'_, AppState>) -> Option<String> {
 
 #[tauri::command]
 pub async fn get_hardware_report() -> crate::hardware::HardwareReport {
-    crate::hardware::probe_hardware()
+    log::info!("[models] get_hardware_report started");
+    let report = crate::hardware::probe_hardware();
+    log::info!("[models] get_hardware_report finished");
+    report
 }
 
 /// The runtime as it actually is: what is loaded, where it runs and whether
@@ -258,11 +319,11 @@ pub async fn get_hardware_report() -> crate::hardware::HardwareReport {
 /// list can mark the loaded model. When nothing is running it reports the
 /// selected (or first installed) model's label without a path.
 fn runtime_status_for(state: &AppState, settings: &Settings) -> RuntimeStatus {
-    let supervisor = match state.supervisor.lock() {
+    let mut supervisor = match state.supervisor.lock() {
         Ok(supervisor) => supervisor,
         Err(_) => {
             return RuntimeStatus {
-                model: models::selected_label(&state.dirs, settings),
+                model: selected_model_label(settings),
                 model_path: None,
                 state: RuntimeState::Error,
                 port: None,
@@ -289,7 +350,7 @@ fn runtime_status_for(state: &AppState, settings: &Settings) -> RuntimeStatus {
     let model = model_path
         .as_deref()
         .map(|path| models::label(Path::new(path)))
-        .unwrap_or_else(|| models::selected_label(&state.dirs, settings));
+        .unwrap_or_else(|| selected_model_label(settings));
 
     RuntimeStatus {
         model,
@@ -303,15 +364,25 @@ fn runtime_status_for(state: &AppState, settings: &Settings) -> RuntimeStatus {
     }
 }
 
+fn selected_model_label(settings: &Settings) -> String {
+    settings.selected_model.as_deref()
+        .filter(|path| path.is_file())
+        .map(models::label)
+        .unwrap_or_else(|| "No model selected".to_string())
+}
+
 /// The runtime as it actually is: what is loaded, where it runs and whether
 /// it failed.
 #[tauri::command]
-pub fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
+pub async fn runtime_status(state: State<'_, AppState>) -> AppResult<RuntimeStatus> {
+    log::info!("[runtime] runtime_status started");
     let settings = state
         .registry()
         .map(|registry| registry.settings.clone())
         .unwrap_or_default();
-    runtime_status_for(&state, &settings)
+    let status = runtime_status_for(&state, &settings);
+    log::info!("[runtime] runtime_status finished ({:?})", status.state);
+    Ok(status)
 }
 
 /// Selects a model and starts the runtime server for it right away, so it is
@@ -393,11 +464,14 @@ pub fn get_runtime_profile(state: State<'_, AppState>) -> InferenceProfile {
 pub async fn get_runtime_capabilities(
     state: State<'_, AppState>,
 ) -> AppResult<ServerCapabilities> {
+    log::info!("[models] get_runtime_capabilities started");
     let settings = state
         .registry()
         .map(|registry| registry.settings.clone())
         .unwrap_or_default();
-    Ok(capabilities_for(&state, &settings))
+    let res = Ok(capabilities_for(&state, &settings));
+    log::info!("[models] get_runtime_capabilities finished");
+    res
 }
 
 /// The capabilities of the build that would run for these settings.
@@ -456,25 +530,52 @@ pub async fn apply_runtime_profile(
     }
 
     let before = settings.performance.clone();
-    settings.performance = profile;
+    settings.performance = profile.clone();
 
     let after = settings.performance.clone();
-    let restarted = resolved(&before, &facts) != resolved(&after, &facts);
+    let effective_after = resolved(&after, &facts);
+
+    // Check if the running server has a different profile than the new resolved profile
+    let running_differs = if let Ok(mut supervisor) = state.supervisor.lock() {
+        if let Some(run_prof) = supervisor.running_profile() {
+            run_prof != &effective_after
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let setting_changed = resolved(&before, &facts) != effective_after;
+    let restarted = setting_changed || running_differs;
     report.requires_restart = restarted;
 
     let state_file = state.dirs.state_file.clone();
     {
         let mut registry = state.registry()?;
-        registry.settings = settings;
+        registry.settings = settings.clone();
         registry.save(&state_file)?;
     }
 
     // The flags only take effect on a fresh server, so a running one has to
-    // go when the profile in effect changed. The next chat turn starts it
-    // again with the new profile.
+    // go when the profile in effect changed.
     if restarted {
-        if let Ok(mut supervisor) = state.supervisor.lock() {
+        let was_running = if let Ok(mut supervisor) = state.supervisor.lock() {
+            let active = supervisor.active().is_some();
             supervisor.stop();
+            active
+        } else {
+            false
+        };
+
+        // If a model is selected and the server was running or loaded, restart it immediately
+        // so the new context window and profile take effect without waiting for a chat turn.
+        if was_running || models::selected(&state.dirs, &settings).is_some() {
+            let projector = models::selected(&state.dirs, &settings)
+                .as_deref()
+                .and_then(models::projector_for);
+            if let Err(e) = crate::commands::runtime::ensure(&state, &settings, projector.as_deref()) {
+                log::warn!("[runtime] restart after profile change failed: {e}");
+            }
         }
     }
 
@@ -491,7 +592,7 @@ fn validate_draft(
         .supervisor
         .lock()
         .ok()
-        .and_then(|supervisor| supervisor.running_profile().cloned());
+        .and_then(|mut supervisor| supervisor.running_profile().cloned());
 
     let device = backend::resolve_device(profile, &facts.capabilities, facts.shape.as_ref());
 
@@ -591,12 +692,14 @@ pub async fn get_profile_estimate(
     profile: Option<InferenceProfile>,
     model_path: Option<String>,
 ) -> AppResult<ProfileEstimate> {
+    log::info!("[models] get_profile_estimate started");
     let settings = state.registry()?.settings.clone();
     let draft = profile.unwrap_or_else(|| settings.performance.clone());
     let facts = gather(&state, &settings, model_path.as_deref());
     let report = validate_draft(&state, &draft, &facts);
     let mut estimate = estimate_for(&draft, &facts);
     estimate.report = report;
+    log::info!("[models] get_profile_estimate finished");
     Ok(estimate)
 }
 
@@ -738,7 +841,7 @@ pub async fn get_server_binary(state: State<'_, AppState>) -> AppResult<Option<S
 /// Check if the selected model (or a given model path) is a reasoning/thinking model.
 /// Returns true for models that natively produce reasoning traces (Qwen3, DeepSeek-R1, QwQ, Nemotron, etc.).
 #[tauri::command]
-pub fn is_model_reasoning(state: State<'_, AppState>, model_path: Option<String>) -> AppResult<bool> {
+pub async fn is_model_reasoning(state: State<'_, AppState>, model_path: Option<String>) -> AppResult<bool> {
     let settings = state.registry()?.settings.clone();
     let model = model_path
         .map(PathBuf::from)

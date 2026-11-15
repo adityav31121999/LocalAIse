@@ -123,7 +123,7 @@ impl VectorStore {
             .map_err(|e| ResearchError::Internal(format!("Embedding failed: {e}")))?;
         
         // Insert chunks and embeddings
-        for (i, (chunk_text, embedding)) in chunks.into_iter().zip(embeddings.into_iter()).enumerate() {
+        for (i, (chunk_text, embedding)) in chunks.into_iter().zip(embeddings).enumerate() {
             tx.execute(
                 "INSERT INTO chunks (source_id, text, chunk_index) VALUES (?, ?, ?)",
                 params![source_id, chunk_text, i as i64],
@@ -258,6 +258,23 @@ fn chunk_text(text: &str, target_size: usize) -> Vec<String> {
     }
 
     // Handle very long paragraphs
+    // Hard-split a piece that still exceeds target_size on word boundaries.
+    fn hard_split(piece: &str, target_size: usize, out: &mut Vec<String>) {
+        let mut current = String::new();
+        for word in piece.split_whitespace() {
+            if !current.is_empty() && current.len() + 1 + word.len() > target_size {
+                out.push(std::mem::take(&mut current));
+            }
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            current.push_str(word);
+        }
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+
     let mut final_chunks = Vec::new();
     for chunk in chunks {
         if chunk.len() <= target_size {
@@ -269,6 +286,13 @@ fn chunk_text(text: &str, target_size: usize) -> Vec<String> {
             for sent in sentences {
                 let sent = sent.trim();
                 if sent.is_empty() { continue; }
+                if sent.len() > target_size {
+                    if !sent_chunk.is_empty() {
+                        final_chunks.push(std::mem::take(&mut sent_chunk));
+                    }
+                    hard_split(sent, target_size, &mut final_chunks);
+                    continue;
+                }
                 if sent_chunk.len() + sent.len() + 2 > target_size && !sent_chunk.is_empty() {
                     final_chunks.push(std::mem::take(&mut sent_chunk));
                 }
@@ -289,7 +313,6 @@ fn chunk_text(text: &str, target_size: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn test_chunk_text() {

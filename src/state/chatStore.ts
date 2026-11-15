@@ -159,6 +159,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             contextTokens: stored.contextTokens,
             tokensPerSecond: stored.tokensPerSecond,
             callUsages: stored.callUsages,
+            systemPrompt: stored.systemPrompt,
+            modelPrompt: stored.modelPrompt,
           })),
         },
         activeChat: { ...state.activeChat, [projectId]: session.id },
@@ -300,6 +302,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         contextTokens: result.contextTokens,
         tokensPerSecond: result.tokensPerSecond,
         callUsages: result.callUsages,
+        systemPrompt: result.systemPrompt,
+        modelPrompt: result.modelPrompt,
         pending: false,
       }));
       set((state) => ({

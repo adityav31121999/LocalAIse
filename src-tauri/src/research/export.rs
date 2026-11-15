@@ -88,7 +88,7 @@ pub fn generate_bibliography(
         for citation in &section.citations {
             if !cited.contains_key(&citation.source_id) {
                 if let Some(source) = sources.iter().find(|s| s.id == citation.source_id) {
-                    cited.insert(citation.source_id, (next_id, source, citation));
+                    cited.entry(citation.source_id).or_insert((next_id, source, citation));
                     next_id += 1;
                 }
             }
@@ -165,37 +165,58 @@ fn extract_year(source: &Source) -> String {
     re.find(&text).map(|m| m.as_str().to_string()).unwrap_or_else(|| "n.d.".to_string())
 }
 
+/// Derive a reference-quality author/site name for a source.
+/// Prefers an explicit "by <Name>" byline in the title, then a stripped-down
+/// site name (drops leading subdomains like `en.`, `www.`), then the raw domain.
+fn source_author_name(source: &Source) -> String {
+    // Byline in the title, e.g. "Some Article by Jane Smith — Example" or "Jane Smith: Title".
+    let title = source.title.trim();
+    for marker in [" by ", " By "] {
+        if let Some(pos) = title.find(marker) {
+            let rest = title[pos + marker.len()..].trim();
+            let name: String = rest.chars()
+                .take_while(|c| !matches!(c, '|' | '—' | '-' | '(' | '·'))
+                .collect();
+            let name = name.trim_end_matches(['.', ',']).trim().to_string();
+            if name.split_whitespace().count() >= 2 && name.len() <= 80 {
+                return name;
+            }
+        }
+    }
+
+    // Site name: strip subdomains beyond the registrable domain's first label.
+    let host = url::Url::parse(&source.url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_else(|| "Unknown".to_string());
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() >= 2 {
+        // e.g. en.wikipedia.org -> wikipedia.org; blog.example.com -> example.com
+        labels[labels.len() - 2..].join(".")
+    } else {
+        host
+    }
+}
+
 fn format_authors_apa(source: &Source) -> String {
-    // Try to extract author from URL domain
-    let domain = extract_domain(&source.url);
-    format!("{}.", domain)
+    format!("{}.", source_author_name(source))
 }
 
 fn format_authors_ieee(source: &Source) -> String {
-    let domain = extract_domain(&source.url);
-    format!("{}", domain)
+    source_author_name(source)
 }
 
 fn format_authors_chicago(source: &Source) -> String {
-    let domain = extract_domain(&source.url);
-    format!("{}", domain)
+    source_author_name(source)
 }
 
 fn format_authors_mla(source: &Source) -> String {
-    let domain = extract_domain(&source.url);
-    format!("{}", domain)
+    source_author_name(source)
 }
 
 fn format_authors_harvard(source: &Source) -> String {
-    let domain = extract_domain(&source.url);
-    format!("{}", domain)
-}
-
-fn extract_domain(url: &str) -> String {
-    url::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "Unknown".to_string())
+    source_author_name(source)
 }
 
 /// Export research report to JSON.
@@ -324,11 +345,16 @@ pub fn export_notion(
     blocks
 }
 
-fn notion_heading(text: &str, _level: u8) -> serde_json::Value {
+fn notion_heading(text: &str, level: u8) -> serde_json::Value {
+    let (block_type, key) = match level {
+        0..=1 => ("heading_1", "heading_1"),
+        2..=3 => ("heading_2", "heading_2"),
+        _ => ("heading_3", "heading_3"),
+    };
     serde_json::json!({
         "object": "block",
-        "type": "heading_1",
-        "heading_1": {
+        "type": block_type,
+        key: {
             "rich_text": [{ "type": "text", "text": { "content": text } }]
         }
     })
@@ -378,9 +404,9 @@ pub fn export_csl_json(
             "type": "webpage",
             "title": b.source.title,
             "URL": b.source.url,
-            "author": [{ "literal": extract_domain(&b.source.url) }],
+            "author": [{ "literal": source_author_name(&b.source) }],
             "issued": { "date-parts": [[extract_year(&b.source).parse::<i32>().unwrap_or(2024)]] },
-            "accessed": { "date-parts": [[chrono::Utc::now().year() as i32, chrono::Utc::now().month() as i32, chrono::Utc::now().day() as i32]] }
+            "accessed": { "date-parts": [[chrono::Utc::now().year(), chrono::Utc::now().month() as i32, chrono::Utc::now().day() as i32]] }
         })
     }).collect();
 
@@ -513,10 +539,10 @@ fn markdown_to_html(md: &str) -> String {
         let line = line.trim();
         if line.is_empty() {
             html.push_str("<p></p>\n");
-        } else if line.starts_with("## ") {
-            html.push_str(&format!("<h2>{}</h2>\n", &line[3..]));
-        } else if line.starts_with("### ") {
-            html.push_str(&format!("<h3>{}</h3>\n", &line[4..]));
+        } else if let Some(rest) = line.strip_prefix("## ") {
+            html.push_str(&format!("<h2>{rest}</h2>\n"));
+        } else if let Some(rest) = line.strip_prefix("### ") {
+            html.push_str(&format!("<h3>{rest}</h3>\n"));
         } else if line.starts_with("- ") || line.starts_with("* ") {
             html.push_str(&format!("<li>{}</li>\n", &line[2..]));
         } else if line.starts_with("[") && line.contains("](") {
@@ -553,7 +579,7 @@ mod tests {
 
     #[test]
     fn test_export_json() {
-        let sections = vec![make_section("Test")];
+        let sections = [make_section("Test")];
         let sources = vec![make_source(1, "https://example.com")];
         let options = ExportOptions::default();
         
@@ -564,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_bibliography_generation() {
-        let sections = vec![make_section("Test")];
+        let sections = [make_section("Test")];
         let sources = vec![make_source(1, "https://example.com/page")];
         
         // Add a citation to the section

@@ -28,6 +28,10 @@ pub struct Settings {
     /// Extra folders the user keeps GGUF files in. Scanned together with the
     /// app's models folder; files there are shown and loadable, never deleted.
     pub model_folders: Vec<PathBuf>,
+    /// The GPU backend the user opted for, e.g. "vulkan". When unset the app
+    /// follows the hardware detection's recommendation. Setting it also masks
+    /// the other backends at launch, so the runtime uses the chosen one.
+    pub gpu_backend: Option<String>,
     /// The app-wide default the llama-server runs with: context, KV cache
     /// quantization, threads and device placement. This is the live
     /// inference profile — applying the settings stores it here, and the

@@ -5,7 +5,6 @@ import {
   ChevronRightIcon,
   CopyIcon,
   FolderIcon,
-  PanelLeftIcon,
 } from "../ui/icons";
 import { templateBadgeClass, templateLabel } from "../../util/format";
 import type { Project, WorkspaceTab } from "../../types";
@@ -15,8 +14,6 @@ interface ProjectHeaderProps {
   tab: WorkspaceTab;
   onTabChange(tab: WorkspaceTab): void;
   onBack(): void;
-  onToggleSidebar(): void;
-  sidebarCollapsed: boolean;
 }
 
 const TABS: { id: WorkspaceTab; label: string }[] = [
@@ -37,8 +34,6 @@ export function ProjectHeader({
   tab,
   onTabChange,
   onBack,
-  onToggleSidebar,
-  sidebarCollapsed,
 }: ProjectHeaderProps) {
   const [crumbOpen, setCrumbOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -151,18 +146,7 @@ export function ProjectHeader({
 
       <span className="project-header__spacer" />
 
-      <div className="project-header__actions">
-        <button
-          type="button"
-          className="icon-btn icon-btn--sm"
-          onClick={onToggleSidebar}
-          aria-pressed={!sidebarCollapsed}
-          title={sidebarCollapsed ? "Show sources panel (Ctrl+\\\)" : "Hide sources panel (Ctrl+\\\)"}
-        >
-          <PanelLeftIcon size={15} />
-          <span className="sr-only">Toggle sources panel</span>
-        </button>
-      </div>
+
     </header>
   );
 }

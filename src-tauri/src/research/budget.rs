@@ -78,7 +78,7 @@ impl Budgets {
     pub fn estimate_for_subquestions(subq_count: usize) -> Self {
         let base = Self::standard();
         // Scale roughly linearly with sub-questions
-        let factor = (subq_count as f32 / 3.0).max(0.5).min(3.0);
+        let factor = (subq_count as f32 / 3.0).clamp(0.5, 3.0);
         Self {
             max_rounds: (base.max_rounds as f32 * factor).ceil() as usize,
             max_pages: (base.max_pages as f32 * factor).ceil() as usize,
@@ -201,7 +201,7 @@ pub async fn check_gaps<C: LlmClient + ?Sized>(
     };
 
     let messages = vec![
-        LlmMessage { role: "system".into(), content: system.into() },
+        LlmMessage { role: "system".into(), content: system },
         LlmMessage { role: "user".into(), content: user },
     ];
 
@@ -240,13 +240,13 @@ pub async fn check_gaps<C: LlmClient + ?Sized>(
     }
 
     // Ensure we have analysis for all sub-questions
-    for i in 0..sub_questions.len() {
+    for (i, sub_question) in sub_questions.iter().enumerate() {
         if !analyses.iter().any(|a| a.subq_index == i) {
             analyses.push(GapAnalysis {
                 subq_index: i,
                 status: GapStatus::Missing,
                 missing_aspects: vec!["No analysis returned".into()],
-                followup_queries: vec![sub_questions[i].question.clone()],
+                followup_queries: vec![sub_question.question.clone()],
                 confidence: 0.5,
             });
         }

@@ -28,6 +28,7 @@ pub mod eval;
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use std::time::Instant;
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_log::{Target, TargetKind};
@@ -47,6 +48,9 @@ pub struct AppState {
     /// What the llama-server build in use can do. Probing a binary is slow
     /// enough to be worth remembering.
     pub capabilities: Mutex<CapabilityCache>,
+    /// Recently scanned model inventory. GGUF header reads are expensive and
+    /// the inventory only needs refreshing periodically or after mutations.
+    pub model_inventory: Mutex<Option<(Instant, Vec<models::registry::ModelGroup>)>>,
 }
 
 impl AppState {
@@ -125,6 +129,7 @@ pub fn run() {
                 registry: Mutex::new(registry),
                 supervisor: Mutex::new(Supervisor::new()),
                 capabilities: Mutex::new(CapabilityCache::default()),
+                model_inventory: Mutex::new(None),
             });
 
             // Initialize updater: load state, spawn background checker
@@ -174,6 +179,7 @@ pub fn run() {
             commands::research::create_research_plan,
             commands::research::execute_research_plan,
             commands::research::run_deep_research,
+            commands::research::research_stop,
             commands::chat::chat_send,
             commands::chat::chat_stop,
             commands::models::select_model,
@@ -181,6 +187,7 @@ pub fn run() {
             commands::models::unload_model,
             commands::models::delete_model,
             commands::models::list_available_models,
+            commands::models::rescan_models,
             commands::models::get_selected_model,
             commands::models::list_model_folders,
             commands::models::add_model_folder,
@@ -198,6 +205,7 @@ pub fn run() {
             commands::models::is_model_reasoning,
             commands::gpu::list_gpu_builds,
             commands::gpu::install_gpu_build,
+            commands::gpu::set_gpu_backend,
             commands::personal::list_diary_pages,
             commands::personal::create_diary_page,
             commands::personal::save_diary_page,

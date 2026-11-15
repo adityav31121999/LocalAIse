@@ -121,7 +121,7 @@ impl HttpClient for RealHttpClient {
                         .to_string();
 
                     // Check redirect policy - pass owned String to avoid lifetime issues
-                    redirect_check(next_url.clone()).map_err(|e| crate::error::AppError::msg(e))?;
+                    redirect_check(next_url.clone()).map_err(crate::error::AppError::msg)?;
 
                     current_url = next_url;
                     continue;

@@ -12,6 +12,7 @@ import {
 import { readDocument, readFileBytes, summarizeDocument, saveSummaryAsMarkdown, type DocumentContent } from "../../api/document";
 import { analyzeDocument } from "../../api/analysis";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { Markdown } from "../../util/markdown";
 import { useRuntimeConfig } from "../settings/runtime-config";
 import { useNavStore } from "../../state/navStore";
 import type { Project } from "../../types";
@@ -51,6 +52,10 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
 
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   const isPDF = ext === "pdf";
+  const isMarkdown = ext === "md" || ext === "markdown" || ext === "mdown" || ext === "mkd";
+  // .md files get a Write (raw source) / Preview (rendered) toggle; every
+  // other text-based file stays in write mode only.
+  const [mdView, setMdView] = useState<"write" | "preview">("write");
   const canSummarize = !loading && (isPDF ? Boolean(content || pdfBytes) : Boolean(content?.text?.trim()));
 
   const handlePdfPageChange = useCallback(
@@ -92,6 +97,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
     setLoading(true);
     setError(null);
     setPdfPageTotal(null);
+    setMdView("write");
     try {
       console.log("Loading document:", { projectId: project.id, filePath });
       
@@ -486,7 +492,10 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
         background: "var(--surface)",
         borderBottom: "1px solid var(--border)",
         padding: "0 8px",
+        alignItems: "center",
+        justifyContent: "space-between",
       }}>
+        <div style={{ display: "flex" }}>
         <button
           type="button"
           role="tab"
@@ -528,6 +537,44 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
           <SparkIcon size={12} style={{ display: "inline-block", marginRight: "4px", verticalAlign: "middle" }} />
           {summaryKind === "tables" ? "Figures & tables" : summaryKind === "excerpt" ? "Excerpt" : "Summary"}
         </button>
+        </div>
+        {isMarkdown && activeTab === "content" && !loading && !error && (
+          <div
+            role="group"
+            aria-label="Markdown view mode"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              background: "var(--background)",
+              border: "1px solid var(--border)",
+              borderRadius: "6px",
+              padding: "2px",
+              margin: "4px 0",
+            }}
+          >
+            {(["write", "preview"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={mdView === mode}
+                onClick={() => setMdView(mode)}
+                style={{
+                  padding: "3px 12px",
+                  fontSize: "11px",
+                  fontWeight: mdView === mode ? 600 : 500,
+                  textTransform: "capitalize",
+                  color: mdView === mode ? "var(--accent-primary)" : "var(--text-secondary)",
+                  background: mdView === mode ? "var(--background-elevated)" : "transparent",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                {mode === "write" ? "Write" : "Preview"}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Content Area */}
@@ -593,8 +640,18 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
             ) : isPDF && pdfFile ? (
               // Visual PDF rendering for PDF files
               <PDFViewer file={pdfFile} onPageChange={handlePdfPageChange} />
+            ) : isMarkdown && mdView === "preview" ? (
+              // Rendered markdown preview for .md files
+              <div style={{
+                lineHeight: 1.7,
+                color: "var(--text)",
+                maxHeight: "100%",
+                overflow: "auto",
+              }}>
+                <Markdown className="md--document" text={content.text ?? ""} />
+              </div>
             ) : (
-              // Text content for non-PDF files
+              // Text content for non-PDF files (write mode)
               <div style={{
                 fontSize: "13px",
                 lineHeight: 1.6,

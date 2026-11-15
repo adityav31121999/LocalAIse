@@ -1,10 +1,10 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// Libraries that must NEVER appear in the CPU-only release bundle
+// CUDA/OpenCL runtime libraries must not be bundled. Vulkan backend libraries
+// are allowed for the optional Vulkan-enabled Windows/Linux build variants.
 const FORBIDDEN = [
   /^ggml-cuda\.dll$/i,
-  /^ggml-vulkan\.dll$/i,
   /^ggml-opencl\.dll$/i,
   /^nvcuda\.dll$/i,
   /^libcuda\.so/i,

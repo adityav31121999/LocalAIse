@@ -8,7 +8,6 @@ use walkdir::WalkDir;
 use crate::config::app_config::{ProjectRecord, Registry};
 use crate::config::paths::AppDirs;
 use crate::error::{AppError, AppResult};
-use crate::models::registry as models;
 use crate::projects::layout::{
     ChatMode, ProjectChatSettings, ProjectFile, ProjectFolders, ProjectPaths, ProjectTemplate, RESERVED_DIRS, STATE_DIR,
 };
@@ -57,13 +56,17 @@ fn folder_name(path: &Path) -> String {
         .to_string()
 }
 
-fn to_project(context: &Context, record: &ProjectRecord) -> Project {
+fn to_project(_context: &Context, record: &ProjectRecord) -> Project {
+    let started = std::time::Instant::now();
     let root = PathBuf::from(&record.path);
     let on_disk = ProjectPaths::new(&root).read();
+    log::info!("[projects] manifest read {:?} in {:?}", root, started.elapsed());
 
-    let source_count = scan_sources(&record.id, &root)
-        .map(|files| files.len())
-        .unwrap_or(0);
+    // Listing the dashboard must stay cheap. Counting sources here walks the
+    // whole project and loads its index on every app start; source counts are
+    // refreshed when the user opens the project instead.
+    let source_count = 0;
+    log::info!("[projects] project metadata prepared for {:?} in {:?}", root, started.elapsed());
 
     Project {
         id: record.id.clone(),
@@ -79,7 +82,7 @@ fn to_project(context: &Context, record: &ProjectRecord) -> Project {
             .as_ref()
             .map(|file| file.folders.custom.clone())
             .unwrap_or_default(),
-        model: models::selected_label(context.dirs, &context.registry.settings),
+        model: "No model selected".to_string(),
         last_opened_at: record
             .last_opened_at
             .clone()

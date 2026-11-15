@@ -9,7 +9,6 @@ import { ReportView } from "../research/ReportView";
 import { ResearchPlanView } from "../research/ResearchPlanView";
 import { ProjectCalendarView as ProjectJournal } from "../calendar/ProjectCalendarView";
 import { useProjectStore } from "../../state/projectStore";
-import { useSettingsStore } from "../../state/settingsStore";
 import { useNavStore } from "../../state/navStore";
 import { RuntimeConfigProvider } from "../settings/runtime-config";
 import type { Project } from "../../types";
@@ -17,8 +16,6 @@ import type { Project } from "../../types";
 export function ProjectDashboard({ project }: { project: Project }) {
   const tab = useNavStore((state) => state.activeProjectTab);
   const setTab = useNavStore((state) => state.setActiveProjectTab);
-  const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
-  const toggleSidebar = useSettingsStore((state) => state.toggleSidebar);
   const closeProject = useProjectStore((state) => state.closeProject);
 
   // A configuration tab can be left open from the previous project; always
@@ -31,7 +28,7 @@ export function ProjectDashboard({ project }: { project: Project }) {
 
   return (
     <WorkspaceLayout
-      sidebarCollapsed={sidebarCollapsed}
+      sidebarCollapsed={false}
       sidebar={<Sidebar project={project} />}
       header={
         <ProjectHeader
@@ -39,8 +36,6 @@ export function ProjectDashboard({ project }: { project: Project }) {
           tab={tab}
           onTabChange={setTab}
           onBack={closeProject}
-          onToggleSidebar={toggleSidebar}
-          sidebarCollapsed={sidebarCollapsed}
         />
       }
     >

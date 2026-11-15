@@ -182,6 +182,13 @@ npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis
 npm run build:windows
 ```
 
+Backend variants:
+
+```bash
+npm run build:windows:vulkan # Bundle Vulkan backend (AMD/Intel compatible)
+npm run build:windows:cuda   # Build CUDA locally; CUDA runtime stays an in-app install
+```
+
 ### Linux (GNU / Ubuntu)
 
 ```bash
@@ -206,6 +213,15 @@ npm run tauri build -- --target x86_64-unknown-linux-gnu --bundles appimage,deb
 ```bash
 npm run build:linux
 ```
+
+Backend variants:
+
+```bash
+npm run build:linux:vulkan
+npm run build:linux:cuda
+```
+
+Vulkan may be bundled with the installer. CUDA runtime libraries remain an in-app install and are not copied into release installers.
 
 ### Cross-platform notes
 

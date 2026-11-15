@@ -203,9 +203,10 @@ fn parse_brave_age(age: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         } else if age.contains("week") {
             return Some(now - chrono::Duration::weeks(num));
         } else if age.contains("month") {
-            return Some(now - chrono::Duration::days(num * 30));
+            // Average Gregorian month: 365.25 / 12 ≈ 30.44 days.
+            return Some(now - chrono::Duration::days((num as f64 * 30.44) as i64));
         } else if age.contains("year") {
-            return Some(now - chrono::Duration::days(num * 365));
+            return Some(now - chrono::Duration::days((num as f64 * 365.25) as i64));
         }
     }
     None

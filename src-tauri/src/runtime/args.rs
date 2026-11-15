@@ -32,6 +32,24 @@ pub fn build_launch(
     api_key: &str,
     profile: &InferenceProfile,
 ) -> Result<ServerLaunch, String> {
+    build_launch_with_backend(model, projector, port, api_key, profile, None)
+}
+
+/// Same as [`build_launch`], with the GPU backend the user opted for.
+///
+/// The llama.cpp builds of every backend can share one binary and one folder,
+/// so the choice is enforced at launch: the loaders of the other backends are
+/// pointed at an empty device list, which leaves only the chosen one able to
+/// enumerate (and therefore offload to) a GPU. A `None` backend keeps the old
+/// behaviour and lets the binary decide.
+pub fn build_launch_with_backend(
+    model: &Path,
+    projector: Option<&Path>,
+    port: u16,
+    api_key: &str,
+    profile: &InferenceProfile,
+    backend: Option<&str>,
+) -> Result<ServerLaunch, String> {
     profile.validate()?;
 
     // Resolve "auto" threads before the flags are emitted; llama-server
@@ -58,8 +76,21 @@ pub fn build_launch(
         port.to_string(),
         "-t".into(),
         threads.to_string(),
-        "-ngl".into(),
-        profile.device.gpu_layers().to_string(),
+    ];
+
+    // For GPU runs with partial loading, do not set -ngl: llama-server's fitter
+    // (--fit on) aborts with "failed to fit params to free device memory: n_gpu_layers already set by user"
+    // if an explicit n_gpu_layers is passed. Setting -ngl is kept for non-partial
+    // runs, and -ngl 0 is always passed for CPU-pinned runs.
+    if profile.device.gpu_layers() == 0 {
+        args.push("-ngl".into());
+        args.push("0".into());
+    } else if !profile.partial_load {
+        args.push("-ngl".into());
+        args.push(profile.device.gpu_layers().to_string());
+    }
+
+    args.extend([
         "-b".into(),
         profile.batch_size.to_string(),
         "-np".into(),
@@ -70,7 +101,7 @@ pub fn build_launch(
         kv_arg.into(),
         "-fa".into(),
         flash.into(),
-    ];
+    ]);
 
     // Partial loading hands the context decision to llama-server's fitter:
     // it lowers the context until the model and its KV cache fit device
@@ -154,6 +185,24 @@ pub fn build_launch(
         env.push(("CUDA_VISIBLE_DEVICES".into(), "".into()));
         env.push(("GGML_VK_VISIBLE_DEVICES".into(), "".into()));
         env.push(("GGML_OPENCL_VISIBLE_DEVICES".into(), "".into()));
+    } else if let Some(backend) = backend {
+        // One backend per run: hide the other two so llama.cpp cannot pick a
+        // different one than the user selected.
+        match backend.to_lowercase().as_str() {
+            "cuda" => {
+                env.push(("GGML_VK_VISIBLE_DEVICES".into(), "".into()));
+                env.push(("GGML_OPENCL_VISIBLE_DEVICES".into(), "".into()));
+            }
+            "vulkan" => {
+                env.push(("CUDA_VISIBLE_DEVICES".into(), "".into()));
+                env.push(("GGML_OPENCL_VISIBLE_DEVICES".into(), "".into()));
+            }
+            "opencl" => {
+                env.push(("CUDA_VISIBLE_DEVICES".into(), "".into()));
+                env.push(("GGML_VK_VISIBLE_DEVICES".into(), "".into()));
+            }
+            _ => {}
+        }
     }
 
     Ok(ServerLaunch { args, env })

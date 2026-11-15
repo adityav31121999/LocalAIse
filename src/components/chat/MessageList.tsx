@@ -59,11 +59,20 @@ function AgentTranscript({
         if (step.kind === "tool" && step.tool) {
           const tool = step.tool;
           const usage = callUsages?.find((call) => call.index === step.call);
+          // The row keeps its short one-line look; the full call (raw
+          // arguments and the result the model read) rides along on the
+          // tooltip so the saved transcript stays inspectable.
+          const detail = [
+            `${tool.name}(${tool.arguments ?? tool.input})`,
+            tool.output ? `→ ${tool.output}` : tool.summary ? `→ ${tool.summary}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
           return (
             <div
               key={step.id}
               className={`agent-tool agent-tool--${tool.status}`}
-              title={tool.summary || undefined}
+              title={detail || undefined}
             >
               <span className="agent-tool__icon" aria-hidden="true">
                 🔧

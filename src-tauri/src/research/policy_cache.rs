@@ -61,9 +61,8 @@ impl DomainPolicy {
 
 fn domain_matches(domain: &str, pattern: &str) -> bool {
     // Support wildcards: *.example.com matches sub.example.com
-    if pattern.starts_with("*.") {
-        let suffix = &pattern[2..];
-        domain == suffix || domain.ends_with(&format!(".{}", suffix))
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        domain == suffix || domain.ends_with(&format!(".{suffix}"))
     } else {
         domain == pattern
     }
@@ -337,7 +336,6 @@ pub fn save_cache_periodically(cache: SharedCache, project_root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn test_domain_policy() {
@@ -362,8 +360,9 @@ mod tests {
 
     #[test]
     fn test_cache_serialization() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("cache.json");
+        let dir = std::env::temp_dir().join(format!("test_cache_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("cache.json");
         
         let mut cache = ResearchCache::new();
         cache.put_source(CachedSource {

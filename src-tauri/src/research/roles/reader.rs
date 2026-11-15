@@ -6,6 +6,7 @@ use chrono::Utc;
 pub struct RawFact {
     pub claim: String,
     pub quote: String,
+    #[serde(default)]
     pub source_id: i64,
     #[serde(default)]
     pub entities: Vec<String>,
@@ -77,7 +78,7 @@ pub async fn extract<C: LlmClient + ?Sized>(llm: &C, chunk: &str, source_id: i64
     };
 
     let messages = vec![
-        LlmMessage { role: "system".into(), content: system.into() },
+        LlmMessage { role: "system".into(), content: system },
         LlmMessage { role: "user".into(), content: user },
     ];
 
@@ -139,7 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_mock() {
-        let mock = MockLlmClient::new("test-model");
+        let mut mock = MockLlmClient::new("test-model");
         let expected = serde_json::json!({
             "facts": [{
                 "claim": "Tokyo population is 37 million",
@@ -151,7 +152,7 @@ mod tests {
         });
         mock.with_default_response(mock_json_response(&expected).unwrap());
 
-        let chunk = "Tokyo population is 37 million as of 2023. It is the largest metro area.";
+        let chunk = "Tokyo population is 37 million as of 2023. It is the largest metro area in the world and continues to grow steadily each year.";
         let facts = extract(&mock, chunk, 1).await;
         assert_eq!(facts.len(), 1);
         assert_eq!(facts[0].claim, "Tokyo population is 37 million");

@@ -96,7 +96,7 @@ async fn verify_entailment<C: LlmClient + ?Sized>(
     normed: &HashMap<i64, String>,
 ) -> Result<(VerificationLabel, String), ResearchError> {
     let source_text = normed.get(&fact.source_id)
-        .ok_or_else(|| ResearchError::SourceNotFound { source_id: fact.source_id })?;
+        .ok_or(ResearchError::SourceNotFound { source_id: fact.source_id })?;
 
     // Use a window around the quote for context
     let context = extract_context(source_text, &fact.quote, 500);

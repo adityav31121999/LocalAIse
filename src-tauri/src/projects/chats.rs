@@ -42,11 +42,19 @@ pub struct AgentStep {
 pub struct AgentToolStep {
     pub id: String,
     pub name: String,
+    /// A short, one-line summary for the transcript (first meaningful argument).
     pub input: String,
     /// `running`, `done`, or `error`.
     pub status: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub summary: String,
+    /// The full raw argument JSON the model sent, unclipped.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub arguments: String,
+    /// The tool result the model read back, clipped only by the loop's own
+    /// truncation. Recorded so the saved chat is a complete account of the call.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub output: String,
 }
 
 /// One turn as it is written to disk.
@@ -84,6 +92,14 @@ pub struct StoredMessage {
     /// Tokens of every single model call, in order (agent tool-loop calls).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub call_usages: Vec<CallUsage>,
+    /// The exact system prompt sent for this turn (assistant turns only).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub system_prompt: String,
+    /// The exact user message sent to the model, including any injected
+    /// context block (assistant turns only). The user's raw prompt is in
+    /// the preceding user message.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model_prompt: String,
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -287,6 +303,8 @@ mod tests {
             context_tokens: 0,
             tokens_per_second: 0.0,
             call_usages: Vec::new(),
+            system_prompt: String::new(),
+            model_prompt: String::new(),
         }
     }
 

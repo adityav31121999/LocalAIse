@@ -27,8 +27,14 @@ pub async fn list_project_directory(
     project_id: String,
     path: String,
 ) -> AppResult<Vec<DirectoryEntry>> {
+    log::info!("[files] list_project_directory: project_id={}, path={:?}", project_id, path);
     let root = project_root(&state, &project_id)?;
-    files::list(&root, &path)
+    let result = files::list(&root, &path);
+    match &result {
+        Ok(entries) => log::info!("[files] list_project_directory done: path={:?}, {} entries", path, entries.len()),
+        Err(e) => log::warn!("[files] list_project_directory failed: path={:?}, error={:?}", path, e),
+    }
+    result
 }
 
 #[tauri::command]
@@ -36,8 +42,14 @@ pub async fn list_all_project_files(
     state: State<'_, AppState>,
     project_id: String,
 ) -> AppResult<Vec<DirectoryEntry>> {
+    log::info!("[files] list_all_project_files started: {}", project_id);
     let root = project_root(&state, &project_id)?;
-    files::list_all_files(&root)
+    let res = files::list_all_files(&root);
+    match &res {
+        Ok(entries) => log::info!("[files] list_all_project_files done: {} entries", entries.len()),
+        Err(e) => log::warn!("[files] list_all_project_files failed: {:?}", e),
+    }
+    res
 }
 
 #[tauri::command]
