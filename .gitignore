@@ -93,3 +93,6 @@ gcovr-report/
 public/
 metadata.json
 .env.example
+# Local clippy output
+clippy*.txt
+
