@@ -23,6 +23,7 @@ use localaise_lib::research::fetch::http::{extract_markdown, HttpFetcher};
 use localaise_lib::research::net::ResearchNet;
 use localaise_lib::research::orchestrator;
 use localaise_lib::research::{Budgets, MockLlmClient};
+use localaise_lib::research::llm::LlmResponse;
 use localaise_lib::research::request::{ResearchMode, ResearchRequest};
 use localaise_lib::research::roles::{gap, reader};
 
@@ -365,7 +366,29 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
         internet_enabled: true,
     };
     let net = ResearchNet::new(project_root, true);
+    // The mock LLM must be given a plan that includes internet steps,
+    // otherwise plan_research falls back to a single local step and no
+    // Searching event is ever emitted. Matched on the plan prompt's stable
+    // suffix; all other LLM calls keep the default "{}" response.
     let llm = MockLlmClient::new("test-model");
+    llm.with_response(
+        "Return the research plan as JSON",
+        LlmResponse {
+            content: serde_json::json!({
+                "steps": [
+                    {
+                        "question": "Why do the Earth's seasons change?",
+                        "source": "internet",
+                        "search_queries": ["why do the seasons change on Earth"],
+                        "answer_criteria": "Explains axial tilt as the cause of seasons"
+                    }
+                ]
+            })
+            .to_string(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+        },
+    );
     let handle =
         tokio::spawn(async move { orchestrator::run(llm, request, &net, tx, budgets, None).await });
 
