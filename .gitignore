@@ -13,7 +13,8 @@
 /.cache/
 /src-tauri/target/
 /src-tauri/gen/
-/vendor/llama.cpp/build*/
+# fetch-llama-server.ts clones llama.cpp here on demand — never commit it
+/vendor/llama.cpp/
 
 # Generated llama.cpp runtimes (recreate with npm run fetch-llama-server)
 # Flat platform dirs (windows-x64, linux-x64) and any legacy per-backend dirs.
