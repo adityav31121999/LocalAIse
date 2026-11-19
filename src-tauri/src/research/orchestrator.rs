@@ -185,7 +185,8 @@ pub async fn run_with_plan<C: LlmClient + 'static>(
                 rank: 0,
             }))
             .collect();
-        fetch_queue(net, browser.as_ref(), queue, &mut ctx, &mut pages_fetched, &budgets, &cancel, started).await?;
+        fetch_queue(net, browser.as_ref(), queue, &mut ctx,
+            StepControl { budgets: &budgets, cancel: &cancel, started, pages: &mut pages_fetched }).await?;
     }
 
     // 1. Follow the plan step by step.
@@ -279,7 +280,8 @@ pub async fn run_with_plan<C: LlmClient + 'static>(
                 message: format!("Round {}/{}: following up on {} gap(s)", round, budgets.max_rounds, missing.len()),
             }).await;
 
-            gather_followups(net, browser.as_ref(), &mut ctx, &analyses, &mut pages_fetched, &budgets, &cancel, started).await?;
+            gather_followups(net, browser.as_ref(), &mut ctx, &analyses,
+                StepControl { budgets: &budgets, cancel: &cancel, started, pages: &mut pages_fetched }).await?;
 
             let new_facts = ctx.facts.len().saturating_sub(facts_before);
             let new_pages = pages_fetched.saturating_sub(pages_before);
@@ -599,16 +601,16 @@ async fn run_internet_step(
         score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    fetch_queue(net, browser, queue, ctx, pages, budgets, cancel, started).await
+    fetch_queue(net, browser, queue, ctx, StepControl { budgets, cancel, started, pages }).await
 }
 
 /// One follow-up round: search every gap query the gap checker produced and
 /// fetch the best pages, attributing facts to the sub-question that had the gap.
 async fn gather_followups(
     net: &ResearchNet, browser: Option<&BrowserFetcher>, ctx: &mut Ctx, analyses: &[GapAnalysis],
-    pages: &mut usize, budgets: &Budgets,
-    cancel: &Option<Arc<AtomicBool>>, started: std::time::Instant,
+    control: StepControl<'_>,
 ) -> Result<(), ResearchError> {
+    let StepControl { budgets, cancel, started, pages } = control;
     let is_cancelled = |cancel: &Option<Arc<AtomicBool>>| cancel.as_ref().is_some_and(|f| f.load(Ordering::SeqCst));
     let out_of_time = || started.elapsed().as_secs() >= budgets.wall_clock_secs;
 
@@ -648,7 +650,7 @@ async fn gather_followups(
 
     // The browser fetcher is owned by the caller and shared across the whole
     // run (plan steps and follow-up rounds use the same one).
-    fetch_queue(net, browser, queue, ctx, pages, budgets, cancel, started).await
+    fetch_queue(net, browser, queue, ctx, StepControl { budgets, cancel, started, pages }).await
 }
 
 /// Fetch a ranked queue of results, ingesting each page's facts under the
@@ -656,9 +658,9 @@ async fn gather_followups(
 async fn fetch_queue(
     net: &ResearchNet, browser: Option<&BrowserFetcher>,
     queue: Vec<(usize, SearchResult)>, ctx: &mut Ctx,
-    pages: &mut usize, budgets: &Budgets,
-    cancel: &Option<Arc<AtomicBool>>, started: std::time::Instant,
+    control: StepControl<'_>,
 ) -> Result<(), ResearchError> {
+    let StepControl { budgets, cancel, started, pages } = control;
     let is_cancelled = |cancel: &Option<Arc<AtomicBool>>| cancel.as_ref().is_some_and(|f| f.load(Ordering::SeqCst));
     let out_of_time = || started.elapsed().as_secs() >= budgets.wall_clock_secs;
 

@@ -37,6 +37,9 @@
  *   of the form `b<number>` (e.g. `b6742`). The PINNED_TAG constant below
  *   pins the exact nightly tag. Update it deliberately and re-audit
  *   `runtime/args.rs` each time.
+ *
+ *   The matching prebuilt UI is pinned separately via PINNED_UI_VERSION
+ *   (override with LLAMA_UI_VERSION).
  */
 
 import {
@@ -61,6 +64,15 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 // the flag surface runtime/args.rs relies on each time.
 // Override locally with LLAMA_TAG (e.g. `LLAMA_TAG=b6000 npm run fetch-llama-server`).
 const PINNED_TAG = process.env.LLAMA_TAG ?? "v0.9.0";
+
+// Pinned prebuilt UI version from the ggml-org/llama-ui HF bucket. A
+// depth-1 clone makes `git rev-list --count HEAD` return 1, so CMake
+// resolves HF_UI_VERSION to "b1" (nonexistent) and falls back to the
+// bucket's `latest` ref, which no longer ships workbox-*.js that
+// llama.cpp's asset validator requires. Pin the newest prebuilt UI that
+// still contains workbox (uploaded 2026-10-12). Override with
+// LLAMA_UI_VERSION when bumping PINNED_TAG.
+const PINNED_UI_VERSION = process.env.LLAMA_UI_VERSION ?? "b11575";
 
 const CHECKOUT = join(ROOT, "vendor", "llama.cpp");
 
@@ -122,7 +134,11 @@ function currentPlatform(): Platform {
 
 function run(command: string, cwd: string): void {
   console.log(`$ ${command}`);
-  execSync(command, { cwd, stdio: "inherit" });
+  execSync(command, {
+    cwd,
+    stdio: "inherit",
+    env: { ...process.env, HF_UI_VERSION: PINNED_UI_VERSION },
+  });
 }
 
 function sha256(path: string): string {

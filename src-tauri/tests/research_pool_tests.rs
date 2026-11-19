@@ -22,7 +22,7 @@
 //! behind (transcript, export payload, report under `outputs/`).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -200,11 +200,11 @@ fn seasons_search() -> Arc<FixtureSearch> {
     })
 }
 
-fn seasons_request(root: &PathBuf) -> ResearchRequest {
+fn seasons_request(root: &Path) -> ResearchRequest {
     ResearchRequest {
         question: "Why do the Earth's seasons change?".to_string(),
         mode: ResearchMode::Online,
-        project_root: Some(root.clone()),
+        project_root: Some(root.to_path_buf()),
         provided_urls: vec![],
         use_browser: false,
         internet_enabled: true,

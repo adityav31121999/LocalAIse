@@ -607,7 +607,7 @@ pub fn reveal_path(path: String) -> Result<(), String> {
             .arg(format!("/select,{}", target.display()))
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
@@ -617,7 +617,7 @@ pub fn reveal_path(path: String) -> Result<(), String> {
             .arg(&target)
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
@@ -627,7 +627,7 @@ pub fn reveal_path(path: String) -> Result<(), String> {
             .arg(dir)
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
 }
 
