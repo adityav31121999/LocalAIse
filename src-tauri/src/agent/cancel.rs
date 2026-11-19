@@ -120,6 +120,15 @@ pub fn research_cancel(project_id: &str) {
     }
 }
 
+/// True while a deep-research run is registered for the project. Used to
+/// reject a second concurrent run (same transcript ids, same report file).
+pub fn research_is_active(project_id: &str) -> bool {
+    research_runs()
+        .lock()
+        .map(|map| map.contains_key(project_id))
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

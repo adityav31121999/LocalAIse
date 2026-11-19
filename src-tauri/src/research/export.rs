@@ -472,6 +472,16 @@ pub fn export_report(
     }
 }
 
+/// Escape text for HTML contexts. Web-derived titles, claims and quotes flow
+/// into the exported report; without escaping they become script injection.
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 /// Export to HTML.
 pub fn export_html(
     sections: &[WrittenSection],
@@ -501,7 +511,7 @@ pub fn export_html(
     
     for section in sections {
         let confidence_class = if section.confidence >= 0.7 { "confidence-high" } else if section.confidence >= 0.4 { "confidence-medium" } else { "confidence-low" };
-        html.push_str(&format!("<h2>{} <span class=\"confidence {}\">{:.0}%</span></h2>\n", section.title, confidence_class, section.confidence * 100.0));
+        html.push_str(&format!("<h2>{} <span class=\"confidence {}\">{:.0}%</span></h2>\n", escape_html(&section.title), confidence_class, section.confidence * 100.0));
         
         // Convert markdown to HTML (simplified)
         let content_html = markdown_to_html(&section.content);
@@ -509,13 +519,13 @@ pub fn export_html(
         
         if options.include_conflicts {
             if let Some(conflicting) = &section.conflicting_evidence {
-                html.push_str(&format!("<div class=\"callout\"><strong>Conflicting Evidence:</strong> {}</div>\n", conflicting));
+                html.push_str(&format!("<div class=\"callout\"><strong>Conflicting Evidence:</strong> {}</div>\n", escape_html(conflicting)));
             }
         }
-        
+
         if options.include_limitations {
             if let Some(limitations) = &section.limitations {
-                html.push_str(&format!("<div class=\"callout\"><strong>Limitations:</strong> {}</div>\n", limitations));
+                html.push_str(&format!("<div class=\"callout\"><strong>Limitations:</strong> {}</div>\n", escape_html(limitations)));
             }
         }
     }
@@ -524,7 +534,7 @@ pub fn export_html(
         html.push_str("<div class=\"sources\"><h2>Sources</h2>\n<ol>\n");
         let bibliography = generate_bibliography(sections, sources, options.citation_style);
         for entry in bibliography {
-            html.push_str(&format!("<li>{}</li>\n", entry.formatted));
+            html.push_str(&format!("<li>{}</li>\n", escape_html(&entry.formatted)));
         }
         html.push_str("</ol></div>\n");
     }
@@ -540,16 +550,16 @@ fn markdown_to_html(md: &str) -> String {
         if line.is_empty() {
             html.push_str("<p></p>\n");
         } else if let Some(rest) = line.strip_prefix("## ") {
-            html.push_str(&format!("<h2>{rest}</h2>\n"));
+            html.push_str(&format!("<h2>{}</h2>\n", escape_html(rest)));
         } else if let Some(rest) = line.strip_prefix("### ") {
-            html.push_str(&format!("<h3>{rest}</h3>\n"));
+            html.push_str(&format!("<h3>{}</h3>\n", escape_html(rest)));
         } else if line.starts_with("- ") || line.starts_with("* ") {
-            html.push_str(&format!("<li>{}</li>\n", &line[2..]));
+            html.push_str(&format!("<li>{}</li>\n", escape_html(&line[2..])));
         } else if line.starts_with("[") && line.contains("](") {
             // Inline citation - keep as-is
-            html.push_str(&format!("<p>{}</p>\n", line));
+            html.push_str(&format!("<p>{}</p>\n", escape_html(line)));
         } else {
-            html.push_str(&format!("<p>{}</p>\n", line));
+            html.push_str(&format!("<p>{}</p>\n", escape_html(line)));
         }
     }
     html

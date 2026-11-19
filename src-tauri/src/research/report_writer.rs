@@ -81,14 +81,19 @@ pub fn write_report_section(
         citations.push(citation);
     }
 
-    // Calculate confidence based on number of unique sources and their quality
+    // Calculate confidence based on number of unique sources and their quality.
+    // Only sources actually present in the store count toward the average —
+    // otherwise a missing source silently drags quality to 0.
     let unique_sources: std::collections::HashSet<i64> = facts.iter().map(|f| f.source_id).collect();
-    let avg_quality = if !unique_sources.is_empty() {
-        sources.iter()
-            .filter(|s| unique_sources.contains(&s.id))
-            .map(|s| s.quality_score)
-            .sum::<f32>() / unique_sources.len() as f32
-    } else { 0.0 };
+    let matched_quality: Vec<f32> = sources.iter()
+        .filter(|s| unique_sources.contains(&s.id))
+        .map(|s| s.quality_score)
+        .collect();
+    let avg_quality = if matched_quality.is_empty() {
+        0.0
+    } else {
+        matched_quality.iter().sum::<f32>() / matched_quality.len() as f32
+    };
     
     let source_count_factor = (unique_sources.len() as f32 / 5.0).min(1.0);
     let confidence = (0.6 * avg_quality + 0.4 * source_count_factor).min(1.0);

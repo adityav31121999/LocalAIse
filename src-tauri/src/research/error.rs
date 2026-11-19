@@ -87,6 +87,7 @@ impl ResearchError {
         match self {
             ResearchError::Network(_) => true,
             ResearchError::Dns { .. } => true,
+            ResearchError::HttpStatus { status, .. } if *status == 429 => true,
             ResearchError::HttpStatus { status, .. } if *status >= 500 => true,
             ResearchError::Timeout { .. } => true,
             ResearchError::TooManyRedirects { .. } => true,

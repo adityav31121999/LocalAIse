@@ -56,6 +56,10 @@ impl SearchProvider for DuckDuckGoSearch {
     fn name(&self) -> &'static str {
         "duckduckgo"
     }
+
+    fn endpoint(&self) -> String {
+        "https://html.duckduckgo.com/html/".to_string()
+    }
 }
 
 /// Parse DuckDuckGo HTML results.
@@ -185,6 +189,10 @@ impl SearchProvider for BraveSearch {
         "brave"
     }
 
+    fn endpoint(&self) -> String {
+        "https://api.search.brave.com/res/v1/web/search".to_string()
+    }
+
     async fn is_available(&self) -> bool {
         !self.api_key.is_empty()
     }
@@ -290,6 +298,10 @@ impl SearchProvider for TavilySearch {
         "tavily"
     }
 
+    fn endpoint(&self) -> String {
+        "https://api.tavily.com/search".to_string()
+    }
+
     async fn is_available(&self) -> bool {
         !self.api_key.is_empty()
     }
@@ -362,12 +374,16 @@ impl SearchProvider for SearXNGSearch {
     fn name(&self) -> &'static str {
         "searxng"
     }
+
+    fn endpoint(&self) -> String {
+        format!("{}/search", self.instance_url.trim_end_matches('/'))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::research::search::{canonicalize_url, dedupe_results, is_near_duplicate};
+    use crate::research::search::{canonicalize_url, dedupe_results};
 
     #[test]
     fn test_canonicalize() {
@@ -385,12 +401,5 @@ mod tests {
         ];
         let deduped = dedupe_results(results);
         assert_eq!(deduped.len(), 1);
-    }
-
-    #[test]
-    fn test_simhash() {
-        let t1 = "The quick brown fox jumps over the lazy dog";
-        let t2 = "The quick brown fox jumps over the lazy dog.";
-        assert!(is_near_duplicate(t1, t2, 3));
     }
 }

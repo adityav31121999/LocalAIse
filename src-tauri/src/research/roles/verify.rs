@@ -20,7 +20,15 @@ pub struct Verdict {
     pub unsupported: Vec<Fact>,
     /// Per-fact verification details for logging/metrics.
     pub details: Vec<FactVerification>,
+    /// Stage-2 facts whose LLM call failed (the fact is kept via stage 1,
+    /// and this counts them so the UI/transcript can surface the degradation).
+    pub stage2_failed: usize,
 }
+
+/// Number of facts verified per stage-2 LLM call. One sequential call per
+/// fact made Deep-mode runs (60+ facts) take minutes of serial completions;
+/// batching cuts that proportionally while keeping the entailment check strict.
+const STAGE2_BATCH_SIZE: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct FactVerification {
@@ -32,7 +40,9 @@ pub struct FactVerification {
 
 /// Run two-stage verification on all facts.
 /// Stage 1: Exact quote containment (cheap filter).
-/// Stage 2: LLM entailment check (semantic verification).
+/// Stage 2: LLM entailment check (semantic verification), batched
+/// STAGE2_BATCH_SIZE facts per call so a large fact set doesn't mean
+/// dozens of serial completions.
 pub async fn verify<C: LlmClient + ?Sized>(
     llm: Option<&C>,
     facts: Vec<Fact>,
@@ -41,37 +51,63 @@ pub async fn verify<C: LlmClient + ?Sized>(
     let normed: HashMap<i64, String> =
         store.sources().iter().map(|s| (s.id, norm(&s.text))).collect();
 
-    let mut details = Vec::new();
-    let (mut supported, mut unsupported) = (Vec::new(), Vec::new());
-
+    // Stage 1 pass first; stage 2 runs on the survivors.
+    let mut stage1: Vec<(usize, Fact, bool)> = Vec::with_capacity(facts.len());
     for (idx, f) in facts.into_iter().enumerate() {
-        // Stage 1: Exact quote containment
         let q = norm(&f.quote);
         let stage1_pass = !q.is_empty() && normed.get(&f.source_id).is_some_and(|t| t.contains(&q));
+        stage1.push((idx, f, stage1_pass));
+    }
 
+    // Stage 2: LLM entailment, batched. Facts that fail stage 1 never reach the LLM.
+    let mut stage2: HashMap<usize, (VerificationLabel, String)> = HashMap::new();
+    let mut stage2_failed = 0usize;
+    if let Some(llm_client) = llm {
+        let pending: Vec<usize> = stage1.iter().enumerate()
+            .filter(|(_, (_, _, pass))| *pass)
+            .map(|(i, _)| i)
+            .collect();
+        for batch in pending.chunks(STAGE2_BATCH_SIZE) {
+            let batch_facts: Vec<&Fact> = batch.iter().map(|i| &stage1[*i].1).collect();
+            match verify_entailment_batch(llm_client, &batch_facts, &normed).await {
+                Ok(results) => {
+                    let mut filled = std::collections::HashSet::new();
+                    for (batch_pos, label, reasoning) in results {
+                        if let Some(&i) = batch.get(batch_pos) {
+                            stage2.insert(stage1[i].0, (label, reasoning));
+                            filled.insert(batch_pos);
+                        }
+                    }
+                    // Facts the model silently omitted fall back to stage 1 and count as failed.
+                    stage2_failed += batch.len().saturating_sub(filled.len());
+                }
+                Err(_) => {
+                    // Batch failed (timeout, parse, server hang): every fact in
+                    // the batch falls back to stage-1-only support.
+                    stage2_failed += batch.len();
+                }
+            }
+        }
+    }
+
+    let mut details = Vec::with_capacity(stage1.len());
+    let (mut supported, mut unsupported) = (Vec::new(), Vec::new());
+
+    for (idx, f, stage1_pass) in stage1 {
         let mut stage2_label = None;
         let mut stage2_reasoning = None;
 
-        // Stage 2: LLM entailment (only if stage 1 passes and LLM available)
         if stage1_pass {
-            if let Some(llm_client) = llm {
-                match verify_entailment(llm_client, &f, &normed).await {
-                    Ok((label, reasoning)) => {
-                        stage2_label = Some(label.clone());
-                        stage2_reasoning = Some(reasoning);
-                        match label {
-                            VerificationLabel::Supported => supported.push(f),
-                            _ => unsupported.push(f),
-                        }
-                    }
-                    Err(_) => {
-                        // LLM error: fall back to stage 1 result
-                        if stage1_pass { supported.push(f); } else { unsupported.push(f); }
-                    }
+            if let Some((label, reasoning)) = stage2.get(&idx) {
+                stage2_label = Some(label.clone());
+                stage2_reasoning = Some(reasoning.clone());
+                match label {
+                    VerificationLabel::Supported => supported.push(f),
+                    _ => unsupported.push(f),
                 }
             } else {
-                // No LLM: rely on stage 1
-                if stage1_pass { supported.push(f); } else { unsupported.push(f); }
+                // Stage 2 unavailable, skipped (no LLM) or failed: fall back to stage 1.
+                supported.push(f);
             }
         } else {
             unsupported.push(f);
@@ -85,49 +121,69 @@ pub async fn verify<C: LlmClient + ?Sized>(
         });
     }
 
-    Verdict { supported, unsupported, details }
+    Verdict { supported, unsupported, details, stage2_failed }
 }
 
-/// Stage 2: LLM entailment check.
-/// Given a claim+quote and source context, determine if the source supports, contradicts, or doesn't address the claim.
-async fn verify_entailment<C: LlmClient + ?Sized>(
+/// Stage 2: LLM entailment check, batched.
+/// Given a claim+quote and source context for each fact in the batch, determine if the
+/// source supports, contradicts, or doesn't address the claim. Returns one
+/// (batch_position, label, reasoning) triple per fact the model judged.
+async fn verify_entailment_batch<C: LlmClient + ?Sized>(
     llm: &C,
-    fact: &Fact,
+    facts: &[&Fact],
     normed: &HashMap<i64, String>,
-) -> Result<(VerificationLabel, String), ResearchError> {
-    let source_text = normed.get(&fact.source_id)
-        .ok_or(ResearchError::SourceNotFound { source_id: fact.source_id })?;
+) -> Result<Vec<(usize, VerificationLabel, String)>, ResearchError> {
+    // One compact context window per fact; the batch as a whole stays well
+    // within even small local-model context budgets.
+    let mut blocks = String::new();
+    for (i, f) in facts.iter().enumerate() {
+        let source_text = normed.get(&f.source_id)
+            .ok_or(ResearchError::SourceNotFound { source_id: f.source_id })?;
+        let context = extract_context(source_text, &f.quote, 300);
+        blocks.push_str(&format!(
+            "[{}] Claim: {}\nQuote: {}\nContext:\n{}\n\n",
+            i + 1, f.claim, f.quote, context
+        ));
+    }
 
-    // Use a window around the quote for context
-    let context = extract_context(source_text, &fact.quote, 500);
-
-    let system = "You are a precise fact verifier. Given a claim with its supporting quote \
-        and the surrounding source context, determine if the context:\n\
+    let system = "You are a precise fact verifier. For each fact below, decide whether its \
+        source context:\n\
         - SUPPORTED: The quote and context clearly support the claim.\n\
         - CONTRADICTED: The context contradicts the claim.\n\
         - UNSUPPORTED: The context doesn't contain enough information to verify the claim.\n\
-        Return ONLY valid JSON matching the schema.";
+        Return ONLY valid JSON matching the schema, with exactly one results entry per fact, \
+        keyed by the fact's number.";
 
     let schema = serde_json::json!({
         "type": "object",
         "properties": {
-            "label": { "type": "string", "enum": ["supported", "contradicted", "unsupported"] },
-            "reasoning": { "type": "string", "minLength": 10 }
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": { "type": "integer", "minimum": 1 },
+                        "label": { "type": "string", "enum": ["supported", "contradicted", "unsupported"] },
+                        "reasoning": { "type": "string" }
+                    },
+                    "required": ["index", "label", "reasoning"],
+                    "additionalProperties": false
+                }
+            }
         },
-        "required": ["label", "reasoning"],
+        "required": ["results"],
         "additionalProperties": false
     });
 
     let user = format!(
-        "Claim: {}\n\nVerbatim quote from source: {}\n\nSource context (window around quote):\n{}\n\n\
-        Does the context support, contradict, or not address the claim? Return JSON.",
-        fact.claim, fact.quote, context
+        "Verify these {} facts. Return JSON with one results entry per fact.\n\n{}",
+        facts.len(), blocks
     );
 
     let params = LlmParams {
         temperature: Some(0.0),
         json_schema: Some(schema),
-        max_tokens: Some(512),
+        max_tokens: Some(1024),
         ..Default::default()
     };
 
@@ -137,29 +193,55 @@ async fn verify_entailment<C: LlmClient + ?Sized>(
     ];
 
     #[derive(serde::Deserialize)]
-    struct VerifyResponse {
+    struct BatchResponse {
+        results: Vec<BatchEntry>,
+    }
+    #[derive(serde::Deserialize)]
+    struct BatchEntry {
+        index: usize,
         label: VerificationLabel,
         reasoning: String,
     }
 
-    let resp = llm.complete(messages, params).await?;
-    let parsed = parse_llm_json::<VerifyResponse>(&resp)?;
-    Ok((parsed.label, parsed.reasoning))
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        llm.complete(messages, params),
+    )
+    .await
+    .map_err(|_| ResearchError::Timeout { secs: 180, url: format!("llm:{}", llm.model_id()) })??;
+    let parsed = parse_llm_json::<BatchResponse>(&resp)?;
+    Ok(parsed.results.into_iter()
+        // Model indices are 1-based; anything out of range is dropped instead of panicking.
+        .filter_map(|e| e.index.checked_sub(1).map(|i| (i, e.label, e.reasoning)))
+        .filter(|(i, _, _)| *i < facts.len())
+        .collect())
 }
 
 /// Extract a context window around the quote in the source text.
+///
+/// The source handed in is already normalized (lowercased, whitespace
+/// collapsed) by `verify`. Everything is done on one owned lowercased string and
+/// byte offsets are snapped to char boundaries, so multi-byte UTF-8 content
+/// cannot panic the slice.
 fn extract_context(source: &str, quote: &str, window: usize) -> String {
-    let source_lower = source.to_lowercase();
+    let lower = source.to_lowercase();
     let quote_lower = quote.to_lowercase();
 
-    if let Some(pos) = source_lower.find(&quote_lower) {
-        let start = pos.saturating_sub(window);
-        let end = (pos + quote.len() + window).min(source.len());
-        source[start..end].to_string()
-    } else {
-        // Quote not found exactly; return beginning
-        source.chars().take(window * 2).collect()
+    let (pos, quote_len) = match lower.find(&quote_lower) {
+        Some(pos) => (pos, quote_lower.len()),
+        // Quote not found exactly; return the beginning of the text.
+        None => return lower.chars().take(window * 2).collect(),
+    };
+
+    let mut start = pos.saturating_sub(window);
+    while start > 0 && !lower.is_char_boundary(start) {
+        start -= 1;
     }
+    let mut end = (pos + quote_len + window).min(lower.len());
+    while end < lower.len() && !lower.is_char_boundary(end) {
+        end += 1;
+    }
+    lower[start..end].to_string()
 }
 
 /// Synchronous version for backward compatibility (stage 1 only).
@@ -189,7 +271,7 @@ pub fn verify_stage1_only(facts: Vec<Fact>, store: &EvidenceStore) -> Verdict {
         });
     }
 
-    Verdict { supported, unsupported, details }
+    Verdict { supported, unsupported, details, stage2_failed: 0 }
 }
 
 #[cfg(test)]
@@ -225,5 +307,15 @@ mod tests {
         let quote = "brown fox jumps";
         let ctx = extract_context(source, quote, 20);
         assert!(ctx.contains("brown fox jumps"));
+    }
+
+    #[test]
+    fn test_extract_context_does_not_panic_on_multibyte_text() {
+        // Multi-byte characters make byte-window offsets land inside a char;
+        // the slice must snap to char boundaries instead of panicking.
+        let source = "日本語のテキストはとても長く、重要な事実をいくつか含んでいます。同じ内容をもう一度繰り返します。";
+        let quote = "重要な事実";
+        let ctx = extract_context(source, quote, 12);
+        assert!(ctx.contains("重要な事実"));
     }
 }

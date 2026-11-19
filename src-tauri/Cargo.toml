@@ -82,12 +82,10 @@ base64 = "0.22"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sqlite-vec = "0.1"
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }
-fastembed = "4"
 url = "2"
 scraper = "0.20"
 urlencoding = "2"
 chrono = { version = "0.4", features = ["serde"] }
-fxhash = "0.2"
 regex = "1"
 
 # Reading the display-adapter class keys to get real VRAM sizes.

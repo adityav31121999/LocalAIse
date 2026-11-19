@@ -1,5 +1,5 @@
-//! Document analysis commands: summarize, extract tables, compare documents,
-//! flag inconsistencies, and save outputs to the project folder.
+//! Deep research commands (plan/run/stop/export) plus document analysis
+//! commands (summarize, extract tables, compare, flag inconsistencies).
 
 use std::path::{Path, PathBuf};
 
@@ -380,6 +380,7 @@ pub async fn run_deep_research(
     provided_urls: Option<Vec<String>>,
     use_browser: Option<bool>,
     budget_preset: Option<String>, // "quick" | "standard" | "deep"
+    plan: Option<crate::research::transcript::PlanRecord>,
 ) -> Result<i64, String> {
     use crate::research::net::ResearchNet;
     use crate::research::orchestrator;
@@ -395,6 +396,12 @@ pub async fn run_deep_research(
             .ok_or_else(|| "unknown project".to_string())?;
         (record, registry.settings.clone())
     };
+
+    // One run per project: a second run would reuse the same transcript id and
+    // overwrite the same report file while the first is still working.
+    if crate::agent::cancel::research_is_active(&project_id) {
+        return Err("A deep-research run is already active for this project".to_string());
+    }
 
     let model = models::selected(&state.dirs, &settings).ok_or("No model selected".to_string())?;
     let model_label = models::label(&model);
@@ -444,11 +451,59 @@ pub async fn run_deep_research(
     let run_guard = crate::agent::cancel::ResearchRunGuard::begin(&project_id);
     let cancel_flag = run_guard.flag();
 
-    let result = orchestrator::run(llm, req, &net, tx, budgets, Some(cancel_flag)).await;
+    // A plan reviewed in the UI is executed as-is (without re-planning and
+    // without re-emitting `Planned`); with no plan the pipeline plans itself.
+    let result = match plan {
+        Some(plan_record) => {
+            let steps = plan_record.steps.clone();
+            orchestrator::run_with_plan(llm, req, &net, tx, budgets, Some(cancel_flag), plan_record, steps, false).await
+        }
+        None => orchestrator::run(llm, req, &net, tx, budgets, Some(cancel_flag)).await,
+    };
     if let Err(e) = &result {
         let _ = tx_err.send(crate::research::ResearchEvent::Error { message: e.to_string() }).await;
     }
     result.map_err(|e| e.to_string())
+}
+
+/// Produce the deep-research plan (ordered steps tagged `local`/`internet`)
+/// without executing it. The frontend shows it for review, then passes the
+/// approved plan back to `run_deep_research`.
+#[tauri::command]
+pub async fn plan_deep_research(
+    state: State<'_, AppState>,
+    question: String,
+    mode: crate::research::request::ResearchMode,
+    project_id: String,
+) -> Result<crate::research::transcript::PlanRecord, String> {
+    use crate::research::request::ResearchMode;
+
+    let (record, settings) = {
+        let registry = state.registry().map_err(|e| e.to_string())?;
+        let record = registry
+            .find(&project_id)
+            .cloned()
+            .ok_or_else(|| "unknown project".to_string())?;
+        (record, registry.settings.clone())
+    };
+
+    let model = models::selected(&state.dirs, &settings).ok_or("No model selected".to_string())?;
+    let model_label = models::label(&model);
+
+    let serving = crate::commands::runtime::ensure(&state, &settings, None)
+        .map_err(|e| e.to_string())?;
+
+    if let Err(error) = client::wait_until_ready(&serving).await {
+        if let Ok(mut supervisor) = state.supervisor() {
+            supervisor.mark_failed(error.to_string());
+        }
+        return Err(error.to_string());
+    }
+
+    let llm = RuntimeLlmClient::new(serving, model_label);
+    let allow_internet = matches!(mode, ResearchMode::Online) && record.internet_enabled;
+    let (plan_record, _steps) = crate::research::roles::plan_research(&llm, &question, allow_internet).await;
+    Ok(plan_record)
 }
 
 /// Asks the project's current deep-research run to stop. The pipeline halts
@@ -458,3 +513,121 @@ pub async fn run_deep_research(
 pub fn research_stop(project_id: String) {
     crate::agent::cancel::research_cancel(&project_id);
 }
+
+/// Re-render a finished run's report in the requested format. Reads the
+/// structured export payload captured at the end of the run
+/// (`chats/research-NNN.export.json`), so no pipeline work is redone.
+/// Writes `outputs/research-NNN-export.<ext>` and returns its absolute path.
+#[tauri::command]
+pub fn export_research_report(
+    state: State<'_, AppState>,
+    project_id: String,
+    report_id: i64,
+    format: String,
+    citation_style: Option<String>,
+) -> Result<String, String> {
+    use crate::research::export::{CitationStyle, ExportFormat, ExportOptions, export_report};
+
+    let record = {
+        let registry = state.registry().map_err(|e| e.to_string())?;
+        registry
+            .find(&project_id)
+            .cloned()
+            .ok_or_else(|| "unknown project".to_string())?
+    };
+
+    let format = format.to_ascii_lowercase();
+    let format = match format.as_str() {
+        "markdown" | "md" => ExportFormat::Markdown,
+        "json" => ExportFormat::Json,
+        "html" => ExportFormat::Html,
+        "notion" => ExportFormat::Notion,
+        "text" | "txt" => ExportFormat::Text,
+        "csljson" | "csl-json" | "csl_json" => ExportFormat::CslJson,
+        other => return Err(format!("Unknown export format: {other}")),
+    };
+    let citation_style = match citation_style.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        None | Some("numeric") => CitationStyle::Numeric,
+        Some("apa") => CitationStyle::Apa,
+        Some("ieee") => CitationStyle::Ieee,
+        Some("chicago") => CitationStyle::Chicago,
+        Some("mla") => CitationStyle::Mla,
+        Some("harvard") => CitationStyle::Harvard,
+        Some(other) => return Err(format!("Unknown citation style: {other}")),
+    };
+
+    let chats_dir = ProjectPaths::new(&record.path).chats_dir();
+    let research_id = format!("research-{report_id:03}");
+    let payload = crate::research::transcript::load_export_payload(&chats_dir, &research_id)?;
+
+    let options = ExportOptions {
+        format,
+        citation_style,
+        include_methodology: true,
+        include_sources: true,
+        include_confidence: true,
+        include_limitations: true,
+        include_conflicts: true,
+    };
+    let rendered = export_report(&payload.sections, &payload.sources, options)
+        .map_err(|e| e.to_string())?;
+
+    let ext = match format {
+        ExportFormat::Markdown => "md",
+        ExportFormat::Text => "txt",
+        ExportFormat::Html => "html",
+        ExportFormat::Json | ExportFormat::Notion | ExportFormat::CslJson => "json",
+    };
+    let outputs_dir = std::path::PathBuf::from(&record.path).join("outputs");
+    std::fs::create_dir_all(&outputs_dir).map_err(|e| e.to_string())?;
+    let out_path = outputs_dir.join(format!("{research_id}-export.{ext}"));
+    std::fs::write(&out_path, rendered).map_err(|e| e.to_string())?;
+
+    let _ = activity::record(
+        &ProjectPaths::new(record.path),
+        activity::ActivityKind::Local,
+        "export_research_report",
+        &format!("{research_id} as {format:?}"),
+    );
+    Ok(out_path.to_string_lossy().to_string())
+}
+
+/// Reveal a path in the OS file manager (e.g. the report just written).
+/// Fire-and-forget: the command succeeds as soon as the reveal is spawned.
+#[tauri::command]
+pub fn reveal_path(path: String) -> Result<(), String> {
+    let target = std::path::PathBuf::from(&path);
+    if !target.exists() {
+        return Err(format!("Path does not exist: {path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", target.display()))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        let dir = target.parent().unwrap_or(target.as_path());
+        std::process::Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+}
+

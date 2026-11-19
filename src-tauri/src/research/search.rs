@@ -1,6 +1,5 @@
-use crate::research::error::{ResearchError, ResearchResult};
+use crate::research::error::ResearchResult;
 use async_trait::async_trait;
-use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use url::Url;
@@ -25,59 +24,15 @@ pub trait SearchProvider: Send + Sync {
     /// Provider name for logging/debugging.
     fn name(&self) -> &'static str;
 
+    /// Endpoint this provider talks to, used by the network gate to apply the
+    /// same policy/audit checks as page fetches. Empty means "unknown".
+    fn endpoint(&self) -> String {
+        String::new()
+    }
+
     /// Whether this provider is currently available.
     async fn is_available(&self) -> bool {
         true
-    }
-}
-
-/// A composite provider that tries providers in order until one succeeds.
-pub struct FallbackSearch {
-    providers: Vec<Box<dyn SearchProvider>>,
-}
-
-impl FallbackSearch {
-    pub fn new(providers: Vec<Box<dyn SearchProvider>>) -> Self {
-        Self { providers }
-    }
-}
-
-#[async_trait]
-impl SearchProvider for FallbackSearch {
-    async fn search(&self, query: &str, max_results: usize) -> ResearchResult<Vec<SearchResult>> {
-        for provider in &self.providers {
-            if provider.is_available().await {
-                match provider.search(query, max_results).await {
-                    Ok(results) if !results.is_empty() => {
-                        debug!("Search provider {} returned {} results", provider.name(), results.len());
-                        return Ok(results);
-                    }
-                    Ok(_) => {
-                        warn!("Search provider {} returned zero results (possible block or layout change), trying next", provider.name());
-                    }
-                    Err(e) => {
-                        warn!("Search provider {} failed: {}, trying next", provider.name(), e);
-                    }
-                }
-            }
-        }
-        Err(ResearchError::SearchUnavailable {
-            provider: "all".into(),
-            reason: "All search providers failed or returned no results".into(),
-        })
-    }
-
-    fn name(&self) -> &'static str {
-        "fallback"
-    }
-
-    async fn is_available(&self) -> bool {
-        for p in &self.providers {
-            if p.is_available().await {
-                return true;
-            }
-        }
-        false
     }
 }
 
@@ -132,47 +87,6 @@ fn is_tracking_param(key: &str) -> bool {
 pub fn dedupe_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
     let mut seen = HashSet::new();
     results.into_iter().filter(|r| seen.insert(canonicalize_url(&r.url))).collect()
-}
-
-/// SimHash for near-duplicate detection.
-/// Uses character 4-grams so tiny edits (e.g. a trailing period) flip few bits.
-pub fn simhash(text: &str) -> u64 {
-    // Counting simhash: per-bit counters, sign decides each hash bit.
-    let mut counters = [0i64; 64];
-
-    let chars: Vec<char> = text.chars().collect();
-    let ngrams: Vec<String> = if chars.len() >= 4 {
-        chars.windows(4).map(|w| w.iter().collect()).collect()
-    } else {
-        vec![text.to_string()]
-    };
-
-    for ngram in &ngrams {
-        let ngram_hash = fxhash::hash64(ngram);
-        for (bit, counter) in counters.iter_mut().enumerate() {
-            if (ngram_hash >> bit) & 1 == 1 {
-                *counter += 1;
-            } else {
-                *counter -= 1;
-            }
-        }
-    }
-
-    let mut hash: u64 = 0;
-    for (bit, counter) in counters.iter().enumerate() {
-        if *counter >= 0 {
-            hash |= 1u64 << bit;
-        }
-    }
-    hash
-}
-
-/// Check if two texts are near-duplicates (simhash distance <= threshold).
-pub fn is_near_duplicate(text1: &str, text2: &str, threshold: u32) -> bool {
-    let h1 = simhash(text1);
-    let h2 = simhash(text2);
-    let distance = (h1 ^ h2).count_ones();
-    distance <= threshold
 }
 
 /// Source type classification.
@@ -425,12 +339,4 @@ mod tests {
         assert_eq!(score.domain_type, SourceType::Unknown);
     }
 
-    #[test]
-    fn test_near_duplicate() {
-        let t1 = "The quick brown fox jumps over the lazy dog";
-        let t2 = "The quick brown fox jumps over the lazy dog.";
-        let t3 = "A completely different sentence here";
-        assert!(is_near_duplicate(t1, t2, 3));
-        assert!(!is_near_duplicate(t1, t3, 3));
-    }
 }

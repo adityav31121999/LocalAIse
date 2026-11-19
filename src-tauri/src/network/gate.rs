@@ -53,7 +53,14 @@ pub async fn fetch_raw_url_with_client(
         headers,
         5,
         Box::new(move |redirect_url: String| {
-            policy::check_external(&redirect_url, true).map(|_| ()).map_err(|e| e.to_string())
+            // Resolve the redirect target too: a host that passes the string
+            // checks but resolves to a private address must not be followed.
+            Box::pin(async move {
+                policy::check_external_resolved(&redirect_url, true)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            })
         }),
     ).await?;
 

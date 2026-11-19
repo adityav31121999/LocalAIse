@@ -25,7 +25,7 @@ use localaise_lib::research::orchestrator;
 use localaise_lib::research::{Budgets, MockLlmClient};
 use localaise_lib::research::llm::LlmResponse;
 use localaise_lib::research::request::{ResearchMode, ResearchRequest};
-use localaise_lib::research::roles::{gap, reader};
+use localaise_lib::research::roles::reader;
 
 /// Any topic works; this one is small, verifiable, and stable.
 const TOPIC: &str = "Why do the seasons change on Earth?";
@@ -191,44 +191,6 @@ async fn fact_gate_accepts_verbatim_quotes_only() {
         numbers: vec![],
     };
     assert!(!reader::accept_fact(&bogus, chunk));
-}
-
-#[test]
-fn gap_check_flags_subquestions_without_facts() {
-    // No facts: every sub-question is missing.
-    assert_eq!(gap::check(2, &[]), vec![0, 1]);
-    // One fact covering sub-question 0: only 1 is missing.
-    let covered = localaise_lib::research::fact::Fact {
-        sub_q: 0,
-        source_id: 1,
-        claim: "a claim".into(),
-        quote: "a quote".into(),
-    };
-    assert_eq!(gap::check(2, &[covered]), vec![1]);
-    // Both sub-questions covered: no gaps.
-    let facts = vec![
-        localaise_lib::research::fact::Fact {
-            sub_q: 0,
-            source_id: 1,
-            claim: "a".into(),
-            quote: "q".into(),
-        },
-        localaise_lib::research::fact::Fact {
-            sub_q: 1,
-            source_id: 2,
-            claim: "b".into(),
-            quote: "r".into(),
-        },
-    ];
-    assert!(gap::check(2, &facts).is_empty());
-}
-
-#[tokio::test]
-async fn topic_planning_splits_the_question() {
-    let mock = MockLlmClient::new("test-model");
-    let subs = localaise_lib::research::roles::plan_subquestions(&mock, TOPIC).await;
-    assert_eq!(subs.len(), 1);
-    assert_eq!(subs[0], TOPIC);
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +370,6 @@ async fn topic_end_to_end_emits_the_expected_event_flow() {
             ResearchEvent::FactExtracted { .. } => "fact",
             ResearchEvent::GapFound { .. } => "gap",
             ResearchEvent::SectionWritten { .. } => "section",
-            ResearchEvent::SectionConfidence { .. } => "section-confidence",
             ResearchEvent::Verified { .. } => "verified",
             ResearchEvent::Done { .. } => "done",
             ResearchEvent::Error { .. } => "error",

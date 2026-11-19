@@ -17,7 +17,14 @@ pub trait HttpClient: Send + Sync {
         url: &str,
         headers: HeaderMap,
         max_redirects: usize,
-        redirect_check: Box<dyn Fn(String) -> Result<(), String> + Send + Sync>,
+        redirect_check: Box<
+            dyn Fn(
+                    String,
+                ) -> std::pin::Pin<
+                    Box<dyn std::future::Future<Output = Result<(), String>> + Send>,
+                > + Send
+                + Sync,
+        >,
     ) -> AppResult<HttpResponse>;
 }
 
@@ -97,7 +104,14 @@ impl HttpClient for RealHttpClient {
         url: &str,
         headers: HeaderMap,
         max_redirects: usize,
-        redirect_check: Box<dyn Fn(String) -> Result<(), String> + Send + Sync>,
+        redirect_check: Box<
+            dyn Fn(
+                    String,
+                ) -> std::pin::Pin<
+                    Box<dyn std::future::Future<Output = Result<(), String>> + Send>,
+                > + Send
+                + Sync,
+        >,
     ) -> AppResult<HttpResponse> {
         let mut current_url = url.to_string();
         let mut redirect_count = 0;
@@ -121,7 +135,7 @@ impl HttpClient for RealHttpClient {
                         .to_string();
 
                     // Check redirect policy - pass owned String to avoid lifetime issues
-                    redirect_check(next_url.clone()).map_err(crate::error::AppError::msg)?;
+                    redirect_check(next_url.clone()).await.map_err(crate::error::AppError::msg)?;
 
                     current_url = next_url;
                     continue;
@@ -313,7 +327,14 @@ impl HttpClient for FixtureHttpClient {
         url: &str,
         headers: HeaderMap,
         _max_redirects: usize,
-        _redirect_check: Box<dyn Fn(String) -> Result<(), String> + Send + Sync>,
+        _redirect_check: Box<
+            dyn Fn(
+                    String,
+                ) -> std::pin::Pin<
+                    Box<dyn std::future::Future<Output = Result<(), String>> + Send>,
+                > + Send
+                + Sync,
+        >,
     ) -> AppResult<HttpResponse> {
         // For fixtures, we don't follow redirects - the fixture should have the final response
         self.do_request(url, headers).await

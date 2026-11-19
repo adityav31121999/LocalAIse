@@ -119,19 +119,6 @@ pub fn fallback_extract(chunk: &str, source_id: i64) -> Vec<RawFact> {
     }]
 }
 
-/// Batch extraction for multiple chunks (more efficient).
-pub async fn extract_batch<C: LlmClient>(
-    llm: &C,
-    chunks: &[(String, i64)], // (chunk_text, source_id)
-) -> Vec<RawFact> {
-    let mut all_facts = Vec::new();
-    for (chunk, source_id) in chunks {
-        let facts = extract(llm, chunk, *source_id).await;
-        all_facts.extend(facts);
-    }
-    all_facts
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

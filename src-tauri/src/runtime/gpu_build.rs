@@ -305,11 +305,24 @@ pub fn ensure_runtime(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(final_dir)
 }
 
+/// A backend DLL only counts as installed when its install manifest
+/// (`build-info-<backend>.json`) exists, parses, and matches this app's
+/// pinned llama.cpp tag. File presence alone was not enough: a backend left
+/// behind by an older tag loads and registers fine, then crashes the server
+/// with STATUS_ACCESS_VIOLATION inside `load_model` (observed in the field
+/// as "llama-server process exited prematurely").
 pub fn backend_dll_installed(dirs: &AppDirs, target: GpuTarget) -> bool {
     let ext = if cfg!(target_os = "windows") { "dll" } else { "so" };
     let prefix = if cfg!(target_os = "windows") { "ggml-" } else { "libggml-" };
     let dll_name = format!("{}{}.{}", prefix, target.as_str(), ext);
-    platform_dir(dirs).join(&dll_name).is_file() || resources_backend_dll(target).is_some()
+    if !platform_dir(dirs).join(&dll_name).is_file() && resources_backend_dll(target).is_none() {
+        return false;
+    }
+    let Ok(source) = manifest(dirs, target) else { return false };
+    match load_manifest() {
+        Ok(pinned) => source.tag == pinned.tag,
+        Err(_) => false,
+    }
 }
 
 pub fn installed_binary(dirs: &AppDirs, _target: GpuTarget) -> Option<PathBuf> {
@@ -900,6 +913,65 @@ mod tests {
             assert_eq!(GpuTarget::parse(target.as_str()), Some(target));
         }
         assert_eq!(GpuTarget::parse("hip"), None);
+    }
+
+    #[test]
+    fn stale_backend_dll_is_not_treated_as_installed() {
+        use crate::config::paths::AppDirs;
+
+        let base = std::env::temp_dir().join(format!("LocalAIse-backends-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let runtime = base.join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        let dirs = AppDirs {
+            base: base.clone(),
+            state_file: base.join("state.json"),
+            models: base.join("models"),
+            llama: base.join("llama"),
+            runtime: runtime.clone(),
+            default_projects: base.join("localAIse"),
+            default_personal: base.join("localAIse-Personal"),
+        };
+        let prefix = if cfg!(target_os = "windows") { "ggml-" } else { "libggml-" };
+        let ext = if cfg!(target_os = "windows") { "dll" } else { "so" };
+        std::fs::write(runtime.join(format!("{prefix}cuda.{ext}")), "x").unwrap();
+
+        // No install manifest at all: a stray DLL must not be trusted.
+        assert!(!backend_dll_installed(&dirs, GpuTarget::Cuda));
+
+        // A manifest from an older llama.cpp tag must not be trusted either
+        // (this is the b11678-vs-b12110 crash observed in the field).
+        std::fs::write(
+            runtime.join("build-info-cuda.json"),
+            serde_json::json!({
+                "tag": "b11678",
+                "platform": platform_prefix(),
+                "backend": "cuda",
+                "installedFiles": [format!("{prefix}cuda.{ext}")],
+                "installedAt": "2026-11-07T00:00:00.000Z",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(!backend_dll_installed(&dirs, GpuTarget::Cuda));
+
+        // A manifest matching this app's pinned llama tag is accepted.
+        let pinned = load_manifest().expect("embedded backends.json parses").tag;
+        std::fs::write(
+            runtime.join("build-info-cuda.json"),
+            serde_json::json!({
+                "tag": pinned,
+                "platform": platform_prefix(),
+                "backend": "cuda",
+                "installedFiles": [format!("{prefix}cuda.{ext}")],
+                "installedAt": "2026-11-15T00:00:00.000Z",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(backend_dll_installed(&dirs, GpuTarget::Cuda));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
