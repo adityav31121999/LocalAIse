@@ -216,6 +216,11 @@ impl ProjectPaths {
                 std::fs::create_dir_all(self.root.join(name))?;
             }
         }
+        if !folders.chats.is_empty() {
+            let chats_dir = self.root.join(&folders.chats);
+            std::fs::create_dir_all(chats_dir.join("chat"))?;
+            std::fs::create_dir_all(chats_dir.join("agent"))?;
+        }
         if diary_enabled && !folders.diary.is_empty() {
             std::fs::create_dir_all(self.root.join(&folders.diary))?;
         }

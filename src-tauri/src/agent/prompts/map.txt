@@ -1,0 +1,9 @@
+TASK: You are given section {i} of {n} of a longer document. Extract the notes that a later step will use to write the overall summary. You are not summarizing the whole document.
+
+Format (Markdown):
+- Topic: one line
+- Facts: up to 8 bullets, each a complete statement with exact numbers, names, and dates
+- Claims or decisions: bullets, if any
+- Terms: acronyms or defined terms introduced here, if any
+
+Rules: do not draw conclusions about the document as a whole. Do not repeat the section heading. Keep it under {max_words} words.

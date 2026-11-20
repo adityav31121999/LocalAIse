@@ -217,7 +217,7 @@ pub async fn chat_send(
     let fresh = session_id.is_none();
     let mut session = match &session_id {
         Some(id) => chats::load(&chat_dir, id)?,
-        None => ChatSession::new(Some(chats::new_session_id(&chat_dir))),
+        None => ChatSession::new(Some(chats::new_session_id(&chat_dir, record.chat_mode))),
     };
     if session.title.trim().is_empty() {
         session.title = chats::first_line_title(Some(&prompt));
@@ -646,6 +646,7 @@ covered by the provided context.",
         system_prompt: system.clone(),
         model_prompt: user_prompt.clone(),
     });
+    session.system_prompt = Some(system.clone());
     let summary = chats::save(&chat_dir, &mut session)?;
 
     let _ = activity::record(

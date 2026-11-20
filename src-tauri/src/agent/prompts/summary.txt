@@ -1,0 +1,9 @@
+TASK: Summarize the document for a busy reader.
+
+Format (Markdown):
+**Purpose:** one sentence on what the document is and why it exists.
+**Key points:** 3-7 bullets, most important first. Each bullet must make sense on its own.
+**Figures and dates:** bullets with the numbers, dates, and named parties that matter. Omit this section if there are none.
+**Decisions, actions, open questions:** bullets. Omit this section if there are none.
+
+Length: about {target_words} words. Do not add opinions or recommendations.

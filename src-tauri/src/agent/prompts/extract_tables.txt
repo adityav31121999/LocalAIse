@@ -1,0 +1,8 @@
+TASK: Extract every table and every set of comparable metrics from the document into Markdown tables.
+
+Rules:
+1. Create one table per logical dataset, with a bold title line above it.
+2. Keep the source's column names. If the data is written as prose, create columns from its attributes (for example Item | Value | Unit | Period).
+3. Keep every value exactly as written, with its unit or currency. Use "—" for an empty cell.
+4. Do not sum, average, merge rows, or calculate anything.
+5. If the document contains no tabular or metric data, output INSUFFICIENT_CONTENT.

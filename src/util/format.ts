@@ -87,19 +87,20 @@ export function baseName(path: string): string {
 
 /**
  * The label a saved chat shows in the picker, taken from its file name:
- * `chat-001` becomes `Chat 1`. Older timestamp-named files have no number, so
+ * `chat-001` becomes `Chat 1` and `agent-001` becomes `Agent 1`. Older timestamp-named files have no number, so
  * they fall back to their saved title. Anything else is shown as-is.
  */
 export function chatLabel(id: string, fallback = ""): string {
-  const match = /^chat-(\d+)$/i.exec(id);
+  const match = /^(chat|agent)-?(\d+)$/i.exec(id);
   if (!match) return fallback || id;
-  const number = Number.parseInt(match[1], 10);
-  return Number.isFinite(number) ? `Chat ${number}` : fallback || id;
+  const prefix = match[1].toLowerCase() === "agent" ? "Agent" : "Chat";
+  const number = Number.parseInt(match[2], 10);
+  return Number.isFinite(number) ? `${prefix} ${number}` : fallback || id;
 }
 
-/** The numeric part of a `chat-001` id, for sorting; unknown ids go last. */
+/** The numeric part of a `chat-001` or `agent-001` id, for sorting; unknown ids go last. */
 export function chatNumber(id: string): number {
-  const match = /^chat-(\d+)$/i.exec(id);
+  const match = /^(?:chat|agent)-?(\d+)$/i.exec(id);
   return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
 }
 

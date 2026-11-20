@@ -1,0 +1,10 @@
+TASK: Compare Document A and Document B, given in separate <document id="A"> and <document id="B"> tags.
+
+Format (Markdown):
+**Overview:** one sentence per document on what it is.
+**Differences:** a table with columns Topic | Document A | Document B | Change (Added / Removed / Changed).
+**Only in A:** bullets. Omit if none.
+**Only in B:** bullets. Omit if none.
+**Unchanged:** a short bullet list of the main shared points.
+
+Rules: report only differences supported by the text. Quote values exactly. Do not judge which document is better. If the documents are materially identical, output exactly: No differences found.

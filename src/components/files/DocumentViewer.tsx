@@ -9,7 +9,7 @@ import {
   QuoteIcon,
   TableIcon,
 } from "../ui/icons";
-import { readDocument, readFileBytes, summarizeDocument, saveSummaryAsMarkdown, type DocumentContent } from "../../api/document";
+import { readDocument, readFileBytes, saveSummaryAsMarkdown, type DocumentContent } from "../../api/document";
 import { analyzeDocument } from "../../api/analysis";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { Markdown } from "../../util/markdown";
@@ -17,7 +17,6 @@ import { useRuntimeConfig } from "../settings/runtime-config";
 import { useNavStore } from "../../state/navStore";
 import type { Project } from "../../types";
 import { PDFViewer } from "./PDFViewer";
-import { listen } from "../../api";
 
 interface DocumentViewerProps {
   project: Project;
@@ -27,7 +26,7 @@ interface DocumentViewerProps {
   onSummarize?: (summary: string) => void;
 }
 
-export function DocumentViewer({ project, filePath, fileName, onClose, onSummarize }: DocumentViewerProps) {
+export function DocumentViewer({ project, filePath, fileName, onClose }: DocumentViewerProps) {
   const [content, setContent] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,8 +42,6 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   /** Page total as rendered by pdf.js — more reliable than the extractor's
    * estimate, so the header prefers it once the viewer has loaded. */
   const [pdfPageTotal, setPdfPageTotal] = useState<number | null>(null);
-  /** Track summarization phase: "extracting" | "summarizing" | "idle" */
-  const [summarizePhase, setSummarizePhase] = useState<"extracting" | "summarizing" | "idle">("idle");
 
   const { draft: profile } = useRuntimeConfig();
   const insertIntoComposer = useNavStore((state) => state.insertIntoComposer);
@@ -156,68 +153,6 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
     loadDocument();
   }, [loadDocument]);
 
-  const handleSummarize = async () => {
-    // Guard: require document to be loaded and have text (or be a loadable PDF).
-    // Note: for PDFs, text is intentionally not extracted during initial document load
-    // to avoid UI blocking; the backend extracts PDF text on demand during summarizeDocument.
-    if (!canSummarize) return;
-
-    setSummarizing(true);
-    setSummaryError(null);
-    setSummary(null);
-    setSummarizePhase("idle");
-
-    // Listen for extraction_done event from backend (PDF only)
-    let unlisten: (() => void) | null = null;
-    if (isPDF) {
-      setSummarizePhase("extracting");
-      unlisten = await listen("summarize:extraction_done", () => {
-        setSummarizePhase("summarizing");
-      });
-    } else {
-      setSummarizePhase("summarizing");
-    }
-
-    try {
-      const result = await summarizeDocument({
-        projectId: project.id,
-        filePath,
-        profile,
-      });
-      setSummary(result.summary);
-      setSummaryKind("summary");
-      if (onSummarize) onSummarize(result.summary);
-    } catch (firstErr) {
-      // Direct (single-shot) summarization failed — most commonly because the
-      // document is longer than the model's context window. Retry through the
-      // map-reduce analysis pipeline, which chunks the document, summarises
-      // each chunk, and synthesises the results, so long documents still get a
-      // summary instead of a dead end.
-      //
-      // Use `filePath` (the full relative path, e.g. "data/report.pdf"), not
-      // `fileName` (the bare name), so the backend sandbox-path check resolves
-      // the file correctly for documents that are not in the project root.
-      try {
-        const result = await analyzeDocument({
-          projectId: project.id,
-          action: "summarize",
-          fileName: filePath,
-        });
-        setSummary(result.content);
-        setSummaryKind("summary");
-        setSummaryError(null);
-        if (onSummarize) onSummarize(result.content);
-      } catch (mapReduceErr) {
-        setSummaryError(mapReduceErr instanceof Error ? mapReduceErr.message : "Failed to summarize document");
-      }
-    } finally {
-      setSummarizing(false);
-      setSummarizePhase("idle");
-      if (unlisten) unlisten();
-      setActiveTab("summary");
-    }
-  };
-
   const handleSaveMarkdown = async () => {
     if (!summary) return;
     setSaving(true);
@@ -256,10 +191,11 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
   /** Queue a citation for this document in the chat composer. */
   const handleCiteInChat = () => {
     const location = isPDF && currentPage ? `, p. ${currentPage}` : "";
-    const excerpt = (summary ?? content?.text ?? "").replace(/\s+/g, " ").trim();
+    const selection = window.getSelection()?.toString().trim();
+    const excerpt = (selection || summary || content?.text || "").replace(/\s+/g, " ").trim();
     const lines = [`> **${fileName}**${location}`];
     if (excerpt) {
-      lines.push(">", `> ${excerpt.slice(0, 240)}${excerpt.length > 240 ? "…" : ""}`, ">");
+      lines.push(">", `> ${excerpt.slice(0, 600)}${excerpt.length > 600 ? "…" : ""}`, ">");
     }
     insertIntoComposer(`${lines.join("\n")}\n\n`);
     setActiveProjectTab("chat");
@@ -362,23 +298,34 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
         padding: "10px 14px",
         background: "var(--background-elevated)",
         borderBottom: "1px solid var(--border)",
+        gap: "12px",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}>
           <button
             type="button"
             className="icon-btn icon-btn--sm"
             onClick={onClose}
             title="Close viewer"
             aria-label="Close document viewer"
+            style={{ flexShrink: 0 }}
           >
             <ChevronLeftIcon size={18} />
           </button>
-          <DocIcon size={20} style={{ color: isPDF ? "#ef4444" : "var(--accent-primary)" }} />
-          <div>
-            <div style={{ fontWeight: "500", fontSize: "13px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "280px" }}>
+          <DocIcon size={20} style={{ color: isPDF ? "#ef4444" : "var(--accent-primary)", flexShrink: 0 }} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              title={fileName}
+              style={{
+                fontWeight: "500",
+                fontSize: "13px",
+                wordBreak: "break-word",
+                overflowWrap: "anywhere",
+                lineHeight: 1.35,
+              }}
+            >
               {fileName}
             </div>
-            <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+            <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
               {displayedInfo || "Loading…"}
             </div>
           </div>
@@ -389,8 +336,8 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
             type="button"
             className="btn btn--subtle btn--sm"
             onClick={handleCiteInChat}
-            disabled={isPDF && !content}
-            title={isPDF && !content ? "Load document first to cite" : "Insert a citation for this document into the chat composer"}
+            disabled={isPDF ? (!content && !pdfBytes) : !content}
+            title={isPDF && !content && !pdfBytes ? "Load document first to cite" : "Insert a citation for this document into the chat composer"}
           >
             <QuoteIcon size={13} />
             <span>Cite in Chat</span>
@@ -400,47 +347,12 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
             type="button"
             className="btn btn--subtle btn--sm"
             onClick={() => void handleExtractTables()}
-            disabled={!canSummarize}
+            disabled={!canSummarize || summarizing}
             title={!canSummarize ? (isPDF ? "Load document first" : "Document text not available") : "Extract key figures and tables from this document"}
           >
             <TableIcon size={13} />
-            <span>{loading ? "Loading…" : "Key figures & tables"}</span>
+            <span>{summarizing ? "Extracting…" : loading ? "Loading…" : "Key figures & tables"}</span>
           </button>
-
-          {!summarizing && !summary && (
-            <button
-              type="button"
-              className="btn btn--primary btn--sm"
-              onClick={handleSummarize}
-              disabled={!canSummarize}
-              title={
-                !canSummarize
-                  ? isPDF
-                    ? "Load PDF first to summarize"
-                    : "Document text not available for summarization"
-                  : "Generate AI summary"
-              }
-            >
-              <SparkIcon size={13} />
-              <span>Summarize</span>
-            </button>
-          )}
-
-          {summarizing && (
-            <button type="button" className="btn btn--primary btn--sm" disabled>
-              <div
-                style={{
-                  width: "13px",
-                  height: "13px",
-                  borderRadius: "50%",
-                  border: "2px solid var(--border-strong)",
-                  borderTopColor: "var(--accent-primary)",
-                  animation: "spin 0.7s linear infinite",
-                }}
-              />
-              <span>Summarizing…</span>
-            </button>
-          )}
 
           {summary && (
             <>
@@ -480,6 +392,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
             onClick={onClose}
             title="Close"
             aria-label="Close document viewer"
+            style={{ flexShrink: 0 }}
           >
             <XIcon size={16} />
           </button>
@@ -710,7 +623,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
                 animation: "spin 0.7s linear infinite",
               }}
             />
-            <span>{summarizePhase === "extracting" ? "Extracting PDF text…" : "Summarization in progress…"}</span>
+            <span>{summarizing ? "Extracting key figures & tables…" : "Loading…"}</span>
             <p style={{ fontSize: "12px", color: "var(--text-faint)" }}>
               Using model context: {profile.contextTokens || "default"} tokens
             </p>
@@ -729,10 +642,10 @@ export function DocumentViewer({ project, filePath, fileName, onClose, onSummari
           }}>
             <SparkIcon size={48} style={{ opacity: 0.5 }} />
             <h3 style={{ fontSize: "15px", fontWeight: "600", color: "var(--text)" }}>
-              No summary yet
+              {summaryKind === "tables" ? "No figures or tables yet" : "No summary yet"}
             </h3>
             <p style={{ fontSize: "13px", maxWidth: "320px" }}>
-              Click <strong>Summarize</strong> to generate an AI-powered summary of this document using your configured model settings.
+              Click <strong>Key figures & tables</strong> to extract structured figures and tables from this document.
             </p>
           </div>
         )}

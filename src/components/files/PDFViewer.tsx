@@ -41,9 +41,14 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
   const [error, setError] = useState<string | null>(null);
   const [pageErrors, setPageErrors] = useState<PageError[]>([]);
   const [workerReady, setWorkerReady] = useState(false);
+  const [currentScale, setCurrentScale] = useState<number>(scale);
+  const [zoomMode, setZoomMode] = useState<"fit" | "custom">("custom");
   const containerRef = useRef<HTMLDivElement>(null);
   const pageCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const pageWrapperRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const renderTasksRef = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
+  const textLayerTasksRef = useRef<Map<number, pdfjsLib.TextLayer>>(new Map());
   /** True after the first successful load; later reloads of the same view
    * keep the already-rendered pages visible instead of flashing a spinner. */
   const loadedOnceRef = useRef(false);
@@ -56,6 +61,95 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
   currentPageRef.current = currentPage;
   const onPageChangeRef = useRef(onPageChange);
   onPageChangeRef.current = onPageChange;
+
+  useEffect(() => {
+    setCurrentScale(scale);
+  }, [scale]);
+
+  const ZOOM_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0];
+
+  const handleFitWidth = useCallback(async () => {
+    if (!pdf || !containerRef.current) return;
+    try {
+      const page = await pdf.getPage(1);
+      const vp = page.getViewport({ scale: 1.0 });
+      const availableWidth = containerRef.current.clientWidth - 48;
+      if (availableWidth > 50 && vp.width > 0) {
+        const calculatedScale = Math.min(3.0, Math.max(0.4, Math.round((availableWidth / vp.width) * 100) / 100));
+        setCurrentScale(calculatedScale);
+        setZoomMode("fit");
+      }
+    } catch (e) {
+      console.warn("Could not calculate fit width scale:", e);
+    }
+  }, [pdf]);
+
+  const handleZoomSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (val === "fit") {
+      void handleFitWidth();
+    } else {
+      setZoomMode("custom");
+      const num = parseInt(val, 10);
+      if (!isNaN(num) && num > 0) {
+        setCurrentScale(num / 100);
+      }
+    }
+  };
+
+  const handleZoomIn = () => {
+    setZoomMode("custom");
+    const next = ZOOM_LEVELS.find((l) => l > currentScale + 0.05);
+    if (next) {
+      setCurrentScale(next);
+    } else {
+      setCurrentScale((prev) => Math.min(3.0, Math.round((prev + 0.25) * 100) / 100));
+    }
+  };
+
+  const handleZoomOut = () => {
+    setZoomMode("custom");
+    const prevLevels = [...ZOOM_LEVELS].reverse();
+    const prev = prevLevels.find((l) => l < currentScale - 0.05);
+    if (prev) {
+      setCurrentScale(prev);
+    } else {
+      setCurrentScale((p) => Math.max(0.4, Math.round((p - 0.25) * 100) / 100));
+    }
+  };
+
+  // Re-fit when container size changes in fit mode
+  useEffect(() => {
+    if (zoomMode !== "fit" || !containerRef.current || !pdf) return;
+    const observer = new ResizeObserver(() => {
+      void handleFitWidth();
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [zoomMode, pdf, handleFitWidth]);
+
+  // Ctrl + Wheel to zoom
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.15 : -0.15;
+        setCurrentScale((prev) => {
+          const next = Math.round((prev + delta) * 100) / 100;
+          return Math.min(3.0, Math.max(0.4, next));
+        });
+        setZoomMode("custom");
+      }
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener("wheel", handleWheel);
+    };
+  }, []);
 
   // Initialize pdf.js worker
   useEffect(() => {
@@ -112,32 +206,63 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
     loadPdf();
   }, [loadPdf]);
 
-  // Render a single page to canvas
-  const renderPage = useCallback(async (pageNum: number, canvas: HTMLCanvasElement) => {
+  // Render a single page to canvas and textLayer
+  const renderPage = useCallback(async (
+    pageNum: number,
+    canvas: HTMLCanvasElement,
+    textLayerDiv: HTMLDivElement,
+    pageWrapper: HTMLDivElement
+  ) => {
     if (!pdf) return;
     try {
       const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale });
+      const viewport = page.getViewport({ scale: currentScale });
 
-      // Clamp to max size
-      let outputScale = 1;
-      if (viewport.width > maxCanvasSize || viewport.height > maxCanvasSize) {
-        outputScale = Math.min(maxCanvasSize / viewport.width, maxCanvasSize / viewport.height);
-      }
-      const outputViewport = page.getViewport({ scale: scale * outputScale });
+      // Handle HiDPI displays (cap at 2x)
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      let outputScale = dpr;
 
-      // Browsers limit canvas dimensions; clamp to a safe max
+      // Clamp to max canvas dimensions to avoid browser limits
       const MAX_SAFE_DIM = 16384;
-      if (outputViewport.width > MAX_SAFE_DIM || outputViewport.height > MAX_SAFE_DIM) {
-        const safeScale = Math.min(MAX_SAFE_DIM / outputViewport.width, MAX_SAFE_DIM / outputViewport.height);
-        outputViewport.scale *= safeScale;
-        outputViewport.width *= safeScale;
-        outputViewport.height *= safeScale;
-        outputViewport.transform = page.getViewport({ scale: scale * outputScale * safeScale }).transform;
+      if (
+        viewport.width * outputScale > MAX_SAFE_DIM ||
+        viewport.height * outputScale > MAX_SAFE_DIM ||
+        viewport.width * outputScale > maxCanvasSize ||
+        viewport.height * outputScale > maxCanvasSize
+      ) {
+        outputScale = Math.min(
+          maxCanvasSize / viewport.width,
+          maxCanvasSize / viewport.height,
+          MAX_SAFE_DIM / viewport.width,
+          MAX_SAFE_DIM / viewport.height
+        );
       }
+
+      const outputViewport = page.getViewport({ scale: currentScale * outputScale });
+
+      const cssWidth = Math.floor(viewport.width);
+      const cssHeight = Math.floor(viewport.height);
+
+      pageWrapper.style.width = `${cssWidth}px`;
+      pageWrapper.style.height = `${cssHeight}px`;
+      pageWrapper.style.setProperty("--scale-factor", currentScale.toString());
+      pageWrapper.style.setProperty("--total-scale-factor", currentScale.toString());
+      pageWrapper.style.setProperty("--scale-round-x", "1px");
+      pageWrapper.style.setProperty("--scale-round-y", "1px");
+      pageWrapper.style.setProperty("--user-unit", "1");
 
       canvas.width = Math.floor(outputViewport.width);
       canvas.height = Math.floor(outputViewport.height);
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+
+      textLayerDiv.style.width = `${cssWidth}px`;
+      textLayerDiv.style.height = `${cssHeight}px`;
+      textLayerDiv.style.setProperty("--scale-factor", currentScale.toString());
+      textLayerDiv.style.setProperty("--total-scale-factor", currentScale.toString());
+      textLayerDiv.style.setProperty("--scale-round-x", "1px");
+      textLayerDiv.style.setProperty("--scale-round-y", "1px");
+      textLayerDiv.style.setProperty("--user-unit", "1");
 
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Canvas context unavailable");
@@ -150,11 +275,31 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
       context.imageSmoothingEnabled = true;
       context.imageSmoothingQuality = "high";
 
+      // Render Canvas
       const task = page.render({ canvas, canvasContext: context, viewport: outputViewport });
       renderTasksRef.current.set(pageNum, task);
       await task.promise;
       if (renderTasksRef.current.get(pageNum) === task) {
         renderTasksRef.current.delete(pageNum);
+      }
+
+      // Render Text Layer for text selection
+      try {
+        const textContent = await page.getTextContent();
+        const textLayer = new pdfjsLib.TextLayer({
+          textContentSource: textContent,
+          container: textLayerDiv,
+          viewport: viewport,
+        });
+        textLayerTasksRef.current.set(pageNum, textLayer);
+        await textLayer.render();
+        if (textLayerTasksRef.current.get(pageNum) === textLayer) {
+          textLayerTasksRef.current.delete(pageNum);
+        }
+      } catch (textErr) {
+        if (!isRenderCancelled(textErr)) {
+          console.warn(`TextLayer error on page ${pageNum}:`, textErr);
+        }
       }
 
       // Remove this page from error list if it was previously failing
@@ -171,7 +316,7 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
         return [...prev, { page: pageNum, message: msg }];
       });
     }
-  }, [pdf, scale, maxCanvasSize]);
+  }, [pdf, currentScale, maxCanvasSize]);
 
   // Render all pages when the PDF loads or its scale changes
   useEffect(() => {
@@ -180,26 +325,49 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
     const container = containerRef.current;
     container.innerHTML = ""; // Clear previous renders
     pageCanvasRefs.current.clear();
+    textLayerRefs.current.clear();
+    pageWrapperRefs.current.clear();
 
     // Races the previous pass: any render still in flight belongs to a
     // canvas that is about to be dropped.
     renderTasksRef.current.forEach((task) => task.cancel());
     renderTasksRef.current.clear();
+    textLayerTasksRef.current.forEach((tl) => {
+      try {
+        tl.cancel();
+      } catch {}
+    });
+    textLayerTasksRef.current.clear();
 
     const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1);
 
     pageNumbers.forEach(async (pageNum) => {
+      const pageWrapper = document.createElement("div");
+      pageWrapper.className = "pdf-page";
+      pageWrapper.style.position = "relative";
+      pageWrapper.style.display = "block";
+      pageWrapper.style.marginLeft = "auto";
+      pageWrapper.style.marginRight = "auto";
+      pageWrapper.style.marginBottom = "16px";
+      pageWrapper.style.boxShadow = "0 2px 8px rgba(0,0,0,0.12)";
+      pageWrapper.style.background = "white";
+
       const canvas = document.createElement("canvas");
       canvas.className = "pdf-page-canvas";
-      canvas.style.width = "100%";
-      canvas.style.height = "auto";
       canvas.style.display = "block";
-      canvas.style.marginBottom = "16px";
-      canvas.style.boxShadow = "0 2px 8px rgba(0,0,0,0.1)";
-      canvas.style.background = "white";
-      container.appendChild(canvas);
+
+      const textLayerDiv = document.createElement("div");
+      textLayerDiv.className = "textLayer";
+
+      pageWrapper.appendChild(canvas);
+      pageWrapper.appendChild(textLayerDiv);
+      container.appendChild(pageWrapper);
+
       pageCanvasRefs.current.set(pageNum, canvas);
-      await renderPage(pageNum, canvas);
+      textLayerRefs.current.set(pageNum, textLayerDiv);
+      pageWrapperRefs.current.set(pageNum, pageWrapper);
+
+      await renderPage(pageNum, canvas, textLayerDiv, pageWrapper);
     });
 
     // Drop this pass's renders when the view changes or the component unmounts,
@@ -207,8 +375,49 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
     return () => {
       renderTasksRef.current.forEach((task) => task.cancel());
       renderTasksRef.current.clear();
+      textLayerTasksRef.current.forEach((tl) => {
+        try {
+          tl.cancel();
+        } catch {}
+      });
+      textLayerTasksRef.current.clear();
     };
   }, [pdf, totalPages, renderPage]);
+
+  // Track visible page on scroll
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || pageWrapperRefs.current.size === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let bestEntry: IntersectionObserverEntry | null = null;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            if (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio) {
+              bestEntry = entry;
+            }
+          }
+        }
+        if (bestEntry) {
+          for (const [pageNum, wrapper] of pageWrapperRefs.current.entries()) {
+            if (wrapper === bestEntry.target) {
+              setCurrentPage(pageNum);
+              onPageChangeRef.current?.(pageNum, totalPages);
+              break;
+            }
+          }
+        }
+      },
+      {
+        root: container,
+        threshold: [0.1, 0.4, 0.7],
+      }
+    );
+
+    pageWrapperRefs.current.forEach((wrapper) => observer.observe(wrapper));
+    return () => observer.disconnect();
+  }, [totalPages, currentScale]);
 
   // Handle page navigation
   const goToPage = (page: number) => {
@@ -216,9 +425,9 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
     setCurrentPage(page);
     onPageChange?.(page, totalPages);
     
-    // Scroll to the page
-    const canvas = pageCanvasRefs.current.get(page);
-    canvas?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Scroll to the page wrapper
+    const wrapper = pageWrapperRefs.current.get(page);
+    wrapper?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const goToPrevPage = () => goToPage(currentPage - 1);
@@ -226,8 +435,11 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
 
   const retryPage = (page: number) => {
     const canvas = pageCanvasRefs.current.get(page);
-    if (canvas) {
-      renderPage(page, canvas);
+    const textLayerDiv = textLayerRefs.current.get(page);
+    const pageWrapper = pageWrapperRefs.current.get(page);
+    if (canvas && textLayerDiv && pageWrapper) {
+      textLayerDiv.innerHTML = "";
+      void renderPage(page, canvas, textLayerDiv, pageWrapper);
     }
   };
 
@@ -283,8 +495,9 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
         background: "var(--background-elevated)",
         borderBottom: "1px solid var(--border)",
         flexShrink: 0,
+        gap: "8px",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <button
             type="button"
             className="icon-btn icon-btn--sm"
@@ -297,7 +510,7 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
-          <span style={{ fontSize: "13px", fontWeight: "500", minWidth: "80px", textAlign: "center" }}>
+          <span style={{ fontSize: "12px", fontWeight: "500", minWidth: "75px", textAlign: "center", color: "var(--text)" }}>
             Page {currentPage} of {totalPages}
           </span>
           <button
@@ -314,30 +527,103 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
           </button>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <label style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Zoom:</label>
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm"
+            onClick={handleZoomOut}
+            disabled={currentScale <= 0.4}
+            title="Zoom out"
+            aria-label="Zoom out"
+            style={{ width: "24px", height: "24px" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <line x1="8" y1="11" x2="14" y2="11" />
+            </svg>
+          </button>
+
           <select
-            value={Math.round(scale * 100)}
-            onChange={(e) => {
-              void parseInt((e.target as HTMLSelectElement).value, 10);
+            value={zoomMode === "fit" ? "fit" : Math.round(currentScale * 100).toString()}
+            onChange={handleZoomSelect}
+            style={{
+              fontSize: "12px",
+              padding: "2px 6px",
+              height: "24px",
+              background: "var(--surface)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              cursor: "pointer",
             }}
-            style={{ fontSize: "12px", padding: "2px 8px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}
             aria-label="Zoom level"
           >
+            <option value="fit">Fit Width</option>
+            <option value="50">50%</option>
             <option value="75">75%</option>
             <option value="100">100%</option>
             <option value="125">125%</option>
             <option value="150">150%</option>
+            <option value="175">175%</option>
             <option value="200">200%</option>
+            <option value="300">300%</option>
+            {!["fit", "50", "75", "100", "125", "150", "175", "200", "300"].includes(
+              Math.round(currentScale * 100).toString()
+            ) && zoomMode !== "fit" && (
+              <option value={Math.round(currentScale * 100).toString()}>
+                {Math.round(currentScale * 100)}%
+              </option>
+            )}
           </select>
+
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm"
+            onClick={handleZoomIn}
+            disabled={currentScale >= 3.0}
+            title="Zoom in"
+            aria-label="Zoom in"
+            style={{ width: "24px", height: "24px" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <line x1="11" y1="8" x2="11" y2="14" />
+              <line x1="8" y1="11" x2="14" y2="11" />
+            </svg>
+          </button>
+
+          <div style={{ width: "1px", height: "16px", background: "var(--border)", margin: "0 2px" }} />
+
           <input
             type="number"
             min={1}
             max={totalPages}
             value={currentPage}
-            onChange={(e) => goToPage(parseInt((e.target as HTMLInputElement).value, 10))}
-            onKeyDown={(e) => { if (e.key === "Enter") goToPage(parseInt((e.target as HTMLInputElement).value, 10)); }}
-            style={{ width: "50px", fontSize: "12px", padding: "2px 8px", textAlign: "center", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}
+            onChange={(e) => {
+              const val = parseInt((e.target as HTMLInputElement).value, 10);
+              if (!isNaN(val)) goToPage(val);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+                if (!isNaN(val)) goToPage(val);
+              }
+            }}
+            style={{
+              width: "44px",
+              height: "24px",
+              fontSize: "12px",
+              padding: "2px 4px",
+              textAlign: "center",
+              background: "var(--surface)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+            }}
+            title="Jump to page"
             aria-label="Go to page"
           />
         </div>
@@ -351,9 +637,6 @@ export const PDFViewer = memo(function PDFViewer({ file, initialPage = 1, onPage
           overflow: "auto",
           padding: "16px",
           background: "var(--surface)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
         }}
       >
         {/* Pages are rendered dynamically via useEffect */}

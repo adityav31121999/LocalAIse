@@ -190,6 +190,8 @@ export interface StoredChatMessage {
 
 /** A full saved conversation. */
 export interface ChatSession {
+  /** The exact system prompt used for this conversation. */
+  systemPrompt?: string;
   id: string;
   title: string;
   createdAt: string;

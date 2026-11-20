@@ -630,27 +630,12 @@ export function Sidebar({ project }: { project: Project }) {
                 ? "Collapse all folders"
                 : "Expand all folders"
             }
-            style={{ width: "28px", height: "28px" }}
+            style={{ width: "28px", height: "28px", marginLeft: "auto" }}
           >
             {Object.keys(expandedFolders).length > 0 ? (
               <ChevronDownIcon size={14} />
             ) : (
               <ArrowUpIcon size={14} />
-            )}
-          </button>
-          {/* Reindex */}
-          <button
-            type="button"
-            className="icon-btn icon-btn--sm"
-            disabled={indexing || sources.length === 0}
-            onClick={handleReindex}
-            title={indexing ? "Indexing…" : "Reindex files (Ctrl+Shift+R)"}
-            style={{ width: "28px", height: "28px", marginLeft: "auto" }}
-          >
-            {indexing ? (
-              <RefreshCwIcon size={14} style={{ animation: "spin 1s linear infinite" }} />
-            ) : (
-              <RefreshCwIcon size={14} />
             )}
           </button>
         </div>
@@ -784,20 +769,80 @@ export function Sidebar({ project }: { project: Project }) {
       </div>
 
       {/* Panel Foot: Indexing & Storage telemetry */}
-      <div className="panel__foot" style={{ padding: "4px 8px", fontSize: "10.5px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-          <span>{indexed} of {sources.length} indexed</span>
-          <span className="mono">{percent}%</span>
+      <div
+        className="panel__foot"
+        style={{
+          padding: "8px 10px",
+          background: "var(--surface)",
+          borderTop: "1px solid var(--border)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              className={`dot ${indexing ? "dot--attention dot--pulse" : percent === 100 ? "dot--success" : sources.length === 0 ? "dot--idle" : "dot--attention"}`}
+              style={{ flexShrink: 0 }}
+              aria-hidden="true"
+            />
+            <span style={{ fontWeight: 500, fontSize: "11px", color: "var(--text)" }}>
+              {indexed} of {sources.length} indexed
+            </span>
+          </div>
+          <span className="mono" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+            {percent}%
+          </span>
         </div>
-        <div className="progress" style={{ height: "2px" }}>
-          <div className="progress__bar" style={{ width: `${percent}%` }} />
+
+        <div
+          className="progress"
+          style={{
+            height: "3px",
+            margin: 0,
+            borderRadius: "2px",
+            background: "var(--surface-2)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            className={`progress__bar ${indexing ? "progress__bar--indeterminate" : ""}`}
+            style={{
+              width: indexing ? undefined : `${percent}%`,
+              background: percent === 100 ? "var(--accent-success, #10b981)" : "var(--accent-primary)",
+              borderRadius: "2px",
+              transition: "width var(--dur-3) var(--ease)",
+            }}
+          />
         </div>
-        <div style={{ marginTop: "4px", color: "var(--text-faint)", fontSize: "9.5px" }}>
-          {watching
-            ? "Watcher active: live index refresh"
-            : project.internetEnabled
-              ? "Local first · Network permitted for research"
-              : "Strictly offline · No cloud sync"}
+
+        <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
+          <button
+            type="button"
+            className="btn btn--subtle btn--sm"
+            disabled={indexing || sources.length === 0}
+            onClick={handleReindex}
+            title={indexing ? "Indexing in progress…" : "Reindex files (Ctrl+Shift+R)"}
+            style={{
+              height: "24px",
+              padding: "0 10px",
+              fontSize: "11px",
+              fontWeight: 500,
+              gap: "5px",
+              borderRadius: "var(--radius-sm)",
+              lineHeight: "22px",
+            }}
+          >
+            <RefreshCwIcon
+              size={12}
+              style={{
+                flexShrink: 0,
+                ...(indexing ? { animation: "spin 1s linear infinite" } : {}),
+              }}
+            />
+            <span>{indexing ? "Indexing…" : "Reindex"}</span>
+          </button>
         </div>
       </div>
 

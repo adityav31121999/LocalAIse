@@ -124,38 +124,54 @@ pub async fn analyze_document(
             summary
         }
         "extract_tables" => {
+            let task = crate::agent::prompts::Task::ExtractTables;
             let messages = vec![
-                client::message("system", "You are an expert at extracting structured tables from text."),
-                client::message("user", crate::agent::prompts::extract_tables_prompt(&doc_text)),
+                client::message("system", crate::agent::prompts::system_prompt(&task)),
+                client::message("user", crate::agent::prompts::user_message(&task, &[("document", &doc_text)])),
             ];
-            client::complete(&serving, &model_label, &messages, SamplingParams::default()).await?
+            let sampling = SamplingParams {
+                temperature: task.temperature(),
+                ..Default::default()
+            };
+            let output = client::complete(&serving, &model_label, &messages, sampling).await?;
+            crate::agent::mapreduce::clean_contract_violations(&output)
         }
         "flag_inconsistencies" => {
+            let task = crate::agent::prompts::Task::Inconsistencies;
             let messages = vec![
-                client::message("system", "You are a meticulous fact and logic auditor."),
-                client::message("user", crate::agent::prompts::flag_inconsistencies_prompt(&doc_text)),
+                client::message("system", crate::agent::prompts::system_prompt(&task)),
+                client::message("user", crate::agent::prompts::user_message(&task, &[("document", &doc_text)])),
             ];
-            client::complete(&serving, &model_label, &messages, SamplingParams::default()).await?
+            let sampling = SamplingParams {
+                temperature: task.temperature(),
+                ..Default::default()
+            };
+            let output = client::complete(&serving, &model_label, &messages, sampling).await?;
+            crate::agent::mapreduce::clean_contract_violations(&output)
         }
         "compare" => {
-            let second_name = request.compare_with.as_deref().unwrap_or("");
+            let second_name = request.compare_with.as_deref().unwrap_or("B");
             let second_path = crate::sandbox::paths::ensure_within(&root, std::path::Path::new(second_name))?;
             let second_text = parse_file(&second_path)
                 .map_err(|e| AppError::msg(format!("Failed to read comparison file {second_name}: {e}")))?;
 
+            let task = crate::agent::prompts::Task::Compare;
             let messages = vec![
-                client::message("system", "You compare documents and clearly outline all differences."),
+                client::message("system", crate::agent::prompts::system_prompt(&task)),
                 client::message(
                     "user",
-                    crate::agent::prompts::compare_documents_prompt(
-                        &request.file_name,
-                        &doc_text,
-                        second_name,
-                        &second_text,
+                    crate::agent::prompts::user_message(
+                        &task,
+                        &[("A", &doc_text), ("B", &second_text)],
                     ),
                 ),
             ];
-            client::complete(&serving, &model_label, &messages, SamplingParams::default()).await?
+            let sampling = SamplingParams {
+                temperature: task.temperature(),
+                ..Default::default()
+            };
+            let output = client::complete(&serving, &model_label, &messages, sampling).await?;
+            crate::agent::mapreduce::clean_contract_violations(&output)
         }
         other => return Err(AppError::msg(format!("Unknown document analysis action: {other}"))),
     };

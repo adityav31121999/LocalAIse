@@ -534,8 +534,14 @@ export function mockChatAppend(
   if (!session) {
     const chatNumber = getNextChatNumber(projectId);
     const firstLine = prompt.trim().split("\n")[0].trim();
+    const project = MOCK_PROJECTS.find((p) => p.id === projectId);
+    const isAgent = project?.chatMode === "agent";
+    const prefix = isAgent ? "agent" : "chat";
     session = {
-      id: `chat-${String(chatNumber).padStart(3, "0")}`,
+      systemPrompt: isAgent
+        ? "You are LocalAIse in agent mode."
+        : "You are LocalAIse in chat mode.",
+      id: `${prefix}-${String(chatNumber).padStart(3, "0")}`,
       title: firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine,
       createdAt: now,
       updatedAt: now,

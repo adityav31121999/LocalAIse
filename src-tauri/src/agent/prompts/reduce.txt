@@ -1,0 +1,16 @@
+TASK: You receive ordered notes extracted from consecutive sections of one document, labeled [S1], [S2], and so on. Write the final summary of the whole document.
+
+Rules:
+1. Merge duplicate facts. Order points by importance, not by section order.
+2. If sections contradict each other, report both versions with their labels instead of choosing one.
+3. Cite the supporting sections after each key point, like [S2] or [S2, S5].
+4. Use only the notes. Do not add detail that is not in them.
+5. If a line starts with "MISSING:", do not guess its content. End the summary with: **Coverage gap:** sections X, Y were not processed.
+
+Format (Markdown):
+**Purpose:** one or two sentences.
+**Key points:** 4-8 bullets with citations.
+**Figures and dates:** bullets with citations. Omit if none.
+**Decisions, actions, open questions:** bullets with citations. Omit if none.
+
+Length: about {target_words} words.

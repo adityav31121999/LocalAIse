@@ -1,14 +1,15 @@
 //! Chat sessions saved as plain JSON inside `<project>/chats/`.
 //!
-//! One file per session, named after the moment it started, so the folder
-//! stays readable without this program and a session can be inspected,
-//! copied or deleted in any file explorer.
+//! Chat mode sessions are saved inside `<project>/chats/chat/chat{id}.json`
+//! and agent mode sessions inside `<project>/chats/agent/agent{id}.json`.
+//! The system prompt being used is stored at the beginning of the JSON file.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
+use crate::projects::layout::ChatMode;
 use crate::retrieval::citations::Citation;
 use crate::runtime::CallUsage;
 use crate::util::time;
@@ -114,6 +115,9 @@ fn is_zero_f64(value: &f64) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSession {
+    /// The exact system prompt used for this chat, stored at the beginning of the JSON file.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "system_prompt")]
+    pub system_prompt: Option<String>,
     pub id: String,
     pub title: String,
     pub created_at: String,
@@ -136,6 +140,7 @@ impl ChatSession {
     pub fn new(id: Option<String>) -> Self {
         let now = time::now_iso();
         Self {
+            system_prompt: None,
             id: id.unwrap_or_default(),
             title: String::new(),
             created_at: now.clone(),
@@ -161,27 +166,46 @@ impl Default for ChatSession {
     }
 }
 
-/// Sequential chat numbering: `chat-001`, `chat-002`, etc.
-pub fn new_session_id(dir: &Path) -> String {
-    let next_num = next_chat_number(dir);
-    format!("chat-{:03}", next_num)
+/// Sequential chat numbering: `chat-001`, `chat-002`, etc. or `agent-001`, `agent-002`, etc.
+pub fn new_session_id(dir: &Path, mode: ChatMode) -> String {
+    let (prefix, sub) = match mode {
+        ChatMode::Agent => ("agent-", "agent"),
+        ChatMode::Chat => ("chat-", "chat"),
+    };
+    let next_num = next_number(dir, sub, prefix);
+    format!("{prefix}{:03}", next_num)
 }
 
-/// Finds the highest existing chat number and returns the next one.
-fn next_chat_number(dir: &Path) -> u32 {
-    if let Ok(read_dir) = std::fs::read_dir(dir) {
-        read_dir
-            .flatten()
-            .filter_map(|entry| entry.path().file_stem()?.to_str().map(|s| s.to_string()))
-            .filter_map(|name| {
-                name.strip_prefix("chat-")
-                    .and_then(|n| n.parse::<u32>().ok())
-            })
-            .max()
-            .map_or(1, |max| max + 1)
-    } else {
-        1
-    }
+/// Finds the highest existing number for this prefix and returns the next one.
+fn next_number(dir: &Path, sub: &str, prefix: &str) -> u32 {
+    let sub_dir = dir.join(sub);
+    let mut max_num = 0;
+
+    let mut scan = |target_dir: &Path| {
+        if let Ok(read_dir) = std::fs::read_dir(target_dir) {
+            for entry in read_dir.flatten() {
+                if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
+                    let num = if let Some(stripped) = stem.strip_prefix(prefix) {
+                        stripped.parse::<u32>().ok()
+                    } else if let Some(stripped) = stem.strip_prefix(prefix.trim_end_matches('-')) {
+                        stripped.parse::<u32>().ok()
+                    } else {
+                        None
+                    };
+                    if let Some(n) = num {
+                        if n > max_num {
+                            max_num = n;
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    scan(&sub_dir);
+    scan(dir);
+
+    max_num + 1
 }
 
 /// Rejects ids that could escape the chats folder.
@@ -197,26 +221,86 @@ fn safe_id(id: &str) -> AppResult<&str> {
     }
 }
 
-fn file_for(dir: &Path, id: &str) -> PathBuf {
-    dir.join(format!("{id}.json"))
+/// Path where a chat file with `id` should be placed:
+/// - Agent sessions go into `<chats_dir>/agent/<id>.json`
+/// - Chat sessions go into `<chats_dir>/chat/<id>.json`
+pub fn file_for(dir: &Path, id: &str) -> PathBuf {
+    let sub = if id.starts_with("agent") {
+        "agent"
+    } else {
+        "chat"
+    };
+    dir.join(sub).join(format!("{id}.json"))
+}
+
+/// Finds an existing chat file by looking in its dedicated folder (`chats/agent/` or `chats/chat/`),
+/// the opposite subfolder, or the legacy root `chats/` directory.
+pub fn find_chat_file(dir: &Path, id: &str) -> Option<PathBuf> {
+    let sub = if id.starts_with("agent") { "agent" } else { "chat" };
+    let primary = dir.join(sub).join(format!("{id}.json"));
+    if primary.is_file() {
+        return Some(primary);
+    }
+    let other_sub = if sub == "agent" { "chat" } else { "agent" };
+    let secondary = dir.join(other_sub).join(format!("{id}.json"));
+    if secondary.is_file() {
+        return Some(secondary);
+    }
+    let legacy = dir.join(format!("{id}.json"));
+    if legacy.is_file() {
+        return Some(legacy);
+    }
+    // Also check if id was passed without prefix e.g. "001" or "-001"
+    for s in &["agent", "chat"] {
+        for sep in &["-", ""] {
+            let candidate = dir.join(s).join(format!("{s}{sep}{id}.json"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 /// Newest session first.
 pub fn list(dir: &Path) -> Vec<ChatSummary> {
-    let Ok(read_dir) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
+    let mut sessions: Vec<ChatSummary> = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
 
-    let mut sessions: Vec<ChatSummary> = read_dir
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
-        .filter_map(|path| {
-            let raw = std::fs::read_to_string(&path).ok()?;
-            serde_json::from_str::<ChatSession>(&raw).ok()
-        })
-        .map(|session| session.summary())
-        .collect();
+    // 1. Scan subdirectories: chats/chat and chats/agent
+    for sub in &["chat", "agent"] {
+        let sub_dir = dir.join(sub);
+        if let Ok(read_dir) = std::fs::read_dir(&sub_dir) {
+            for entry in read_dir.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
+                    if let Ok(raw) = std::fs::read_to_string(&path) {
+                        if let Ok(session) = serde_json::from_str::<ChatSession>(&raw) {
+                            if seen_ids.insert(session.id.clone()) {
+                                sessions.push(session.summary());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Scan legacy root chats/ folder (for backward compatibility)
+    if let Ok(read_dir) = std::fs::read_dir(dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
+                if let Ok(raw) = std::fs::read_to_string(&path) {
+                    if let Ok(session) = serde_json::from_str::<ChatSession>(&raw) {
+                        if seen_ids.insert(session.id.clone()) {
+                            sessions.push(session.summary());
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     sessions
@@ -224,7 +308,7 @@ pub fn list(dir: &Path) -> Vec<ChatSummary> {
 
 pub fn load(dir: &Path, id: &str) -> AppResult<ChatSession> {
     let id = safe_id(id)?;
-    let path = file_for(dir, id);
+    let path = find_chat_file(dir, id).unwrap_or_else(|| file_for(dir, id));
     let raw = std::fs::read_to_string(&path)
         .map_err(|_| AppError::msg("that chat no longer exists in the chats folder."))?;
     serde_json::from_str(&raw)
@@ -234,7 +318,10 @@ pub fn load(dir: &Path, id: &str) -> AppResult<ChatSession> {
 /// Writes the session back, stamping `updatedAt`.
 pub fn save(dir: &Path, session: &mut ChatSession) -> AppResult<ChatSummary> {
     let id = safe_id(&session.id)?.to_string();
-    std::fs::create_dir_all(dir)?;
+    let path = file_for(dir, &id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
     session.id = id.clone();
     session.updated_at = time::now_iso();
@@ -243,18 +330,31 @@ pub fn save(dir: &Path, session: &mut ChatSession) -> AppResult<ChatSummary> {
     }
 
     let raw = serde_json::to_string_pretty(session)?;
-    std::fs::write(file_for(dir, &id), raw)?;
+    std::fs::write(&path, raw)?;
+
+    // If an older copy was in the legacy root chats/ folder, clean it up
+    let legacy = dir.join(format!("{id}.json"));
+    if legacy.is_file() && legacy != path {
+        let _ = std::fs::remove_file(legacy);
+    }
+
     Ok(session.summary())
 }
 
 pub fn delete(dir: &Path, id: &str) -> AppResult<()> {
     let id = safe_id(id)?;
-    let path = file_for(dir, id);
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
+    if let Some(path) = find_chat_file(dir, id) {
+        let _ = std::fs::remove_file(path);
     }
+    let default_path = file_for(dir, id);
+    if default_path.is_file() {
+        let _ = std::fs::remove_file(default_path);
+    }
+    let legacy = dir.join(format!("{id}.json"));
+    if legacy.is_file() {
+        let _ = std::fs::remove_file(legacy);
+    }
+    Ok(())
 }
 
 /// A short, filesystem-friendly label for a chat, used as its title.
@@ -312,7 +412,8 @@ mod tests {
     fn save_write_list_load_and_delete_one_file_per_session() {
         let dir = temp_dir("roundtrip");
 
-        let mut session = ChatSession::new(Some(new_session_id(&dir)));
+        let mut session = ChatSession::new(Some(new_session_id(&dir, ChatMode::Chat)));
+        session.system_prompt = Some("You are a helpful assistant.".to_string());
         session.messages.push(message("user", "Where did spending rise?"));
         session.messages.push(message("assistant", "Hardware rose the most."));
 
@@ -320,8 +421,9 @@ mod tests {
         assert_eq!(summary.message_count, 2);
         assert_eq!(summary.title, "Where did spending rise?");
 
-        // Exactly one JSON file, named after the session id.
-        let files: Vec<_> = std::fs::read_dir(&dir)
+        // Exactly one JSON file inside chats/chat/
+        let chat_dir = dir.join("chat");
+        let files: Vec<_> = std::fs::read_dir(&chat_dir)
             .unwrap()
             .flatten()
             .map(|entry| entry.path())
@@ -332,17 +434,82 @@ mod tests {
             format!("{}.json", session.id)
         );
 
+        let raw = std::fs::read_to_string(&files[0]).unwrap();
+        // Verify systemPrompt is at the beginning of the json file
+        assert!(
+            raw.trim_start().starts_with("{\n  \"systemPrompt\":"),
+            "systemPrompt should be at beginning of JSON: {raw}"
+        );
+
         let listed = list(&dir);
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, session.id);
 
         let loaded = load(&dir, &session.id).unwrap();
+        assert_eq!(loaded.system_prompt.as_deref(), Some("You are a helpful assistant."));
         assert_eq!(loaded.messages.len(), 2);
         assert_eq!(loaded.messages[1].content, "Hardware rose the most.");
 
         delete(&dir, &session.id).unwrap();
         assert!(list(&dir).is_empty());
         assert!(load(&dir, &session.id).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_agent_mode_in_agent_dir_with_system_prompt() {
+        let dir = temp_dir("agent-roundtrip");
+
+        let mut session = ChatSession::new(Some(new_session_id(&dir, ChatMode::Agent)));
+        assert_eq!(session.id, "agent-001");
+        session.system_prompt = Some("You are an agent with tools.".to_string());
+        session.messages.push(message("user", "List files"));
+        session.messages.push(message("assistant", "Found 3 files."));
+
+        let summary = save(&dir, &mut session).unwrap();
+        assert_eq!(summary.id, "agent-001");
+
+        // Saved in chats/agent/agent-001.json
+        let agent_file = dir.join("agent").join("agent-001.json");
+        assert!(agent_file.is_file());
+
+        let raw = std::fs::read_to_string(&agent_file).unwrap();
+        assert!(raw.trim_start().starts_with("{\n  \"systemPrompt\":"));
+
+        let loaded = load(&dir, "agent-001").unwrap();
+        assert_eq!(loaded.system_prompt.as_deref(), Some("You are an agent with tools."));
+
+        // Second agent session gets agent-002
+        let next_id = new_session_id(&dir, ChatMode::Agent);
+        assert_eq!(next_id, "agent-002");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_chats_are_loaded_and_listed() {
+        let dir = temp_dir("legacy");
+
+        // Put a legacy chat file in root dir
+        let legacy_file = dir.join("chat-001.json");
+        let mut session = ChatSession::new(Some("chat-001".to_string()));
+        session.system_prompt = Some("Legacy prompt".to_string());
+        session.messages.push(message("user", "Old message"));
+        std::fs::write(&legacy_file, serde_json::to_string_pretty(&session).unwrap()).unwrap();
+
+        let listed = list(&dir);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "chat-001");
+
+        let loaded = load(&dir, "chat-001").unwrap();
+        assert_eq!(loaded.messages.len(), 1);
+
+        // Saving it migrates it to chats/chat/chat-001.json and removes legacy file
+        let mut loaded_mut = loaded;
+        save(&dir, &mut loaded_mut).unwrap();
+        assert!(dir.join("chat").join("chat-001.json").is_file());
+        assert!(!legacy_file.exists());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

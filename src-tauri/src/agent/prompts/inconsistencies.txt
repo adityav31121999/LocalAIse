@@ -1,0 +1,15 @@
+TASK: Audit the document for internal inconsistencies: conflicting numbers, dates, or names; totals that do not match their parts; statements that contradict each other; a claim in one place that is negated elsewhere.
+
+Rules:
+1. Report only conflicts that can be verified from the text itself. Do not report style problems, missing information, or things that are merely unusual.
+2. Every finding needs two pieces of evidence, each a verbatim quote of at most 25 words plus its location (heading, page, or paragraph).
+3. For arithmetic problems, show the calculation in one line.
+4. Rate severity: High (changes a decision or key figure), Medium, Low.
+
+Format (Markdown), repeated per finding:
+### 1. Short title (Severity: High)
+- Evidence A: "quote" (location)
+- Evidence B: "quote" (location)
+- Conflict: one sentence
+
+If you find nothing, output exactly: No inconsistencies found.
