@@ -11,7 +11,7 @@ use crate::agent::mapreduce::map_reduce_summarize;
 use crate::error::{AppError, AppResult};
 use crate::ingest::parsers::parse_file;
 use crate::models::registry as models;
-use crate::projects::layout::ProjectPaths;
+use crate::projects::layout::{ProjectPaths, SUMMARY_DIR};
 use crate::runtime::client::{self, SamplingParams};
 use crate::runtime::profile::InferenceProfile;
 use crate::research::llm_adapter::RuntimeLlmClient;
@@ -34,7 +34,8 @@ pub struct AnalysisRequest {
     pub file_name: String,
     /// Secondary file relative path (only for "compare")
     pub compare_with: Option<String>,
-    /// Optional filename to save under outputs/ (e.g. "summary.md")
+    /// Optional filename to save under `outputs/` (`outputs/summary/` for the
+    /// summarize action), e.g. "summary.md".
     pub save_as: Option<String>,
 }
 
@@ -176,16 +177,25 @@ pub async fn analyze_document(
         other => return Err(AppError::msg(format!("Unknown document analysis action: {other}"))),
     };
 
-    // Save to outputs/ if requested
+    // Save to outputs/ if requested. Summaries go to outputs/summary/; every
+    // other analysis stays directly in outputs/.
     let mut saved_to_file = None;
     if let Some(filename) = request.save_as {
         let clean_name = filename.trim().replace(['\\', '/'], "_");
         if !clean_name.is_empty() {
+            let summary_subdir = (request.action == "summarize").then(|| SUMMARY_DIR);
             let outputs_dir = root.join("outputs");
-            let _ = std::fs::create_dir_all(&outputs_dir);
-            let out_file = outputs_dir.join(&clean_name);
+            let target_dir = match summary_subdir {
+                Some(subdir) => outputs_dir.join(subdir),
+                None => outputs_dir,
+            };
+            let _ = std::fs::create_dir_all(&target_dir);
+            let out_file = target_dir.join(&clean_name);
             if std::fs::write(&out_file, &result_content).is_ok() {
-                saved_to_file = Some(format!("outputs/{clean_name}"));
+                saved_to_file = Some(match summary_subdir {
+                    Some(subdir) => format!("outputs/{subdir}/{clean_name}"),
+                    None => format!("outputs/{clean_name}"),
+                });
             }
         }
     }
@@ -282,9 +292,9 @@ pub async fn summarize_document(
         usage.total_tokens
     );
 
-    // Save the summary to the project's summary/ folder so it is persisted
-    // even if the frontend auto-save path fails. Derive the markdown file
-    // name from the source document (e.g. data/foo.pdf -> summary/foo.md).
+    // Save the summary under outputs/summary/ so it is persisted even if the
+    // frontend auto-save path fails. Derive the markdown file name from the
+    // source document (e.g. data/foo.pdf -> outputs/summary/foo.md).
     let mut saved_to_file = None;
     let source_name = Path::new(&request.file_path)
         .file_name()
@@ -297,7 +307,7 @@ pub async fn summarize_document(
     if std::fs::create_dir_all(&summary_dir).is_ok() {
         let summary_path = summary_dir.join(&md_file_name);
         if std::fs::write(&summary_path, &summary).is_ok() {
-            saved_to_file = Some(format!("summary/{md_file_name}"));
+            saved_to_file = Some(format!("outputs/{SUMMARY_DIR}/{md_file_name}"));
             log::info!(
                 "[summarize_document] saved summary to {}",
                 summary_path.display()
@@ -533,7 +543,8 @@ pub fn research_stop(project_id: String) {
 /// Re-render a finished run's report in the requested format. Reads the
 /// structured export payload captured at the end of the run
 /// (`chats/research-NNN.export.json`), so no pipeline work is redone.
-/// Writes `outputs/research-NNN-export.<ext>` and returns its absolute path.
+/// Writes `outputs/deep-research/research-NNN-export.<ext>` and returns its
+/// absolute path.
 #[tauri::command]
 pub fn export_research_report(
     state: State<'_, AppState>,
@@ -594,9 +605,9 @@ pub fn export_research_report(
         ExportFormat::Html => "html",
         ExportFormat::Json | ExportFormat::Notion | ExportFormat::CslJson => "json",
     };
-    let outputs_dir = std::path::PathBuf::from(&record.path).join("outputs");
-    std::fs::create_dir_all(&outputs_dir).map_err(|e| e.to_string())?;
-    let out_path = outputs_dir.join(format!("{research_id}-export.{ext}"));
+    let deep_research_dir = ProjectPaths::new(&record.path).deep_research_dir();
+    std::fs::create_dir_all(&deep_research_dir).map_err(|e| e.to_string())?;
+    let out_path = deep_research_dir.join(format!("{research_id}-export.{ext}"));
     std::fs::write(&out_path, rendered).map_err(|e| e.to_string())?;
 
     let _ = activity::record(

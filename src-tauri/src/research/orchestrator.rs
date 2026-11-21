@@ -72,7 +72,7 @@ fn llm_tokens_used(log: &ActionLog) -> u64 {
 /// (steps tagged `local` or `internet`), the pipeline follows the plan step by
 /// step, then verifies, writes the report, and records everything into
 /// `chats/research-{id}.json`. The report itself is saved separately under
-/// `outputs/` as markdown.
+/// `outputs/deep-research/` as markdown.
 ///
 /// `cancel` is polled between steps, searches and fetches; once set, the
 /// pipeline stops gathering (skipping LLM verification to avoid further
@@ -391,7 +391,8 @@ pub async fn run_with_plan<C: LlmClient + 'static>(
         provided_section = Some(section);
     }
 
-    // 5. Full report: markdown file in outputs/, everything in the JSON transcript.
+    // 5. Full report: markdown file in outputs/deep-research/, everything in
+    // the JSON transcript.
     let full_report = write_report(written_sections.clone(), store_sources);
 
     // Bounded slug + timestamp: long questions must not create over-long file
@@ -403,9 +404,9 @@ pub async fn run_with_plan<C: LlmClient + 'static>(
         .collect::<String>()
         .to_lowercase();
     let filename = format!("research-{slug}-{}.md", Utc::now().timestamp());
-    let outputs_dir = root.join("outputs");
-    let _ = std::fs::create_dir_all(&outputs_dir);
-    let output_path = outputs_dir.join(&filename);
+    let deep_research_dir = ProjectPaths::new(&root).deep_research_dir();
+    let _ = std::fs::create_dir_all(&deep_research_dir);
+    let output_path = deep_research_dir.join(&filename);
     let write_result = std::fs::write(&output_path, &full_report);
     if let Err(e) = &write_result {
         log::warn!("[research] failed to write report to {}: {e}", output_path.display());
@@ -797,12 +798,12 @@ mod tests {
         assert!(transcript["actions"].as_array().map(|a| !a.is_empty()).unwrap_or(false));
         assert!(transcript["finalReport"].as_str().map(|s| s.contains("Research Report")).unwrap_or(false));
 
-        // The report markdown is stored separately under outputs/.
-        let outputs = root.join("outputs");
-        let has_md = std::fs::read_dir(&outputs)
+        // The report markdown is stored separately under outputs/deep-research/.
+        let deep_research = root.join("outputs").join("deep-research");
+        let has_md = std::fs::read_dir(&deep_research)
             .map(|d| d.flatten().any(|e| e.file_name().to_string_lossy().ends_with(".md")))
             .unwrap_or(false);
-        assert!(has_md, "a markdown report should exist in outputs/");
+        assert!(has_md, "a markdown report should exist in outputs/deep-research/");
 
         let _ = std::fs::remove_dir_all(&root);
     }

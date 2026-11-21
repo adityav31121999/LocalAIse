@@ -24,6 +24,10 @@ export async function analyzeDocument(request: AnalysisRequest): Promise<Analysi
       `• Key finding 1: Document parsed and processed cleanly.\n` +
       `• Key finding 2: Verified consistency against project guidelines.\n` +
       `• Summary: Map-reduce summarization completed successfully.`,
-    savedToFile: request.saveAs ? `outputs/${request.saveAs}` : undefined,
+    savedToFile: request.saveAs
+    ? (request.action === "summarize"
+      ? `outputs/summary/${request.saveAs}`
+      : `outputs/${request.saveAs}`)
+    : undefined,
   };
 }

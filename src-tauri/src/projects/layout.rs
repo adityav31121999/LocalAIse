@@ -3,9 +3,11 @@
 //! A project directory is plain folders the user can open in any explorer:
 //! `data/` holds the source files, `chats/` holds one JSON file per chat
 //! session, `diary/` holds one Markdown page per day, `outputs/` receives the
-//! assistant's exports, and everything else is free space for the user's own
-//! folders. All app-internal state lives under `.LocalAIse/`, while the
-//! `project.json` manifest describing the directory sits at the project root.
+//! assistant's exports (document summaries in `outputs/summary/`, deep-research
+//! reports in `outputs/deep-research/`), and everything else is free space for
+//! the user's own folders. All app-internal state lives under `.LocalAIse/`,
+//! while the `project.json` manifest describing the directory sits at the
+//! project root.
 
 use std::path::{Path, PathBuf};
 
@@ -18,13 +20,16 @@ pub const PROJECT_FILE: &str = "project.json";
 pub const OUTPUTS_DIR: &str = "outputs";
 pub const CHATS_DIR: &str = "chats";
 pub const DATA_DIR: &str = "data";
+/// Subfolder of `outputs/` holding AI-generated summaries of source documents.
 pub const SUMMARY_DIR: &str = "summary";
+/// Subfolder of `outputs/` holding deep-research reports.
+pub const DEEP_RESEARCH_DIR: &str = "deep-research";
 pub const DIARY_DIR: &str = "diary";
 pub const ACTIVITY_FILE: &str = "activity.log";
 
-/// Folder names the app manages. Users cannot create projects folders with
+/// Folder names the app manages. Users cannot create project folders with
 /// these names, and the knowledge base never reads inside them.
-pub const RESERVED_DIRS: [&str; 4] = [CHATS_DIR, DIARY_DIR, OUTPUTS_DIR, SUMMARY_DIR];
+pub const RESERVED_DIRS: [&str; 3] = [CHATS_DIR, DIARY_DIR, OUTPUTS_DIR];
 
 /// How the assistant answers in this project's chat.
 ///
@@ -65,11 +70,10 @@ pub struct ProjectFolders {
     pub chats: String,
     /// The user's source files; the knowledge base reads here first.
     pub data: String,
-    /// AI-generated summaries of source documents (inside data/).
-    pub summary: String,
     /// One Markdown page per date, when the project keeps its own diary.
     pub diary: String,
-    /// Files the assistant produces for the user.
+    /// Files the assistant produces for the user. Summaries live in
+    /// `outputs/summary/` and deep-research reports in `outputs/deep-research/`.
     pub outputs: String,
     /// Extra folders the user created from the project's sources panel.
     pub custom: Vec<String>,
@@ -80,7 +84,6 @@ impl Default for ProjectFolders {
         Self {
             chats: CHATS_DIR.to_string(),
             data: DATA_DIR.to_string(),
-            summary: SUMMARY_DIR.to_string(),
             diary: DIARY_DIR.to_string(),
             outputs: OUTPUTS_DIR.to_string(),
             custom: Vec::new(),
@@ -199,8 +202,14 @@ impl ProjectPaths {
         self.root.join(DATA_DIR)
     }
 
+    /// AI-generated document summaries: `outputs/summary/`.
     pub fn summary_dir(&self) -> PathBuf {
-        self.root.join(SUMMARY_DIR)
+        self.outputs_dir().join(SUMMARY_DIR)
+    }
+
+    /// Deep-research reports: `outputs/deep-research/`.
+    pub fn deep_research_dir(&self) -> PathBuf {
+        self.outputs_dir().join(DEEP_RESEARCH_DIR)
     }
 
     pub fn diary_dir(&self) -> PathBuf {
@@ -211,10 +220,15 @@ impl ProjectPaths {
     /// anything that already exists. New and re-registered projects both call
     /// this, so an older project gains the structure on next open.
     pub fn ensure_structure(&self, folders: &ProjectFolders, diary_enabled: bool) -> AppResult<()> {
-        for name in [&folders.chats, &folders.data, &folders.summary, &folders.outputs] {
+        for name in [&folders.chats, &folders.data, &folders.outputs] {
             if !name.is_empty() {
                 std::fs::create_dir_all(self.root.join(name))?;
             }
+        }
+        if !folders.outputs.is_empty() {
+            let outputs = self.root.join(&folders.outputs);
+            std::fs::create_dir_all(outputs.join(SUMMARY_DIR))?;
+            std::fs::create_dir_all(outputs.join(DEEP_RESEARCH_DIR))?;
         }
         if !folders.chats.is_empty() {
             let chats_dir = self.root.join(&folders.chats);

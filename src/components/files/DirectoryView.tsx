@@ -32,7 +32,7 @@ type SortField = "name" | "size" | "date" | "type";
 type SortDirection = "asc" | "desc";
 
 /** Top-level folders the app owns; the backend refuses to move or delete them. */
-const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs", "summary"]);
+const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs"]);
 
 function isProtectedRootEntry(entry: DirectoryEntry, currentPath: string): boolean {
   return currentPath === "" && entry.isDir && PROTECTED_ROOT_DIRS.has(entry.name.toLowerCase());
@@ -649,6 +649,8 @@ export function DirectoryView({ project }: { project: Project }) {
             { name: "chats (Sessions)", path: "chats" },
             { name: "diary (Daily logs)", path: "diary" },
             { name: "outputs (Reports)", path: "outputs" },
+            { name: "  outputs/summary (Doc summaries)", path: "outputs/summary" },
+            { name: "  outputs/deep-research (Research)", path: "outputs/deep-research" },
           ].map((item) => {
             const isActive = currentPath === item.path;
             return (

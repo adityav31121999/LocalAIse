@@ -292,19 +292,22 @@ eval_data/            Retrieval evaluation inputs
 
 ```
 MyProject/
-├── project.json        # manifest: layout, diary switch, RAG scope
-├── data/               # your source files (the knowledge base)
-├── chats/              # chat-001.json, chat-002.json, …
-├── diary/              # optional: one Markdown page per date
-├── outputs/            # files the assistant produces
-├── <your folders>/     # anything else, tracked in project.json
-└── .LocalAIse/         # app state — safe to delete to re-index
+├── project.json              # manifest: layout, diary switch, RAG scope
+├── data/                     # your source files (the knowledge base)
+├── chats/                    # chat-001.json, chat-002.json, …
+├── diary/                    # optional: one Markdown page per date
+├── outputs/                  # files the assistant produces
+│   ├── summary/              # AI-generated summaries of your documents
+│   └── deep-research/        # deep-research reports
+├── <your folders>/           # anything else, tracked in project.json
+└── .LocalAIse/               # app state — safe to delete to re-index
     ├── index.json
     └── activity.log
 ```
 
 `data/`, `chats/`, `diary/`, `outputs/` and `.LocalAIse/` are reserved. RAG indexes everything
-outside them unless `ragPaths` in `project.json` narrows the scope.
+outside them unless `ragPaths` in `project.json` narrows the scope. Within `outputs/`,
+the `summary/` and `deep-research/` subdirectories are created automatically.
 
 ---
 

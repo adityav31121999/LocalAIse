@@ -142,7 +142,7 @@ async function mockRun(params: RunDeepResearchParams): Promise<number> {
     mockEmit({ type: "Notice", message: "Research cancelled by user; writing partial report" });
   }
   mockEmit({ type: "Notice", message: "Research transcript saved to chats/research-001.json" });
-  mockEmit({ type: "Done", report_id: reportId, report_path: "outputs/research-mock-001.md" });
+  mockEmit({ type: "Done", report_id: reportId, report_path: "outputs/deep-research/research-mock-001.md" });
   return reportId;
 }
 
@@ -195,7 +195,7 @@ export async function exportResearchReport(
   if (!isTauri) {
     await delay(300);
     const ext = params.format === "markdown" ? "md" : params.format === "text" ? "txt" : params.format === "html" ? "html" : "json";
-    return `outputs/research-${String(params.reportId).padStart(3, "0")}-export.${ext}`;
+    return `outputs/deep-research/research-${String(params.reportId).padStart(3, "0")}-export.${ext}`;
   }
   return invoke<string>("export_research_report", {
     project_id: params.projectId,

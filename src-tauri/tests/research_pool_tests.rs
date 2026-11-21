@@ -19,7 +19,7 @@
 //! offline while still exercising the policy/audit path.
 //!
 //! Assertions target the `research:event` stream plus the files a run leaves
-//! behind (transcript, export payload, report under `outputs/`).
+//! behind (transcript, export payload, report under `outputs/deep-research/`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -297,11 +297,11 @@ async fn online_run_goes_from_plan_to_done_against_fixtures() {
     let payload = transcript::load_export_payload(&chats, "research-001").expect("payload loads");
     assert!(!payload.sections.is_empty(), "payload carries the written sections");
     assert!(!payload.sources.is_empty(), "payload carries the sources");
-    let outputs = root.join("outputs");
-    let report_written = std::fs::read_dir(&outputs)
+    let deep_research = root.join("outputs").join("deep-research");
+    let report_written = std::fs::read_dir(&deep_research)
         .map(|d| d.flatten().any(|e| e.file_name().to_string_lossy().ends_with(".md")))
         .unwrap_or(false);
-    assert!(report_written, "a markdown report should exist under outputs/");
+    assert!(report_written, "a markdown report should exist under outputs/deep-research/");
 
     pool.release_project(&root);
 }

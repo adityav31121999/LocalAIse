@@ -104,7 +104,7 @@ const SOURCE_SEEDS: Record<string, Seed[]> = {
     s("categories.csv", "indexed", 4, 30),
     s("vendor-contracts.docx", "indexed", 312, 21),
     s("notes.md", "indexed", 12, 0),
-    s("outputs/summary-2026-10.md", "pending", 6, 0),
+    s("outputs/summary/summary-2026-10.md", "pending", 6, 0),
   ],
   "thesis-research": [
     s("papers/federated-learning-survey.pdf", "indexed", 1420, 40),
@@ -161,7 +161,7 @@ interface MockNode {
 
 const mockTrees: Record<string, MockNode[]> = {};
 
-const MOCK_RESERVED = ["chats", "data", "diary", "outputs", "summary", ".localaise"];
+const MOCK_RESERVED = ["chats", "data", "diary", "outputs", ".localaise"];
 const MOCK_STATE_DIR = ".LocalAIse";
 const MOCK_PROJECT_FILE = "project.json";
 
@@ -194,7 +194,7 @@ function seedMockTree(projectId: string): MockNode[] {
     }
   };
 
-  ["chats", "data", "diary", "outputs", "summary"].forEach(addDir);
+  ["chats", "data", "diary", "outputs/summary", "outputs/deep-research"].forEach(addDir);
 
   for (const file of listMockSources(projectId)) {
     addDir(mockParent(file.name));

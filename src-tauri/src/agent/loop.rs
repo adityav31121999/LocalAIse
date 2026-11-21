@@ -135,17 +135,17 @@ pub async fn execute_research(
     let report_markdown = client::complete(serving, model_label, &messages, SamplingParams::default()).await?;
     plan.status = "completed".to_string();
 
-    // Save report to outputs/
+    // Save report to outputs/deep-research/
     let filename = format!("research-{}.md", plan.topic.replace(|c: char| !c.is_alphanumeric(), "_").to_lowercase());
-    let outputs_dir = project_root.join("outputs");
-    let _ = std::fs::create_dir_all(&outputs_dir);
-    let output_path = outputs_dir.join(&filename);
+    let deep_research_dir = crate::projects::layout::ProjectPaths::new(project_root).deep_research_dir();
+    let _ = std::fs::create_dir_all(&deep_research_dir);
+    let output_path = deep_research_dir.join(&filename);
     let _ = std::fs::write(&output_path, &report_markdown);
 
     Ok(ResearchReportResult {
         topic: plan.topic.clone(),
         report_markdown,
-        saved_to_file: Some(format!("outputs/{filename}")),
+        saved_to_file: Some(format!("outputs/deep-research/{filename}")),
         sources_used,
     })
 }

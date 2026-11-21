@@ -473,14 +473,14 @@ mod tests {
     #[test]
     fn mention_list_includes_managed_folders_but_not_chats() {
         let root = temp_root("mentions");
-        for folder in ["data", "diary", "outputs", "summary", "chats"] {
+        for folder in ["data", "diary", "outputs/summary", "chats"] {
             fs::create_dir_all(root.join(folder)).unwrap();
         }
         fs::create_dir_all(root.join(STATE_DIR)).unwrap();
         fs::write(root.join("data").join("report.txt"), "source").unwrap();
         fs::write(root.join("diary").join("2026-11-05.md"), "diary").unwrap();
         fs::write(root.join("outputs").join("file.txt"), "output").unwrap();
-        fs::write(root.join("summary").join("digest.md"), "digest").unwrap();
+        fs::write(root.join("outputs/summary").join("digest.md"), "digest").unwrap();
         fs::write(root.join("chats").join("chat-001.json"), "{}").unwrap();
 
         let paths: Vec<String> = list_all_files(&root)
@@ -493,7 +493,7 @@ mod tests {
             "data/report.txt",
             "diary/2026-11-05.md",
             "outputs/file.txt",
-            "summary/digest.md",
+            "outputs/summary/digest.md",
         ] {
             assert!(paths.iter().any(|path| path == expected), "missing {expected}");
         }

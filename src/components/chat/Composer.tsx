@@ -15,8 +15,8 @@ function defaultChatSystemPrompt(projectName: string): string {
     `- You cannot read, list, search, create, edit, or save files. You cannot see the diary or calendar. You cannot browse the web. Never claim or imply that you did any of these.\n` +
     `- If the task needs something you cannot do here (finding a file, searching the project, saving or editing a file, checking the diary or calendar, current web information), say so in one sentence and tell the user to switch to agent mode (or enable internet access for web questions). Then help with whatever part you can do right now.\n\n` +
     `HOW FILES ARE NAMED:\n` +
-    `1. Every file is named by its path relative to the project root, such as "data/notes.md" or "outputs/report.md". These show the format only; they do not tell you which files exist.\n` +
-    `2. The user mentions files with a leading @, such as @outputs/file.txt. The @ is only this app's chat marker: the real path is exactly what follows it (outputs/file.txt).\n` +
+    `1. Every file is named by its path relative to the project root, such as "data/notes.md", "outputs/summary/foo.md", or "outputs/deep-research/report.md". These show the format only; they do not tell you which files exist.\n` +
+    `2. The user mentions files with a leading @, such as @outputs/summary/file.txt. The @ is only this app's chat marker: the real path is exactly what follows it (outputs/summary/file.txt).\n` +
     `3. When you name a file, use the plain relative path. Never add @, quotes, backslashes, or absolute paths.\n\n` +
     `HOW TO ANSWER:\n` +
     `- Greetings and small talk ("hi", "thanks", "how are you"): reply in one or two friendly sentences, optionally asking what the user needs. Do not explain the app or list your abilities.\n` +
@@ -37,14 +37,14 @@ function defaultAgentSystemPrompt(projectName: string, internetEnabled: boolean,
   text +=
     "\n\nAGENT RULES — these remove all guesswork about files and tools:\n\n" +
     "HOW TO TURN A MENTION INTO A PATH: Chat messages name files with a leading @, " +
-    "such as @outputs/file.txt. The @ is only this app's chat marker; the real path " +
-    "is exactly what follows it, outputs/file.txt. This mapping is fixed — when a " +
+    "such as @outputs/summary/file.txt. The @ is only this app's chat marker; the real path " +
+    "is exactly what follows it, outputs/summary/file.txt. This mapping is fixed — when a " +
     "message says @name, the request is about \"name\", every time, with no " +
     "exceptions. Reading it any other way (as a literal file name, as a special " +
     "directory, as something to ask about) is always wrong. Replace nothing but the " +
     "@, and keep the rest of the path character for character.\n\n" +
     "HOW TO CALL TOOLS: Tools accept only plain relative paths like " +
-    "outputs/file.txt — never @, quotes, backslashes, or absolute paths. read_file " +
+    "outputs/summary/file.txt or outputs/deep-research/report.md — never @, quotes, backslashes, or absolute paths. read_file " +
     "and list_files take such a path as given. write_file and append_file use the " +
     "given path as-is when that file already exists in the project — so a request " +
     "about @diary/2026-11-07.md means path \"diary/2026-11-07.md\" and the write " +
@@ -52,8 +52,8 @@ function defaultAgentSystemPrompt(projectName: string, internetEnabled: boolean,
     "in an existing location are created under outputs/, so \"file.txt\" is saved " +
     "as outputs/file.txt, and you tell the user that location when you confirm. " +
     "Keep the user's file, folder, or text request exactly as given: to write " +
-    "\"Hello World!\" into @outputs/file.txt you call write_file with path " +
-    "\"outputs/file.txt\" and content \"Hello World!\", once. Call one tool at a " +
+    "\"Hello World!\" into @outputs/summary/file.txt you call write_file with path " +
+    "\"outputs/summary/file.txt\" and content \"Hello World!\", once. Call one tool at a " +
     "time; write_file only when the user asked for something to be written.\n\n" +
     "THINKING: Keep thinking to a few short sentences, then act. A request that " +
     "names a file needs no debate — turn @name into \"name\", call the tool with " +

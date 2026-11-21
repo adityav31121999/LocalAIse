@@ -15,6 +15,7 @@ import {
 import { useProjectStore } from "../../state/projectStore";
 import { useProjectEvents } from "../../hooks/useProjectEvents";
 import { useNavStore } from "../../state/navStore";
+import { SlideName } from "../ui/SlideName";
 import {
   listDirectory,
   createEntry,
@@ -30,7 +31,7 @@ import {
 import type { DirectoryEntry, Project, SourceFile } from "../../types";
 
 /** Top-level folders the app owns; the backend refuses to move or delete them. */
-const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs", "summary"]);
+const PROTECTED_ROOT_DIRS = new Set(["data", "chats", "diary", "outputs"]);
 
 function getFileIconColor(name: string): { color: string; label: string } {
   const ext = fileExtension(name).toLowerCase();
@@ -105,7 +106,6 @@ function TreeNodeItem({
     isDir && !path.includes("/") && PROTECTED_ROOT_DIRS.has(name.toLowerCase());
   const [children, setChildren] = useState<DirectoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [hovered, setHovered] = useState(false);
 
   useEffect(() => {
     if (!isDir || !isExpanded) return;
@@ -160,8 +160,6 @@ function TreeNodeItem({
             onToggleFolder(path);
             onSelectPath(path);
           }}
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
           title={path}
         >
           <span
@@ -180,16 +178,16 @@ function TreeNodeItem({
             <FolderIcon size={13} />
           </span>
 
-          <span
-            className="truncate"
+          <SlideName
+            text={name}
             style={{
+              flex: 1,
+              minWidth: 0,
               fontWeight: isExpanded ? "600" : "500",
               color: isSelected ? "var(--accent-primary)" : "var(--text)",
               fontSize: "12px", // reduced from 12.5px
             }}
-          >
-            {name}
-          </span>
+          />
 
           {children.length > 0 && (
             <span
@@ -204,11 +202,10 @@ function TreeNodeItem({
             </span>
           )}
 
-          {/* Actions - always visible when hovered, more compact */}
+          {/* Actions - overlaid on hover so they never shrink the name */}
           <div
             className="ide-tree-actions"
             onClick={(e) => e.stopPropagation()}
-            style={{ opacity: hovered ? 1 : 0, transition: "opacity 120ms ease" }}
           >
             <button
               type="button"
@@ -314,25 +311,21 @@ function TreeNodeItem({
       }}
       onClick={() => onSelectPath(path)}
       onDoubleClick={() => onOpenDocument({ projectId: project.id, filePath: path, fileName: name })}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       title={`${path} (${formatBytes(sizeBytes || source?.sizeBytes || 0)})`}
     >
       <span style={{ color: fileMeta.color, display: "inline-flex", flexShrink: 0 }}>
         <DocIcon size={12} />
       </span>
 
-      <span
-        className="truncate"
+      <SlideName
+        text={name}
         style={{
           flex: 1,
           minWidth: 0,
           color: isSelected ? "var(--accent-primary)" : "var(--text)",
           fontSize: "12px",
         }}
-      >
-        {name}
-      </span>
+      />
 
       {source && source.status === "indexed" && (
         <span className="dot dot--success" aria-label="Indexed" style={{ marginRight: 6 }} />
@@ -342,7 +335,6 @@ function TreeNodeItem({
       <div
         className="ide-tree-actions"
         onClick={(e) => e.stopPropagation()}
-        style={{ opacity: hovered ? 1 : 0, transition: "opacity 120ms ease" }}
       >
         <button
           type="button"
@@ -379,8 +371,9 @@ export function Sidebar({ project }: { project: Project }) {
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
     invoices: true,
     data: true,
-    summary: true,
     outputs: true,
+    "outputs/summary": true,
+    "outputs/deep-research": true,
   });
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const setOpenDocument = useNavStore((state) => state.setOpenDocument);
@@ -745,7 +738,7 @@ export function Sidebar({ project }: { project: Project }) {
                       <DocIcon size={15} />
                     </span>
                     <span className="file-row__body">
-                      <span className="file-row__name truncate">{file.name}</span>
+                      <SlideName text={file.name} className="file-row__name" />
                       <span className="file-row__meta">
                         <span className="mono">{fileExtension(file.name)}</span>
                         <span>·</span>

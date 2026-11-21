@@ -56,10 +56,11 @@ const STRUCTURE_README: SeedFile = SeedFile {
     path: "README.md",
     contents: "# Project folder\n\n\
         - `data/` — the files the assistant reads, answers from and cites.\n\
-        - `data/summary/` — AI-generated summaries of documents in `data/`.\n\
         - `chats/` — every chat session saved as its own JSON file.\n\
         - `diary/` — one Markdown page per day, when the project diary is on.\n\
-        - `outputs/` — files the assistant produces for you.\n\
+        - `outputs/summary/` — AI-generated summaries of your documents.\n\
+        - `outputs/deep-research/` — reports produced by deep research.\n\
+        - `outputs/` — other files the assistant produces for you.\n\
         - other folders are yours; create anything and the assistant can read it.\n",
 };
 

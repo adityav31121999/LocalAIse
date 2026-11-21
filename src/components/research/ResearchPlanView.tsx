@@ -119,7 +119,7 @@ export function ResearchPlanView({ project }: { project: Project }) {
         setReport({
           topic: plan.topic,
           reportMarkdown: `# Research Report: ${plan.topic}\n\n## Executive Summary\nAnalysis generated from local sources.\n\n## Sources\n- project-notes.md`,
-          savedToFile: "outputs/research-sample.md",
+          savedToFile: "outputs/deep-research/research-sample.md",
           sourcesUsed: ["project-notes.md"],
         });
         setPlan({

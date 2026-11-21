@@ -5,7 +5,7 @@
 //! prompts sent to the model, the plan the model produced, every tool action
 //! (searches, fetches, local lookups) and every LLM response, plus the final
 //! report text. The report is also written separately as a markdown file in
-//! `outputs/`.
+//! `outputs/deep-research/`.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

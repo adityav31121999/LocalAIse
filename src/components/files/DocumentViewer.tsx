@@ -63,16 +63,16 @@ export function DocumentViewer({ project, filePath, fileName, onClose }: Documen
     [],
   );
 
-  /** Derive the expected summary path for a document: data/foo.pdf -> summary/foo.md */
+  /** Derive the expected summary path for a document: data/foo.pdf -> outputs/summary/foo.md */
   const summaryPathFor = useCallback((filePath: string): string => {
     const sourceName = filePath.split("/").pop() ?? filePath;
     const dotIndex = sourceName.lastIndexOf(".");
     const stem = dotIndex > 0 ? sourceName.slice(0, dotIndex) : sourceName;
-    return `summary/${stem}.md`;
+    return `outputs/summary/${stem}.md`;
   }, []);
 
   /** When a document is opened, check whether a summary already exists alongside it
-   * (summary/<stem>.md) and auto-load it so the summary is accessible next to the source.
+   * (outputs/summary/<stem>.md) and auto-load it so the summary is accessible next to the source.
    * Only runs when no summarisation is currently in progress so it cannot race
    * with a freshly generated summary. */
   const loadExistingSummary = useCallback(async () => {
@@ -230,7 +230,7 @@ export function DocumentViewer({ project, filePath, fileName, onClose }: Documen
    *  Uses `filePath` (full relative path) not `fileName` (bare name) so the
    *  backend sandbox check resolves correctly for sub-directory files.
    *  Does NOT pass `saveAs` here — the backend's `summarize_document` already
-   *  writes to summary/<stem>.md, which `loadExistingSummary` picks up. */
+   *  writes to outputs/summary/<stem>.md, which `loadExistingSummary` picks up. */
   const handleMapReduce = async () => {
     setRecovering(true);
     try {
