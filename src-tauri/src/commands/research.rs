@@ -183,7 +183,7 @@ pub async fn analyze_document(
     if let Some(filename) = request.save_as {
         let clean_name = filename.trim().replace(['\\', '/'], "_");
         if !clean_name.is_empty() {
-            let summary_subdir = (request.action == "summarize").then(|| SUMMARY_DIR);
+            let summary_subdir = (request.action == "summarize").then_some(SUMMARY_DIR);
             let outputs_dir = root.join("outputs");
             let target_dir = match summary_subdir {
                 Some(subdir) => outputs_dir.join(subdir),
