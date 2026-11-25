@@ -106,7 +106,7 @@ impl<'a> ProviderAdapter for LlamaServerAdapter<'a> {
             messages,
             tools,
             sampling,
-            || should_stop(),
+            should_stop,
             |delta| on_delta(delta),
             |delta| on_reasoning(delta),
         )
