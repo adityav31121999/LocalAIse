@@ -21,15 +21,21 @@
 //! segments, so the live transcript and the saved chat agree.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::error::AppResult;
+use crate::harness::{
+    load_project_instructions, mcp, AgentRegistry, AuditLogHook, CheckpointHook,
+    CheckpointManager, HarnessEvent, HarnessEventStore, InteractivePermissionGate,
+    LlamaServerAdapter, PermissionPolicy, ProviderAdapter, RuntimeRequest, ToolContext,
+    ToolPipeline, ToolRegistry, TruncateOutputHook,
+};
 use crate::projects::chats::{AgentStep, AgentToolStep};
-use crate::runtime::client::{self, SamplingParams, Timings, Usage};
+use crate::runtime::client::{SamplingParams, Timings, Usage};
 use crate::runtime::{CallUsage, Serving};
-use crate::tools;
 use crate::util::hash;
 
 /// Tool notes and answers are clipped, so one tool call cannot flood a line
@@ -136,136 +142,10 @@ rather than guessing at the web."
     text
 }
 
-/// The OpenAI `tools` array the model is offered. The names and arguments must
-/// stay in step with [`crate::tools::call`], which dispatches them.
+/// The OpenAI `tools` array the model is offered, generated from [`ToolRegistry`].
+#[cfg(test)]
 fn tool_specs(internet_enabled: bool) -> Vec<Value> {
-    let mut tools = vec![
-        json!({
-            "type": "function",
-            "function": {
-                "name": "read_file",
-                "description": "Reads one file of the project and returns its text. Pass `path` as a plain path relative to the project root, e.g. \"data/notes.md\" — never with a leading @.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "File path relative to the project root, without any @ or quotes — e.g. \"outputs/summary/report.md\"" }
-                    },
-                    "required": ["path"]
-                }
-            }
-        }),
-        json!({
-            "type": "function",
-            "function": {
-                "name": "list_files",
-                "description": "Lists the files of a folder of the project, one per line, so an empty subdir lists the project root itself. Pass `subdir` as a plain relative folder name like \"outputs\", never with a leading @.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "subdir": { "type": "string", "description": "Folder relative to the project root, without any @ — e.g. \"outputs/summary\"; empty lists the root" }
-                    }
-                }
-            }
-        }),
-        json!({
-            "type": "function",
-            "function": {
-                "name": "write_file",
-                "description": "Creates or overwrites one file of the project. If the file already exists at the given path it is written exactly there (e.g. \"diary/2026-11-07.md\"); brand-new files are saved inside the outputs/ folder (\"file.txt\" writes outputs/file.txt). Pass `path` relative to the project root — never with a leading @. Only use it when the user asked for something to be written.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Target file path relative to the project root, without any @ or quotes — e.g. \"file.txt\"" },
-                        "content": { "type": "string", "description": "Full text to write" }
-                    },
-                    "required": ["path", "content"]
-                }
-            }
-        }),
-        json!({
-            "type": "function",
-            "function": {
-                "name": "append_file",
-                "description": "Appends text to the end of an existing file (creates it under outputs/ if it does not exist yet). A file that already exists at the given path is appended exactly there (e.g. \"diary/2026-11-07.md\" — no copy under outputs/). Use this when the user asks to add or append text to a file.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Target file path relative to the project root, without any @ or quotes — e.g. \"file.txt\"" },
-                        "content": { "type": "string", "description": "Text to append to the end of the file" }
-                    },
-                    "required": ["path", "content"]
-                }
-            }
-        }),
-        json!({
-            "type": "function",
-            "function": {
-                "name": "search_local",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "What to look for" }
-                    },
-                    "required": ["query"]
-                }
-            }
-        }),
-        json!({
-            "type": "function",
-            "function": {
-                "name": "search_diary",
-                "description": "Searches the user's personal diary pages and returns matching snippets.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "What to look for" }
-                    },
-                    "required": ["query"]
-                }
-            }
-        }),
-        json!({
-            "type": "function",
-            "function": {
-                "name": "list_events",
-                "description": "Lists the user's upcoming calendar events.",
-                "parameters": { "type": "object", "properties": {} }
-            }
-        }),
-    ];
-
-    if internet_enabled {
-        tools.push(json!({
-            "type": "function",
-            "function": {
-                "name": "web_search",
-                "description": "Searches the public web; use when the project's own sources cannot answer the question.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Web search query" }
-                    },
-                    "required": ["query"]
-                }
-            }
-        }));
-        tools.push(json!({
-            "type": "function",
-            "function": {
-                "name": "web_fetch",
-                "description": "Reads one web page and returns its text.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": { "type": "string", "description": "The page's absolute URL" }
-                    },
-                    "required": ["url"]
-                }
-            }
-        }));
-    }
-
-    tools
+    ToolRegistry::with_builtins().openai_specs(internet_enabled, None)
 }
 
 /// The chat agent turn. Runs as long as the model keeps calling tools, bound
@@ -289,13 +169,73 @@ pub async fn run(
     internet_enabled: bool,
     sampling: SamplingParams,
     max_tool_steps: u32,
-    should_stop: impl Fn() -> bool,
-    mut deliver: impl FnMut(u32, &str),
-    mut deliver_reasoning: impl FnMut(u32, &str),
-    mut deliver_event: impl FnMut(AgentEvent),
+    agent_id: Option<&str>,
+    session_id: Option<&str>,
+    should_stop: impl Fn() -> bool + Send + Sync,
+    deliver: impl FnMut(u32, &str) + Send,
+    deliver_reasoning: impl FnMut(u32, &str) + Send,
+    deliver_event: impl FnMut(AgentEvent),
+    on_request: impl Fn(RuntimeRequest) + Send + Sync + 'static,
 ) -> AppResult<AgentTurn> {
+    run_with_depth(
+        serving,
+        model_label,
+        system,
+        history,
+        user_prompt,
+        prefill_messages,
+        project_root,
+        personal_space,
+        internet_enabled,
+        sampling,
+        max_tool_steps,
+        agent_id,
+        session_id,
+        0,
+        should_stop,
+        deliver,
+        deliver_reasoning,
+        deliver_event,
+        on_request,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_with_depth(
+    serving: &Serving,
+    model_label: &str,
+    system: String,
+    history: Vec<HistoryTurn>,
+    user_prompt: String,
+    prefill_messages: Vec<String>,
+    project_root: &Path,
+    personal_space: &Path,
+    internet_enabled: bool,
+    sampling: SamplingParams,
+    max_tool_steps: u32,
+    agent_id: Option<&str>,
+    session_id: Option<&str>,
+    depth: u32,
+    should_stop: impl Fn() -> bool + Send + Sync,
+    mut deliver: impl FnMut(u32, &str) + Send,
+    mut deliver_reasoning: impl FnMut(u32, &str) + Send,
+    mut deliver_event: impl FnMut(AgentEvent),
+    on_request: impl Fn(RuntimeRequest) + Send + Sync + 'static,
+) -> AppResult<AgentTurn> {
+    let profile = AgentRegistry::for_project(project_root).resolve(agent_id);
+    let mut full_system = system;
+    if let Some(project_instr) = load_project_instructions(project_root) {
+        full_system.push_str("\n\nPROJECT INSTRUCTIONS (AGENTS.md):\n");
+        full_system.push_str(&project_instr);
+    }
+    if let Some(agent_prompt) = &profile.system_prompt {
+        full_system.push_str("\n\nAGENT PROFILE:\n");
+        full_system.push_str(agent_prompt);
+    }
+
     let mut messages: Vec<Value> = Vec::new();
-    messages.push(json!({ "role": "system", "content": system }));
+    messages.push(json!({ "role": "system", "content": full_system }));
     for turn in &history {
         messages.push(json!({
             "role": if turn.assistant { "assistant" } else { "user" },
@@ -309,8 +249,60 @@ pub async fn run(
     }
     messages.push(json!({ "role": "user", "content": user_prompt }));
 
-    let tools = Value::Array(tool_specs(internet_enabled));
-    let max_steps = if max_tool_steps == 0 { 6 } else { max_tool_steps };
+    let event_store = HarnessEventStore::open(project_root).ok().map(std::sync::Mutex::new);
+    let event_session = session_id.unwrap_or("ephemeral").to_string();
+    if let Some(store) = &event_store {
+        if let Ok(s) = store.lock() {
+            let preview: String = user_prompt.chars().take(120).collect();
+            let _ = s.append(
+                &event_session,
+                &HarnessEvent::TurnStarted {
+                    agent_id: profile.id.clone(),
+                    prompt_preview: preview,
+                },
+            );
+        }
+    }
+
+    let allowlist_refs: Option<Vec<&str>> = profile
+        .tool_allowlist
+        .as_ref()
+        .map(|list| list.iter().map(String::as_str).collect());
+
+    let mut registry = ToolRegistry::with_builtins();
+    mcp::register_project_mcp_tools(project_root, internet_enabled, &mut registry).await;
+    let unlocked_tools = registry.enable_deferred_search(internet_enabled, allowlist_refs.as_deref());
+
+    let gate = Arc::new(InteractivePermissionGate::new(
+        PermissionPolicy::for_project_and_agent(project_root, profile.permission_overrides.clone()),
+        Arc::new(on_request),
+    ));
+    let checkpoint = Arc::new(CheckpointManager::start(project_root, &event_session));
+    let pipeline = ToolPipeline::new(registry)
+        .with_permission_gate(gate)
+        .with_hook(Arc::new(CheckpointHook::new(checkpoint)))
+        .with_hook(Arc::new(TruncateOutputHook {
+            max_chars: profile.max_tool_result_chars,
+        }))
+        .with_hook(Arc::new(AuditLogHook));
+
+    let tool_ctx = ToolContext {
+        project_root,
+        personal_space,
+        internet_enabled,
+        should_stop: &should_stop,
+        serving: Some(serving),
+        model_label: Some(model_label),
+        sampling: Some(sampling.clone()),
+        depth,
+    };
+    let max_steps = if max_tool_steps > 0 {
+        max_tool_steps
+    } else if profile.max_steps > 0 {
+        profile.max_steps
+    } else {
+        6
+    };
 
     let mut content = String::new();
     let mut reasoning = String::new();
@@ -323,36 +315,44 @@ pub async fn run(
     let mut step = 0u32;
     let mut cancelled = false;
 
+    let provider = LlamaServerAdapter::new(serving, model_label);
+
     loop {
         // Stop between model calls so a paused turn never starts another one.
         if should_stop() {
             cancelled = true;
             break;
         }
+        let tools = Value::Array(pipeline.registry().openai_specs_for_session(
+            internet_enabled,
+            allowlist_refs.as_deref(),
+            unlocked_tools.as_deref(),
+        ));
         // One model call can think, then answer or ask for tools. Keeping the
         // call index on every delta lets the transcript start a fresh thinking
         // block for each call instead of merging them into one wall of text.
         let mut call_content = String::new();
         let mut call_reasoning = String::new();
-        let turn = client::complete_stream_with_tools(
-            serving,
-            model_label,
-            &messages,
-            &tools,
-            sampling.clone(),
-            &should_stop,
-            |delta| {
-                deliver(step, delta);
-                content.push_str(delta);
-                call_content.push_str(delta);
-            },
-            |delta| {
-                deliver_reasoning(step, delta);
-                reasoning.push_str(delta);
-                call_reasoning.push_str(delta);
-            },
-        )
-        .await?;
+        let mut on_delta = |delta: &str| {
+            deliver(step, delta);
+            content.push_str(delta);
+            call_content.push_str(delta);
+        };
+        let mut on_reasoning = |delta: &str| {
+            deliver_reasoning(step, delta);
+            reasoning.push_str(delta);
+            call_reasoning.push_str(delta);
+        };
+        let turn = provider
+            .complete_with_tools(
+                &messages,
+                &tools,
+                sampling.clone(),
+                &should_stop,
+                &mut on_delta,
+                &mut on_reasoning,
+            )
+            .await?;
 
         // Every model call counts towards the turn; the last one's prompt plus
         // completion is how much of the context window is now in use. Each
@@ -453,22 +453,14 @@ pub async fn run(
                 .ok()
                 .filter(Value::is_object)
                 .unwrap_or_else(|| json!({}));
-            let result =
-                tools::call(&call.name, &args, project_root, personal_space, internet_enabled).await;
-            let result_content = result.content();
+            let result = pipeline.execute(&call.name, &args, &tool_ctx).await;
+            let result_content = result.content().to_string();
             let ok = result.error.is_none();
-            let summary = short_output(result_content);
-            // Truncate large tool results to avoid context overflow.
-            const MAX_TOOL_RESULT_CHARS: usize = 8000;
-            let truncated = if result_content.len() > MAX_TOOL_RESULT_CHARS {
-                format!("{}… [truncated]", &result_content[..MAX_TOOL_RESULT_CHARS])
-            } else {
-                result_content.to_string()
-            };
+            let summary = short_output(&result_content);
             messages.push(json!({
                 "role": "tool",
                 "tool_call_id": call.id,
-                "content": truncated.clone(),
+                "content": result_content.clone(),
             }));
 
             steps.push(AgentStep {
@@ -483,7 +475,7 @@ pub async fn run(
                     status: if ok { "done" } else { "error" }.to_string(),
                     summary: summary.clone(),
                     arguments: call.arguments.clone(),
-                    output: truncated.clone(),
+                    output: result_content,
                 }),
             });
             deliver_event(AgentEvent::ToolEnd {
@@ -497,6 +489,18 @@ pub async fn run(
         step += 1;
         if cancelled || step >= max_steps {
             break;
+        }
+    }
+
+    if let Some(store) = &event_store {
+        if let Ok(s) = store.lock() {
+            let _ = s.append(
+                &event_session,
+                &HarnessEvent::TurnFinished {
+                    cancelled,
+                    total_tokens: usage.total_tokens,
+                },
+            );
         }
     }
 
@@ -716,6 +720,7 @@ mod tests {
                 "search_local".to_string(),
                 "search_diary".to_string(),
                 "list_events".to_string(),
+                "delegate_task".to_string(),
             ]
         );
 

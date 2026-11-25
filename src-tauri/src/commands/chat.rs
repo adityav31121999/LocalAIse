@@ -148,6 +148,8 @@ pub async fn chat_send(
     // Whether the model may think before answering. Follows the Thinking
     // toggle in the chat bar; missing means "on" for models that support it.
     thinking: Option<bool>,
+    // Optional harness agent profile ID (e.g. "default", "planner", "researcher").
+    agent_id: Option<String>,
 ) -> AppResult<ChatStreamResult> {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
@@ -537,6 +539,8 @@ covered by the provided context.",
                 })
                 .collect();
 
+            let emitter_req = emitter.clone();
+            let project_id_req = project_id.clone();
             let turn = agent_chat::run(
                 &serving,
                 &model_label,
@@ -549,10 +553,23 @@ covered by the provided context.",
                 record.internet_enabled,
                 sampling,
                 max_tool_steps,
+                agent_id.as_deref(),
+                session_id.as_deref(),
                 || run.cancelled(),
                 |call, delta| emit(false, Some(call), delta),
                 |call, delta| emit(true, Some(call), delta),
                 |event| emit_agent_event(&event),
+                move |request| {
+                    emitter_req
+                        .emit(
+                            "harness://request",
+                            serde_json::json!({
+                                "projectId": project_id_req,
+                                "request": request,
+                            }),
+                        )
+                        .ok();
+                },
             )
             .await?;
             (
@@ -682,6 +699,61 @@ covered by the provided context.",
 #[tauri::command]
 pub fn chat_stop(project_id: String) {
     crate::agent::cancel::cancel(&project_id);
+}
+
+/// Resolves a pending harness approval request from the frontend.
+#[tauri::command]
+pub fn harness_respond_request(
+    request_id: String,
+    decision: crate::harness::ApprovalDecision,
+) -> bool {
+    crate::harness::resolve_request(&request_id, decision)
+}
+
+/// Lists built-in and project-local agent profiles for the project.
+#[tauri::command]
+pub fn harness_list_agents(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::harness::AgentProfileSummary>> {
+    let registry = state.registry()?;
+    let record = registry
+        .find(&project_id)
+        .ok_or_else(|| AppError::UnknownProject(project_id))?;
+    Ok(crate::harness::AgentRegistry::for_project(&record.path).list())
+}
+
+/// Lists workspace file checkpoints captured before modifying tool calls.
+#[tauri::command]
+pub fn harness_list_checkpoints(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::harness::CheckpointManifest>> {
+    let registry = state.registry()?;
+    let record = registry
+        .find(&project_id)
+        .ok_or_else(|| AppError::UnknownProject(project_id))?;
+    crate::harness::CheckpointManager::list(&record.path)
+}
+
+/// Rolls back a workspace checkpoint, restoring modified files and removing created ones.
+#[tauri::command]
+pub fn harness_rollback_checkpoint(
+    project_id: String,
+    checkpoint_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::harness::RollbackSummary> {
+    let registry = state.registry()?;
+    let record = registry
+        .find(&project_id)
+        .ok_or_else(|| AppError::UnknownProject(project_id))?;
+    crate::harness::CheckpointManager::rollback(&record.path, &checkpoint_id)
+}
+
+/// Lists available model provider adapters and their capability flags.
+#[tauri::command]
+pub fn harness_list_providers() -> Vec<crate::harness::ProviderDescriptor> {
+    crate::harness::list_providers()
 }
 
 

@@ -149,7 +149,7 @@ function TreeNodeItem({
 
   if (isDir) {
     return (
-      <div style={{ display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div
           className={`ide-tree-row ${isSelected ? "ide-tree-row--active" : ""}`}
           style={{
@@ -196,6 +196,7 @@ function TreeNodeItem({
                 color: "var(--text-faint)",
                 fontFamily: "var(--font-mono)",
                 marginLeft: "4px",
+                flexShrink: 0,
               }}
             >
               ({children.length})
@@ -328,7 +329,7 @@ function TreeNodeItem({
       />
 
       {source && source.status === "indexed" && (
-        <span className="dot dot--success" aria-label="Indexed" style={{ marginRight: 6 }} />
+        <span className="dot dot--success" aria-label="Indexed" style={{ marginRight: 6, flexShrink: 0 }} />
       )}
 
       {/* Hover Actions */}
@@ -677,7 +678,7 @@ export function Sidebar({ project }: { project: Project }) {
               }}
             >
               <span className="truncate">{project.name}</span>
-              <span style={{ fontSize: "9px", color: "var(--text-faint)", marginLeft: "auto" }}>
+              <span style={{ fontSize: "9px", color: "var(--text-faint)", marginLeft: "auto", flexShrink: 0, whiteSpace: "nowrap" }}>
                 {rootEntries.length} items
               </span>
             </div>

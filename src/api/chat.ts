@@ -1,7 +1,16 @@
 import { delay, invoke, isTauri } from "./index";
 import { buildMockAnswer, getMockProject, mockChatAppend } from "./mock";
-import { subscribeAgentEvents, subscribeChatTokens } from "../hooks/useStream";
-import type { AgentStreamEvent, ChatStreamResult } from "../types";
+import {
+  subscribeAgentEvents,
+  subscribeChatTokens,
+  subscribeHarnessRequests,
+} from "../hooks/useStream";
+import type {
+  AgentStreamEvent,
+  ApprovalDecision,
+  ChatStreamResult,
+  RuntimeRequest,
+} from "../types";
 export interface ChatStreamHandlers {
   /** `call` is present for agent turns, so each model call keeps its own block. */
   onToken(token: string, call?: number): void;
@@ -9,6 +18,8 @@ export interface ChatStreamHandlers {
   onReasoning?(delta: string, call?: number): void;
   /** Tool call start/end events, agent mode only. */
   onAgentEvent?(event: AgentStreamEvent): void;
+  /** Interactive tool-approval prompt from the harness. */
+  onRequest?(request: RuntimeRequest): void;
   signal: AbortSignal;
 }
 
@@ -67,6 +78,10 @@ export async function streamChat(
       if (event.projectId !== projectId || handlers.signal.aborted) return;
       handlers.onAgentEvent?.(event.event);
     });
+    const unlistenRequests = await subscribeHarnessRequests((envelope) => {
+      if (envelope.projectId !== projectId || handlers.signal.aborted) return;
+      handlers.onRequest?.(envelope.request);
+    });
     try {
       const result = await invoke<ChatStreamResult>("chat_send", {
         projectId,
@@ -92,6 +107,7 @@ export async function streamChat(
     } finally {
       unlistenTokens();
       unlistenAgent();
+      unlistenRequests();
     }
   }
 
@@ -142,4 +158,13 @@ export async function stopChat(projectId: string): Promise<void> {
   } catch {
     // The run may already have finished; stopping it again is harmless.
   }
+}
+
+/** Sends a user approval decision for a pending harness request. */
+export async function respondHarnessRequest(
+  requestId: string,
+  decision: ApprovalDecision,
+): Promise<boolean> {
+  if (!isTauri) return false;
+  return invoke<boolean>("harness_respond_request", { requestId, decision });
 }

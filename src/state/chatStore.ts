@@ -1,7 +1,13 @@
 import { create } from "zustand";
-import { stopChat, streamChat } from "../api/chat";
+import { respondHarnessRequest, stopChat, streamChat } from "../api/chat";
 import * as projectsApi from "../api/projects";
-import type { AgentStreamEvent, ChatMessage, ChatSummary } from "../types";
+import type {
+  AgentStreamEvent,
+  ApprovalDecision,
+  ChatMessage,
+  ChatSummary,
+  RuntimeRequest,
+} from "../types";
 
 let activeController: AbortController | null = null;
 
@@ -83,6 +89,8 @@ interface ChatState {
   /** Sessions saved in the project's chats/ folder. */
   chats: Record<string, ChatSummary[]>;
   streamingProjectId: string | null;
+  /** Pending interactive tool-approval prompts keyed by project. */
+  pendingRequests: Record<string, RuntimeRequest[]>;
   /** Whether assistant reasoning traces are visible in the transcript. */
   showThinking: boolean;
 
@@ -94,6 +102,7 @@ interface ChatState {
   newChat(projectId: string): void;
   removeChat(projectId: string, chatId: string): Promise<void>;
   send(projectId: string, content: string, sessionId: string | null, sampling?: { temperature: number; top_p: number; top_k: number }, attachedFiles?: string[]): Promise<void>;
+  respondToRequest(projectId: string, requestId: string, decision: ApprovalDecision): Promise<void>;
   stop(): void;
   setShowThinking(show: boolean): void;
 }
@@ -121,6 +130,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   activeChat: {},
   chats: {},
   streamingProjectId: null,
+  pendingRequests: {},
   showThinking: initialShowThinking(),
 
   setShowThinking: (show) => {
@@ -285,6 +295,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             }),
           onAgentEvent: (event) =>
             patchAnswer((message) => applyAgentEvent(message, event)),
+          onRequest: (request) =>
+            set((state) => ({
+              pendingRequests: {
+                ...state.pendingRequests,
+                [projectId]: [...(state.pendingRequests[projectId] ?? []), request],
+              },
+            })),
         },
         chatSessionId,
         requestSampling,
@@ -323,9 +340,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       // own it now, so only the controller that is still current clears it.
       if (activeController === controller) {
         activeController = null;
-        set({ streamingProjectId: null });
+        set((state) => ({
+          streamingProjectId: null,
+          pendingRequests: { ...state.pendingRequests, [projectId]: [] },
+        }));
       }
     }
+  },
+
+  respondToRequest: async (projectId, requestId, decision) => {
+    set((state) => ({
+      pendingRequests: {
+        ...state.pendingRequests,
+        [projectId]: (state.pendingRequests[projectId] ?? []).filter(
+          (req) => req.id !== requestId,
+        ),
+      },
+    }));
+    await respondHarnessRequest(requestId, decision);
   },
 
   stop: () => {
@@ -337,6 +369,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     activeController = null;
     set((state) => ({
       streamingProjectId: null,
+      pendingRequests: projectId
+        ? { ...state.pendingRequests, [projectId]: [] }
+        : state.pendingRequests,
       byProject: projectId
         ? {
             ...state.byProject,

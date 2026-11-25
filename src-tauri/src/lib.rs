@@ -10,6 +10,7 @@ pub mod commands;
 pub mod config;
 pub mod error;
 pub mod hardware;
+pub mod harness;
 pub mod index;
 pub mod ingest;
 pub mod models;
@@ -185,6 +186,11 @@ pub fn run() {
             commands::research::reveal_path,
             commands::chat::chat_send,
             commands::chat::chat_stop,
+            commands::chat::harness_respond_request,
+            commands::chat::harness_list_agents,
+            commands::chat::harness_list_checkpoints,
+            commands::chat::harness_rollback_checkpoint,
+            commands::chat::harness_list_providers,
             commands::models::select_model,
             commands::models::load_model,
             commands::models::unload_model,

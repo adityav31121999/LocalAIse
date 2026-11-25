@@ -9,7 +9,7 @@
  */
 
 import { isTauri, listen } from "../api/index";
-import type { AgentStreamEvent } from "../types";
+import type { AgentStreamEvent, RuntimeRequest } from "../types";
 
 export interface ChatTokenEvent {
   projectId: string;
@@ -23,6 +23,11 @@ export interface ChatTokenEvent {
 export interface AgentStreamEnvelope {
   projectId: string;
   event: AgentStreamEvent;
+}
+
+export interface HarnessRequestEnvelope {
+  projectId: string;
+  request: RuntimeRequest;
 }
 
 type Unsubscribe = () => void;
@@ -40,6 +45,17 @@ export function subscribeAgentEvents(
   if (!isTauri) return Promise.resolve(() => undefined);
 
   return listen<AgentStreamEnvelope>("chat://agent", (event) => onEvent(event)).catch(
+    () => () => undefined,
+  );
+}
+
+/** Subscribes to interactive harness approval requests (`harness://request`). */
+export function subscribeHarnessRequests(
+  onRequest: (envelope: HarnessRequestEnvelope) => void,
+): Promise<Unsubscribe> {
+  if (!isTauri) return Promise.resolve(() => undefined);
+
+  return listen<HarnessRequestEnvelope>("harness://request", (event) => onRequest(event)).catch(
     () => () => undefined,
   );
 }

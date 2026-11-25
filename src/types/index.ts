@@ -92,6 +92,20 @@ export type AgentStreamEvent =
   | { type: "toolStart"; call: number; id: string; name: string; input: string }
   | { type: "toolEnd"; call: number; id: string; ok: boolean; summary: string };
 
+/** Interactive tool-approval prompt emitted by the Rust harness. */
+export interface RuntimeRequest {
+  id: string;
+  tool: string;
+  actionKind: string;
+  summary: string;
+  arguments: string;
+}
+
+export type ApprovalDecision =
+  | { type: "approveOnce" }
+  | { type: "approveAlways" }
+  | { type: "reject"; reason?: string };
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;

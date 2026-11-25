@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { CitationChip } from "./CitationChip";
 import { SparkIcon } from "../ui/icons";
+import { useChatStore } from "../../state/chatStore";
 import { formatClock, formatRate } from "../../util/format";
 import { Markdown } from "../../util/markdown";
 import type { AgentStep, CallUsage, ChatMessage } from "../../types";
@@ -115,6 +116,10 @@ function AgentTranscript({
 
 export function MessageList({ messages, streaming, showThinking }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const streamingProjectId = useChatStore((state) => state.streamingProjectId);
+  const pendingRequestsMap = useChatStore((state) => state.pendingRequests);
+  const respondToRequest = useChatStore((state) => state.respondToRequest);
+  const activeRequests = streamingProjectId ? pendingRequestsMap[streamingProjectId] ?? [] : [];
   const stickToBottom = useRef(true);
 
   useEffect(() => {
@@ -183,6 +188,60 @@ export function MessageList({ messages, streaming, showThinking }: MessageListPr
                   {message.pending ? <span className="msg__caret" aria-hidden="true" /> : null}
                 </div>
               )}
+
+              {isAssistant && message.pending && streamingProjectId && activeRequests.length > 0 ? (
+                <div className="harness-approvals" style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {activeRequests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="harness-approval-card"
+                      style={{
+                        border: "1px solid var(--border, #334155)",
+                        borderRadius: 8,
+                        padding: "10px 12px",
+                        background: "var(--surface-2, rgba(255,255,255,0.03))",
+                      }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                        Approval required: <code>{req.tool}</code> ({req.actionKind})
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 8 }}>{req.summary}</div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          onClick={() =>
+                            void respondToRequest(streamingProjectId, req.id, { type: "approveOnce" })
+                          }
+                        >
+                          Allow once
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() =>
+                            void respondToRequest(streamingProjectId, req.id, { type: "approveAlways" })
+                          }
+                        >
+                          Always allow (session)
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() =>
+                            void respondToRequest(streamingProjectId, req.id, {
+                              type: "reject",
+                              reason: "Rejected by user.",
+                            })
+                          }
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
 
               {message.citations && message.citations.length > 0 ? (
                 <div className="citations">

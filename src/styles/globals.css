@@ -1278,19 +1278,43 @@ button.net:hover {
 .ide-tree {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   user-select: none;
+}
+
+.slide-name {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slide-name--overflow {
+  text-indent: 0;
+  transition: text-indent 0.45s var(--ease);
+}
+
+.slide-name--overflow:hover,
+.ide-tree-row:hover .slide-name--overflow,
+.file-row:hover .slide-name--overflow {
+  text-overflow: clip;
+  text-indent: calc(-1 * var(--slide-offset, 0px));
+  transition: text-indent 1.8s linear 0.25s;
 }
 
 .ide-tree-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   height: 28px;
   padding-right: 4px;
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
   font-size: 12.5px;
   cursor: pointer;
+  overflow: hidden;
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
   position: relative;
 }
@@ -1308,14 +1332,26 @@ button.net:hover {
 
 .ide-tree-row:hover .ide-tree-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .ide-tree-actions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   opacity: 0;
+  pointer-events: none;
   display: flex;
   align-items: center;
   gap: 2px;
+  padding-left: 12px;
+  background: linear-gradient(90deg, transparent 0%, var(--surface-hover) 28%);
   transition: opacity var(--dur-1) var(--ease);
+}
+
+.ide-tree-row--active:hover .ide-tree-actions {
+  background: linear-gradient(90deg, transparent 0%, var(--accent-primary-soft) 28%);
 }
 
 .ide-tree-chevron {
@@ -1334,6 +1370,7 @@ button.net:hover {
 
 .ide-tree-children {
   position: relative;
+  min-width: 0;
   margin-left: 9px;
   border-left: 1px solid var(--border);
 }
