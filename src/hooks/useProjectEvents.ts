@@ -20,11 +20,13 @@ function subscribeSourcesUpdated(
   onUpdate: (event: SourcesUpdatedEvent) => void,
 ): Promise<() => void> {
   if (!isTauri) return Promise.resolve(() => undefined);
-  return import("@tauri-apps/api/event").then(({ listen }) =>
-    listen<SourcesUpdatedEvent>("sources://updated", (event) => {
-      if (event.payload) onUpdate(event.payload);
-    }),
-  );
+  return import("@tauri-apps/api/event")
+    .then(({ listen }) =>
+      listen<SourcesUpdatedEvent>("sources://updated", (event) => {
+        if (event.payload) onUpdate(event.payload);
+      }),
+    )
+    .catch(() => () => undefined);
 }
 
 /** Subscribes to `sources://updated` and re-fetches the open project's

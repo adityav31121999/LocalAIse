@@ -2,6 +2,8 @@ import { create } from "zustand";
 import * as projectsApi from "../api/projects";
 import type { Project, ProjectTemplate, SourceFile } from "../types";
 
+import { useNavStore } from "./navStore";
+
 type LoadStatus = "idle" | "loading" | "ready" | "error";
 
 interface ProjectState {
@@ -52,6 +54,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
   },
 
   openProject: async (projectId) => {
+    useNavStore.getState().setActiveProjectTab("chat");
+    useNavStore.getState().showHome();
     set({ activeProjectId: projectId, sources: [], error: null });
     try {
       const [project, sources] = await Promise.all([
@@ -64,7 +68,10 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     }
   },
 
-  closeProject: () => set({ activeProjectId: null, sources: [] }),
+  closeProject: () => {
+    useNavStore.getState().setActiveProjectTab("chat");
+    set({ activeProjectId: null, sources: [] });
+  },
 
   setInternet: async (enabled) => {
     const projectId = get().activeProjectId;

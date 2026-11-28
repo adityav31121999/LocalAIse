@@ -10,13 +10,13 @@ import { useNavStore } from "../../state/navStore";
 import { useSettingsStore } from "../../state/settingsStore";
 
 export function ModelConfigPanel() {
-  const showHome = useNavStore((state) => state.showHome);
+  const closeModelConfig = useNavStore((state) => state.closeModelConfig);
   const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useSettingsStore((state) => state.toggleSidebar);
   const [activeTab, setActiveTab] = useState<"inference" | "hardware">("inference");
 
   const handleBack = () => {
-    showHome();
+    closeModelConfig();
   };
 
   return (

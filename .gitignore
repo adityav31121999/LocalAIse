@@ -85,3 +85,8 @@ playwright-report/
 test-results/
 *.lcov
 gcovr-report/
+
+# AI Studio / Web specific
+public/
+metadata.json
+.env.example

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { PlusIcon, SearchIcon, SparkIcon } from "../ui/icons";
+import { CalendarIcon, PlusIcon, SearchIcon, SparkIcon } from "../ui/icons";
 import { ProjectCard } from "./ProjectCard";
 import { isTauri } from "../../api";
 import { useProjectStore } from "../../state/projectStore";
 import { useRuntimeStore } from "../../state/runtimeStore";
+import { useNavStore } from "../../state/navStore";
 import { runtimeDotClass } from "../../util/format";
 
 export function HomeDashboard() {
@@ -14,6 +15,7 @@ export function HomeDashboard() {
   const addFolder = useProjectStore((state) => state.addFolder);
   const createProject = useProjectStore((state) => state.createProject);
   const runtime = useRuntimeStore((state) => state.status);
+  const showDiary = useNavStore((state) => state.showDiary);
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -45,6 +47,28 @@ export function HomeDashboard() {
           </div>
 
           <div className="home__actions">
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={() => showDiary()}
+              title="Personal Space Calendar & Diary · Stored in database folder .calendar"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              <CalendarIcon size={14} />
+              Personal Calendar
+              <span
+                style={{
+                  fontSize: "10px",
+                  padding: "1px 5px",
+                  borderRadius: "3px",
+                  background: "var(--surface-2)",
+                  color: "var(--text-muted)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                .calendar
+              </span>
+            </button>
             <button
               type="button"
               className="btn btn--secondary"

@@ -9,6 +9,7 @@
 import { useState } from "react";
 import type { KvCacheType, ProfileScope } from "../../types";
 import { RuntimeActions } from "./RuntimeActions";
+import { MemoryWarningAlert } from "./MemoryWarningAlert";
 import {
   FIT_LABELS,
   deviceLabel,
@@ -147,6 +148,7 @@ export function InferenceSettings() {
 
   return (
     <div className="perf">
+      <MemoryWarningAlert />
       <section className="field" aria-labelledby="field-scope">
         <h2 className="field__label" id="field-scope">
           Applies to

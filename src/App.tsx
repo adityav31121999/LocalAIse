@@ -16,7 +16,7 @@ import { useSettingsStore } from "./state/settingsStore";
 
 export default function App() {
   const view = useNavStore((state) => state.view);
-  const showHome = useNavStore((state) => state.showHome);
+  const closeThemeSettings = useNavStore((state) => state.closeThemeSettings);
   const project = useProjectStore(selectActiveProject);
   const onboardingComplete = useSettingsStore((state) => state.onboardingComplete);
   const completeOnboarding = useSettingsStore((state) => state.completeOnboarding);
@@ -25,7 +25,9 @@ export default function App() {
   if (!onboardingComplete) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--app-bg)" }}>
-        {onboardingStep === 0 && <Welcome onNext={() => setOnboardingStep(1)} />}
+        {onboardingStep === 0 && (
+          <Welcome onNext={() => setOnboardingStep(1)} onSkip={completeOnboarding} />
+        )}
         {onboardingStep === 1 && (
           <HardwareCheck onNext={() => setOnboardingStep(2)} onBack={() => setOnboardingStep(0)} />
         )}
@@ -57,7 +59,7 @@ export default function App() {
       )}
 
       {showThemePanel && (
-        <ThemeSettingsPanel onClose={showHome} />
+        <ThemeSettingsPanel onClose={closeThemeSettings} />
       )}
     </AppShell>
   );

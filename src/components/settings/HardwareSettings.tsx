@@ -13,7 +13,9 @@ import {
   type GpuBuildList,
   type GpuBuildStatus,
 } from "../../api/models";
+import { isTauri } from "../../api/index";
 import { RuntimeActions } from "./RuntimeActions";
+import { MemoryWarningAlert } from "./MemoryWarningAlert";
 import { deviceLabel, useRuntimeConfig } from "./runtime-config";
 import { DownloadProgress } from "../ui/DownloadProgress";
 
@@ -117,30 +119,33 @@ export function HardwareSettings() {
     // The install pipeline reports its steps; the label follows along.
     let unlisten: (() => void) | null = null;
     let cancelled = false;
-    import("@tauri-apps/api/event")
-      .then(({ listen }) =>
-        listen("localAIse/gpu-build", (event) => {
-          const payload = event.payload as {
-            stage?: string;
-            target?: string;
-            done?: number;
-            total?: number;
-          };
-          if (payload?.stage) setInstallStage(payload.stage);
-          // A download reports bytes; other stages (unpacking, probing) do not.
-          if (payload?.stage === "downloading" && payload.target != null) {
-            setProgress({
-              target: payload.target,
-              done: payload.done ?? 0,
-              total: payload.total ?? 0,
-            });
-          }
-        }),
-      )
-      .then((stop) => {
-        if (cancelled) stop();
-        else unlisten = stop;
-      });
+    if (isTauri) {
+      import("@tauri-apps/api/event")
+        .then(({ listen }) =>
+          listen("localAIse/gpu-build", (event) => {
+            const payload = event.payload as {
+              stage?: string;
+              target?: string;
+              done?: number;
+              total?: number;
+            };
+            if (payload?.stage) setInstallStage(payload.stage);
+            // A download reports bytes; other stages (unpacking, probing) do not.
+            if (payload?.stage === "downloading" && payload.target != null) {
+              setProgress({
+                target: payload.target,
+                done: payload.done ?? 0,
+                total: payload.total ?? 0,
+              });
+            }
+          }),
+        )
+        .then((stop) => {
+          if (cancelled) stop();
+          else unlisten = stop;
+        })
+        .catch(() => {});
+    }
     return () => {
       cancelled = true;
       unlisten?.();
@@ -190,6 +195,7 @@ export function HardwareSettings() {
 
   return (
     <div className="perf">
+      <MemoryWarningAlert />
       <section className="field" aria-labelledby="field-device">
         <h2 className="field__label" id="field-device">
           Compute device

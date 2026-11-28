@@ -90,6 +90,15 @@ export function ProjectHeader({
         >
           Research
         </button>
+        <button
+          type="button"
+          role="tab"
+          className="tab"
+          aria-selected={tab === "calendar"}
+          onClick={() => onTabChange("calendar")}
+        >
+          Calendar
+        </button>
         {project.diaryEnabled ? (
           <button
             type="button"

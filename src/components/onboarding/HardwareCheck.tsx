@@ -82,7 +82,8 @@ export function HardwareCheck({ onNext, onBack }: { onNext: () => void; onBack: 
         .then((stop) => {
           if (cancelled) stop();
           else unlisten = stop;
-        });
+        })
+        .catch(() => {});
     }
 
     return () => {
